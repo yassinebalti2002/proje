@@ -1,0 +1,20 @@
+fastapi==0.115.0
+uvicorn==0.30.0
+pydantic==2.7.0
+scikit-learn==1.5.0
+numpy==1.26.4
+pandas==2.2.2
+joblib==1.4.2
+pyod==2.0.0
+mysql-connector-python==8.4.0
+requests==2.32.3
+scipy
+
+# ── Modules optionnels pour fonctionnalités avancées ──────────────────────────
+
+# Alertes SMS (optionnel — nécessite un compte Twilio)
+# twilio>=8.0.0
+
+# Export Edge / ONNX (optionnel — pour déploiement embarqué futur)
+# skl2onnx>=1.16.0
+# onnxruntime>=1.17.0

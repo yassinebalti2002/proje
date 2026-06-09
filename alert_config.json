@@ -1,0 +1,31 @@
+{
+  "email": {
+    "enabled": false,
+    "smtp_host": "smtp.gmail.com",
+    "smtp_port": 587,
+    "sender": "",
+    "password": "",
+    "recipients": []
+  },
+  "webhook": {
+    "enabled": false,
+    "url": "",
+    "type": "slack"
+  },
+  "sms": {
+    "enabled": false,
+    "provider": "twilio",
+    "account_sid": "",
+    "auth_token": "",
+    "from_number": "",
+    "to_numbers": []
+  },
+  "rules": {
+    "alert_levels": [
+      "CRITIQUE",
+      "URGENT"
+    ],
+    "cooldown_seconds": 300,
+    "min_health_threshold": 85
+  }
+}

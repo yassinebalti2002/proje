@@ -1,0 +1,66 @@
+╔══════════════════════════════════════════════════════════════╗
+║     MAINTENANCE PRÉDICTIVE — DÉMARRAGE RAPIDE V5 FINAL      ║
+╚══════════════════════════════════════════════════════════════╝
+
+ÉTAPE 0 — Une seule fois (installation) :
+  pip install -r requirements.txt
+  pip install pyod
+  python train_ecod_only.py     ← génère model_ecod_v3.pkl
+  → Attendu : ✅ ECOD V5 GÉNÉRÉ | Features: 25 | PCA: 5
+
+══════════════════════════════════════════════════════════════
+TERMINAL 1 — API (toujours en premier) :
+  python api_unified_pythagore.py
+  → Attendu : ✅ 4 modèles chargés | Features: 25 | PCA: 5
+  → Swagger : http://localhost:8000/docs
+
+TERMINAL 2 — Données (choisir UNE option) :
+
+  Option A — Capteurs IFM → Gateway HTTP DIRECT (SANS MariaDB) :
+    python realtime_ifm_direct.py --gateway 192.168.1.50
+    python realtime_ifm_direct.py --gateway 192.168.1.50 --ports 1 2 3 4
+    python realtime_ifm_direct.py --diagnostic   ← test de connexion seul
+    ✅ Pas besoin de MariaDB ni de mysql-connector-python
+    ✅ La gateway IFM AL1350/AL1352 est interrogée directement en HTTP
+
+  Option B — Capteurs réels via MariaDB (ancienne chaîne) :
+    python realtime_mariadb.py --host 192.168.1.50 --user root --password yassine2019
+
+  Option C — MariaDB local (replay données existantes) :
+    python realtime_mariadb.py --host localhost --user root --password yassine2019 --replay 500
+
+  Option D — Simulateur (démo / chez soi, sans capteurs) :
+    python realtime_simulator.py --scenario aleatoire
+
+TERMINAL 3 — Dashboard :
+  python -m http.server 3000
+  → Ouvrir : http://localhost:3000/dashboard_realtime.html
+
+══════════════════════════════════════════════════════════════
+ARCHITECTURE IFM DIRECT (Option A) :
+
+  Capteurs IFM
+      ↓ IO-Link
+  Gateway IFM AL1350/AL1352  (192.168.1.50:80)
+      ↓ HTTP GET /iolinkmaster/port[N]/iolinkdevice/getdata
+  realtime_ifm_direct.py
+      ↓ POST /v1/predict  +  /v1/predict-rul
+  API FastAPI (localhost:8000)
+      ↓
+  realtime_results.json  +  affichage terminal
+
+  Modes auto-détectés par port :
+    getdata   → firmware ≥ 2.x  (JSON structuré, recommandé)
+    pdin      → firmware 1.x    (payload hex brut, décodé auto)
+    datastorage → fallback global
+
+══════════════════════════════════════════════════════════════
+VÉRIFICATION :
+  http://localhost:8000/health   → 4 modèles + features_count=25
+  http://localhost:8000/metrics  → model_version=V5, n_features=25
+  http://localhost:8000/docs     → Swagger complet
+
+⚠️  NE JAMAIS lancer train_model_v3_unsupervised.py
+    → Il écrase les modèles V5 avec 8 features
+    → Utiliser UNIQUEMENT train_ecod_only.py pour ECOD
+══════════════════════════════════════════════════════════════

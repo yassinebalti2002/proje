@@ -1,0 +1,54 @@
+# docker-compose.yml — Maintenance Prédictive
+# Usage : docker compose up
+# Docs  : http://localhost:8000/docs
+# Dashboard : http://localhost:3000/dashboard_predictive.html
+
+version: "3.9"
+
+services:
+
+  # ── API FastAPI + Modèles ML ───────────────────────────────────────────────
+  api:
+    build: .
+    image: maintenance-predictive:latest
+    container_name: maintenance-api
+    ports:
+      - "8000:8000"
+    volumes:
+      # Modèles persistants (ne pas re-build à chaque changement de modèle)
+      - ./models:/app/models:ro
+      # Données persistantes (résultats, historique alertes)
+      - ./data:/app/data
+      # Config alertes (email/webhook)
+      - ./alert_config.json:/app/alert_config.json
+    environment:
+      - IFM_GATEWAY_HOST=${IFM_GATEWAY_HOST:-192.168.1.50}
+      - IFM_GATEWAY_PORT=${IFM_GATEWAY_PORT:-80}
+      - PYTHONIOENCODING=utf-8
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+
+  # ── Dashboard HTML statique ────────────────────────────────────────────────
+  dashboard:
+    image: nginx:alpine
+    container_name: maintenance-dashboard
+    ports:
+      - "3000:80"
+    volumes:
+      - ./dashboard_predictive.html:/usr/share/nginx/html/dashboard_predictive.html:ro
+      - ./dashboard_realtime.html:/usr/share/nginx/html/dashboard_realtime.html:ro
+      - ./realtime_results.json:/usr/share/nginx/html/realtime_results.json:ro
+    depends_on:
+      api:
+        condition: service_healthy
+    restart: unless-stopped
+
+# ── Réseau interne ─────────────────────────────────────────────────────────
+networks:
+  default:
+    name: maintenance-net

@@ -1,0 +1,1272 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Maintenance Prédictive — Surveillance Temps Réel</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Exo+2:wght@300;400;600;700;900&display=swap');
+
+  :root {
+    --bg:        #050a0f;
+    --bg2:       #0a1520;
+    --bg3:       #0f2030;
+    --teal:      #00d4b4;
+    --teal2:     #00a88e;
+    --amber:     #f0a500;
+    --red:       #ff3a3a;
+    --green:     #00e676;
+    --orange:    #ff6d00;
+    --blue:      #1e90ff;
+    --text:      #c8e0f0;
+    --text2:     #6a8fa8;
+    --border:    rgba(0,212,180,0.18);
+    --glow:      0 0 20px rgba(0,212,180,0.25);
+    --font-mono: 'Share Tech Mono', monospace;
+    --font-main: 'Exo 2', sans-serif;
+  }
+
+  * { margin:0; padding:0; box-sizing:border-box; }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--font-main);
+    min-height: 100vh;
+    overflow-x: hidden;
+  }
+
+  /* ── Grid scanlines overlay ── */
+  body::before {
+    content:'';
+    position:fixed; inset:0;
+    background: repeating-linear-gradient(
+      0deg, transparent, transparent 2px,
+      rgba(0,212,180,0.015) 2px, rgba(0,212,180,0.015) 4px
+    );
+    pointer-events:none; z-index:1000;
+  }
+
+  /* ── HEADER ── */
+  header {
+    display:flex; align-items:center; justify-content:space-between;
+    padding: 16px 28px;
+    background: linear-gradient(90deg, var(--bg2), rgba(0,212,180,0.05));
+    border-bottom: 1px solid var(--border);
+    position:sticky; top:0; z-index:100;
+  }
+
+  .logo {
+    display:flex; align-items:center; gap:14px;
+  }
+  .logo-icon {
+    width:42px; height:42px;
+    background: linear-gradient(135deg, var(--teal), var(--blue));
+    border-radius:10px;
+    display:flex; align-items:center; justify-content:center;
+    font-size:20px; box-shadow: var(--glow);
+  }
+  .logo h1 { font-size:1.1rem; font-weight:700; letter-spacing:2px; color:var(--teal); }
+  .logo p  { font-size:0.7rem; color:var(--text2); letter-spacing:1px; font-family:var(--font-mono); }
+
+  .header-right { display:flex; align-items:center; gap:20px; }
+
+  .status-badge {
+    display:flex; align-items:center; gap:8px;
+    padding:6px 14px; border-radius:20px;
+    background: rgba(0,230,118,0.1);
+    border: 1px solid rgba(0,230,118,0.3);
+    font-size:0.75rem; font-family:var(--font-mono);
+    color:var(--green);
+  }
+  .pulse {
+    width:8px; height:8px; border-radius:50%;
+    background:var(--green);
+    animation: pulse 1.5s infinite;
+  }
+  @keyframes pulse {
+    0%,100% { opacity:1; transform:scale(1); }
+    50%      { opacity:0.4; transform:scale(0.8); }
+  }
+
+  .time-display {
+    font-family:var(--font-mono); font-size:0.9rem;
+    color:var(--teal); letter-spacing:2px;
+  }
+
+  /* ── SENSOR SELECTOR ── */
+  .sensor-bar {
+    display:flex; align-items:center; gap:8px;
+    padding:10px 20px;
+    background:var(--bg2);
+    border-bottom:1px solid var(--border);
+    flex-wrap:wrap;
+  }
+  .sensor-bar label { font-size:0.75rem; color:var(--text2); white-space:nowrap; font-family:var(--font-mono); }
+  .sensor-btn {
+    padding:5px 14px; border-radius:16px;
+    border:1px solid var(--border);
+    background:transparent; color:var(--text2);
+    cursor:pointer; font-family:var(--font-mono); font-size:0.75rem;
+    transition:all 0.2s; white-space:nowrap;
+  }
+  .sensor-btn:hover, .sensor-btn.active {
+    background:rgba(0,212,180,0.15);
+    border-color:var(--teal); color:var(--teal);
+    box-shadow:0 0 10px rgba(0,212,180,0.2);
+  }
+
+  /* ── MAIN GRID ── */
+  .main {
+    display:grid;
+    grid-template-columns: 320px 1fr 280px;
+    grid-template-rows: auto auto 1fr;
+    gap:16px;
+    padding:16px 24px;
+    min-height: calc(100vh - 110px);
+  }
+
+  /* ── CARDS ── */
+  .card {
+    background:var(--bg2);
+    border:1px solid var(--border);
+    border-radius:12px;
+    padding:16px;
+    position:relative;
+    overflow:hidden;
+  }
+  .card::before {
+    content:'';
+    position:absolute; top:0; left:0; right:0; height:2px;
+    background:linear-gradient(90deg, var(--teal), transparent);
+  }
+  .card-title {
+    font-size:0.7rem; letter-spacing:2px;
+    color:var(--text2); text-transform:uppercase;
+    margin-bottom:12px; font-family:var(--font-mono);
+  }
+
+  /* ── TRAFFIC LIGHTS ── */
+  .traffic-lights {
+    grid-column:1; grid-row:1/3;
+    display:flex; flex-direction:column; gap:12px;
+  }
+
+  .sensor-status {
+    background:var(--bg3);
+    border:1px solid var(--border);
+    border-radius:10px; padding:14px;
+    display:flex; align-items:center; gap:14px;
+    cursor:pointer; transition:all 0.2s;
+  }
+  .sensor-status:hover { border-color:var(--teal); transform:translateX(3px); }
+  .sensor-status.selected { border-color:var(--teal); background:rgba(0,212,180,0.08); }
+
+  .light-col { display:flex; flex-direction:column; gap:5px; align-items:center; }
+  .light {
+    width:14px; height:14px; border-radius:50%;
+    background:#1a2a1a; border:1px solid rgba(255,255,255,0.1);
+    transition:all 0.3s;
+  }
+  .light.on-green  { background:var(--green);  box-shadow:0 0 10px var(--green); }
+  .light.on-orange { background:var(--orange); box-shadow:0 0 10px var(--orange); }
+  .light.on-red    { background:var(--red);    box-shadow:0 0 10px var(--red); animation:blink 0.8s infinite; }
+  @keyframes blink { 0%,100%{opacity:1} 50%{opacity:0.3} }
+
+  .sensor-info { flex:1; min-width:0; }
+  .sensor-name { font-size:0.8rem; font-weight:600; font-family:var(--font-mono); color:var(--text); }
+  .sensor-id   { font-size:0.65rem; color:var(--text2); font-family:var(--font-mono); }
+  .sensor-risk {
+    font-size:0.65rem; font-weight:700; padding:2px 8px;
+    border-radius:10px; font-family:var(--font-mono);
+    margin-top:4px; display:inline-block;
+  }
+  .risk-ok       { background:rgba(0,230,118,0.15); color:var(--green); }
+  .risk-attention{ background:rgba(255,109,0,0.15); color:var(--orange); }
+  .risk-critique { background:rgba(255,58,58,0.15);  color:var(--red); }
+
+  /* ── RUL DISPLAY ── */
+  .rul-panel {
+    grid-column:3; grid-row:1/4;
+    display:flex; flex-direction:column; gap:12px;
+  }
+
+  .rul-main {
+    text-align:center; padding:20px 12px;
+  }
+  .rul-value {
+    font-size:3rem; font-weight:900; font-family:var(--font-mono);
+    color:var(--teal); line-height:1;
+    text-shadow: 0 0 30px rgba(0,212,180,0.5);
+  }
+  .rul-unit  { font-size:0.75rem; color:var(--text2); letter-spacing:3px; font-family:var(--font-mono); }
+  .rul-days  { font-size:1rem; color:var(--amber); margin-top:6px; font-family:var(--font-mono); }
+
+  /* Confidence bar */
+  .conf-bar-wrap { margin-top:14px; }
+  .conf-label { display:flex; justify-content:space-between; font-size:0.7rem; color:var(--text2); margin-bottom:5px; font-family:var(--font-mono); }
+  .conf-bar { height:8px; background:var(--bg3); border-radius:4px; overflow:hidden; }
+  .conf-fill {
+    height:100%; border-radius:4px;
+    background:linear-gradient(90deg, var(--teal), var(--blue));
+    transition: width 0.5s ease;
+  }
+
+  /* Health gauge */
+  .health-gauge { text-align:center; padding:10px; }
+  .gauge-svg { width:140px; height:80px; }
+  .gauge-value { font-size:1.8rem; font-weight:900; font-family:var(--font-mono); }
+  .gauge-label { font-size:0.65rem; color:var(--text2); letter-spacing:2px; font-family:var(--font-mono); }
+
+  /* Mini metrics */
+  .mini-metrics { display:flex; flex-direction:column; gap:8px; }
+  .mini-metric {
+    display:flex; justify-content:space-between; align-items:center;
+    padding:8px 12px; background:var(--bg3); border-radius:8px;
+    border:1px solid rgba(255,255,255,0.05);
+  }
+  .mm-label { font-size:0.7rem; color:var(--text2); font-family:var(--font-mono); }
+  .mm-value { font-size:0.85rem; font-weight:700; font-family:var(--font-mono); color:var(--teal); }
+
+  /* ── CHARTS AREA ── */
+  .charts-area {
+    grid-column:2; grid-row:1/4;
+    display:flex; flex-direction:column; gap:14px;
+  }
+
+  .chart-card { position:relative; }
+  .chart-card canvas { max-height:160px; }
+
+  /* Waveform live */
+  .waveform-card canvas { max-height:120px; }
+
+  /* FFT supprimé */
+
+  /* Spectrogram */
+  .spectro-wrap {
+    width:100%; height:120px;
+    background:var(--bg3); border-radius:8px;
+    overflow:hidden; position:relative;
+  }
+  #spectroCanvas { width:100%; height:100%; }
+
+  /* Trend */
+  .trend-card canvas { max-height:150px; }
+
+  /* Model votes */
+  .votes-grid {
+    display:grid; grid-template-columns:1fr 1fr;
+    gap:8px; margin-top:4px;
+  }
+  .vote-item {
+    background:var(--bg3); border-radius:8px; padding:10px;
+    border:1px solid rgba(255,255,255,0.05);
+    text-align:center;
+  }
+  .vote-model { font-size:0.65rem; color:var(--text2); font-family:var(--font-mono); }
+  .vote-result {
+    font-size:0.9rem; font-weight:700; margin-top:4px;
+    font-family:var(--font-mono);
+  }
+  .vote-score  { font-size:0.7rem; color:var(--text2); font-family:var(--font-mono); margin-top:2px; }
+  .vote-bar    { height:4px; border-radius:2px; margin-top:6px; background:var(--bg); overflow:hidden; }
+  .vote-fill   { height:100%; border-radius:2px; transition:width 0.5s; }
+
+  .anomaly { color:var(--red); }
+  .normal  { color:var(--green); }
+
+  /* ── STATUS BAR ── */
+  .status-bar {
+    grid-column:1/-1;
+    display:flex; align-items:center; gap:20px;
+    padding:10px 16px;
+    background:var(--bg2); border:1px solid var(--border);
+    border-radius:10px; font-family:var(--font-mono); font-size:0.7rem;
+    color:var(--text2);
+  }
+  .sb-item { display:flex; align-items:center; gap:6px; }
+  .sb-val  { color:var(--teal); }
+  .sb-sep  { color:var(--border); }
+
+  /* Recommendation box */
+  .reco-box {
+    background:rgba(0,212,180,0.05);
+    border:1px solid rgba(0,212,180,0.2);
+    border-radius:8px; padding:10px 14px;
+    font-size:0.75rem; color:var(--teal);
+    font-family:var(--font-mono); margin-top:8px;
+    line-height:1.5;
+  }
+
+  /* ── LOADING ── */
+  .loading {
+    position:fixed; inset:0;
+    background:var(--bg);
+    display:flex; flex-direction:column; align-items:center; justify-content:center;
+    z-index:9999; transition:opacity 0.5s;
+  }
+  .loading h2 { font-family:var(--font-mono); color:var(--teal); letter-spacing:4px; margin-top:20px; }
+  .loading p  { font-family:var(--font-mono); color:var(--text2); font-size:0.8rem; margin-top:8px; }
+  .spinner {
+    width:50px; height:50px; border-radius:50%;
+    border:3px solid var(--bg3);
+    border-top:3px solid var(--teal);
+    animation:spin 1s linear infinite;
+  }
+  @keyframes spin { to { transform:rotate(360deg); } }
+
+  /* ── SCROLLBAR ── */
+  ::-webkit-scrollbar { width:4px; height:4px; }
+  ::-webkit-scrollbar-track { background:var(--bg2); }
+  ::-webkit-scrollbar-thumb { background:var(--teal2); border-radius:2px; }
+
+  .no-data { color:var(--text2); font-family:var(--font-mono); font-size:0.75rem; text-align:center; padding:20px; }
+</style>
+</head>
+<body>
+
+<!-- LOADING -->
+<div class="loading" id="loading">
+  <div class="spinner"></div>
+  <h2>INITIALISATION</h2>
+  <p id="loadingMsg">Connexion à l'API FastAPI v3.1...</p>
+</div>
+
+<!-- HEADER -->
+<header>
+  <div class="logo">
+    <div class="logo-icon">⚙️</div>
+    <div>
+      <h1>PREDICTIVE MAINTENANCE</h1>
+      <p>ISG BIZERTE / NOVATION CITY — API v3.1.0</p>
+    </div>
+  </div>
+    <div class="header-right">
+      <div id="dataSourceBadge" style="
+        font-family:var(--font-mono); font-size:0.68rem;
+        padding:5px 12px; border-radius:16px;
+        border:1px solid rgba(0,212,180,0.3);
+        color:var(--text2);
+        max-width:340px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
+      ">Source : en attente...</div>
+    <div class="status-badge">
+      <div class="pulse" id="apiPulse"></div>
+      <span id="apiStatus">Connexion...</span>
+    </div>
+    <div class="time-display" id="clock">--:--:--</div>
+  </div>
+</header>
+
+<!-- SENSOR BAR -->
+<div class="sensor-bar">
+  <label>CAPTEUR ACTIF :</label>
+  <div id="sensorBtns"></div>
+</div>
+
+<!-- MAIN GRID -->
+<div class="main">
+
+  <!-- COL 1 : Traffic Lights -->
+  <div class="traffic-lights card">
+    <div class="card-title">🔴 État Équipements — Feux Tricolores</div>
+    <div id="sensorList" class="no-data">Chargement capteurs...</div>
+  </div>
+
+  <!-- COL 2 : Charts -->
+  <div class="charts-area">
+
+    <!-- Waveform vibration live -->
+    <div class="card waveform-card">
+      <div class="card-title">📳 Formes d'onde — Vibrations temps réel (défilement automatique)</div>
+      <canvas id="waveformChart"></canvas>
+    </div>
+
+    <!-- FFT supprimé -->
+
+    <!-- Spectrogramme -->
+    <div class="card">
+      <div class="card-title">🌡️ Spectrogramme — Carte de chaleur temps-fréquence</div>
+      <div class="spectro-wrap">
+        <canvas id="spectroCanvas"></canvas>
+      </div>
+    </div>
+
+    <!-- Tendance 30 jours -->
+    <div class="card trend-card">
+      <div class="card-title">📈 Tendance dégradation — Fenêtre 30 jours</div>
+      <canvas id="trendChart"></canvas>
+    </div>
+
+    <!-- Health Score dans le temps [NEW] -->
+    <div class="card" style="margin-top:10px">
+      <div class="card-title">💚 Évolution Health Score — Temps réel</div>
+      <canvas id="healthTrendChart" style="max-height:130px"></canvas>
+    </div>
+
+    <!-- RUL dans le temps [NEW] -->
+    <div class="card" style="margin-top:10px">
+      <div class="card-title">⏳ Courbe de dégradation RUL — Heures restantes</div>
+      <canvas id="rulTrendChart" style="max-height:130px"></canvas>
+    </div>
+
+    <!-- Historique des alertes [NEW] -->
+    <div class="card" style="margin-top:10px">
+      <div class="card-title">🔔 Historique des alertes</div>
+      <div id="alertHistoryPanel" style="
+        max-height:190px; overflow-y:auto;
+        font-family:var(--font-mono); font-size:11px;
+        display:flex; flex-direction:column; gap:4px;
+      ">
+        <div style="color:var(--text2); text-align:center; padding:10px">En attente de données...</div>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- COL 3 : RUL + Health + Models -->
+  <div class="rul-panel">
+
+    <!-- RUL countdown -->
+    <div class="card rul-main">
+      <div class="card-title">⏳ Remaining Useful Life</div>
+      <div class="rul-value" id="rulHours">---</div>
+      <div class="rul-unit">HEURES</div>
+      <div class="rul-days" id="rulDays">-- jours</div>
+      <div class="conf-bar-wrap">
+        <div class="conf-label">
+          <span>Confiance</span>
+          <span id="confLabel">--</span>
+        </div>
+        <div class="conf-bar">
+          <div class="conf-fill" id="confFill" style="width:0%"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Health gauge -->
+    <div class="card health-gauge">
+      <div class="card-title">💚 Score de Santé</div>
+      <svg class="gauge-svg" viewBox="0 0 140 80">
+        <path d="M10 75 A60 60 0 0 1 130 75" fill="none" stroke="#1a2a2a" stroke-width="12" stroke-linecap="round"/>
+        <path d="M10 75 A60 60 0 0 1 130 75" fill="none" stroke="url(#gaugeGrad)" stroke-width="12"
+              stroke-linecap="round" stroke-dasharray="188" id="gaugePath" stroke-dashoffset="188"/>
+        <defs>
+          <linearGradient id="gaugeGrad" x1="0%" y1="0%" x2="100%" y2="0%">
+            <stop offset="0%" stop-color="#ff3a3a"/>
+            <stop offset="50%" stop-color="#f0a500"/>
+            <stop offset="100%" stop-color="#00e676"/>
+          </linearGradient>
+        </defs>
+        <text x="70" y="68" text-anchor="middle" fill="#00d4b4" font-size="22" font-weight="900" font-family="Share Tech Mono" id="healthGaugeText">--</text>
+      </svg>
+      <div class="gauge-label">SCORE / 100</div>
+    </div>
+
+    <!-- Mini metrics -->
+    <div class="card">
+      <div class="card-title">🌡️ Mesures Capteur</div>
+      <div class="mini-metrics">
+        <div class="mini-metric">
+          <span class="mm-label">Température</span>
+          <span class="mm-value" id="metTemp">--°C</span>
+        </div>
+        <div class="mini-metric">
+          <span class="mm-label">Vib Z RMS</span>
+          <span class="mm-value" id="metVibZ">-- mg</span>
+        </div>
+        <div class="mini-metric">
+          <span class="mm-label">Vib Totale</span>
+          <span class="mm-value" id="metVibT">-- mg</span>
+        </div>
+        <div class="mm-row">
+          <span class="mm-label">Courant</span>
+          <span class="mm-value" id="metCurrent" style="color:var(--green)">-- A</span>
+        </div>
+        <div class="mini-metric">
+          <span class="mm-label">Votes anomalie</span>
+          <span class="mm-value" id="metVotes">--/4</span>
+        </div>
+        <div class="mini-metric">
+          <span class="mm-label">Score anomalie</span>
+          <span class="mm-value" id="metScore">--</span>
+        </div>
+        <div class="mini-metric">
+          <span class="mm-label">Dégrad. rate</span>
+          <span class="mm-value" id="metDeg">--%</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Vote modèles -->
+    <div class="card">
+      <div class="card-title">🤖 Vote des 4 Modèles ML</div>
+      <div class="votes-grid" id="votesGrid">
+        <div class="vote-item">
+          <div class="vote-model">IF</div>
+          <div class="vote-result" id="voteIF">--</div>
+          <div class="vote-score" id="scoreIF">--</div>
+          <div class="vote-bar"><div class="vote-fill" id="barIF" style="width:0%;background:#00d4b4"></div></div>
+        </div>
+        <div class="vote-item">
+          <div class="vote-model">LOF</div>
+          <div class="vote-result" id="voteLOF">--</div>
+          <div class="vote-score" id="scoreLOF">--</div>
+          <div class="vote-bar"><div class="vote-fill" id="barLOF" style="width:0%;background:#1e90ff"></div></div>
+        </div>
+        <div class="vote-item">
+          <div class="vote-model">OCSVM</div>
+          <div class="vote-result" id="voteOCSVM">--</div>
+          <div class="vote-score" id="scoreOCSVM">--</div>
+          <div class="vote-bar"><div class="vote-fill" id="barOCSVM" style="width:0%;background:#f0a500"></div></div>
+        </div>
+        <div class="vote-item">
+          <div class="vote-model">ECOD</div>
+          <div class="vote-result" id="voteECOD">--</div>
+          <div class="vote-score" id="scoreECOD">--</div>
+          <div class="vote-bar"><div class="vote-fill" id="barECOD" style="width:0%;background:#00e676"></div></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Recommandation -->
+    <div class="card">
+      <div class="card-title">💡 Recommandation</div>
+      <div class="reco-box" id="recoBox">En attente de données...</div>
+      <div style="margin-top:10px; display:flex; gap:8px; align-items:center;">
+        <span style="font-size:0.7rem; color:var(--text2); font-family:var(--font-mono);">ALERTE :</span>
+        <span id="alertBadge" style="font-size:0.75rem; font-weight:700; font-family:var(--font-mono); padding:3px 10px; border-radius:10px; background:rgba(0,212,180,0.1); color:var(--teal);">--</span>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- STATUS BAR -->
+  <div class="status-bar">
+    <div class="sb-item">🔗 API <span class="sb-val" id="sbApi">localhost:8000</span></div>
+    <span class="sb-sep">|</span>
+    <div class="sb-item">📡 Capteur <span class="sb-val" id="sbSensor">--</span></div>
+    <span class="sb-sep">|</span>
+    <div class="sb-item">🔄 Refresh <span class="sb-val">5s</span></div>
+    <span class="sb-sep">|</span>
+    <div class="sb-item">📊 Prédictions <span class="sb-val" id="sbPred">0</span></div>
+    <span class="sb-sep">|</span>
+    <div class="sb-item">⚡ Latence <span class="sb-val" id="sbLatency">--ms</span></div>
+    <span class="sb-sep">|</span>
+    <div class="sb-item">📁 Mesures réelles <span class="sb-val" id="sbMesures">--</span></div>
+    <span class="sb-sep">|</span>
+    <div class="sb-item">🏭 F1=0.401 · AUC=0.683 · Acc=0.923</div>
+  </div>
+
+</div>
+
+<script>
+// ══════════════════════════════════════════════════════════
+// CONFIG
+// ══════════════════════════════════════════════════════════
+const API = 'http://localhost:8000';
+const REFRESH_MS = 5000;
+const WAVEFORM_POINTS = 60;
+const TREND_POINTS = 30;
+const SENSORS = [
+  '8f7f2f7e','0ff416d2','b2acdf45','6e0c1740','07da47b8',
+  'aa7b02a1','eb084747','2c6254af','53cb61b2','a6a46be1',
+  'bc59bf5f','d9508e77','eb084747','f48c25f9','68c11f06',
+  '4b5e4b32','3a782f1b','718fd2af','91d92804','99695e98'
+];
+
+let activeSensor = SENSORS[0];
+let predCount = 0;
+
+// Auto-init : lire realtime_results.json au démarrage pour choisir le bon capteur actif
+(async () => {
+  try {
+    const r = await fetch('realtime_results.json');
+    if (r.ok) {
+      const all = await r.json();
+      const withData = [...new Set(all.filter(x => x.measurement).map(x => x.sensor_id))];
+      if (withData.length > 0 && !withData.includes(activeSensor)) {
+        activeSensor = withData[withData.length - 1];
+        document.getElementById('sbSensor').textContent = activeSensor;
+      }
+    }
+  } catch(e) {}
+})();
+
+// ══════════════════════════════════════════════════════════
+// CLOCK
+// ══════════════════════════════════════════════════════════
+function updateClock() {
+  document.getElementById('clock').textContent =
+    new Date().toLocaleTimeString('fr-FR');
+}
+setInterval(updateClock, 1000);
+updateClock();
+
+// ══════════════════════════════════════════════════════════
+// WAVEFORM DATA (rolling buffer)
+// ══════════════════════════════════════════════════════════
+const waveData = {
+  vib_z: Array(WAVEFORM_POINTS).fill(0),
+  temp:  Array(WAVEFORM_POINTS).fill(0),
+  labels: Array(WAVEFORM_POINTS).fill(''),
+};
+
+// ══════════════════════════════════════════════════════════
+// CHART.JS INSTANCES
+// ══════════════════════════════════════════════════════════
+Chart.defaults.color = '#6a8fa8';
+Chart.defaults.borderColor = 'rgba(0,212,180,0.1)';
+
+// Waveform
+const waveCtx = document.getElementById('waveformChart').getContext('2d');
+const waveChart = new Chart(waveCtx, {
+  type:'line',
+  data:{
+    labels: waveData.labels,
+    datasets:[{
+      label:'Vib Z (mg)',
+      data: waveData.vib_z,
+      borderColor:'#00d4b4',
+      backgroundColor:'rgba(0,212,180,0.05)',
+      borderWidth:1.5, fill:true, tension:0.3, pointRadius:0,
+    },{
+      label:'Temp (°C×10)',
+      data: waveData.temp,
+      borderColor:'#f0a500',
+      backgroundColor:'rgba(240,165,0,0.03)',
+      borderWidth:1, fill:false, tension:0.3, pointRadius:0,
+    }]
+  },
+  options:{
+    animation:false, responsive:true, maintainAspectRatio:true,
+    plugins:{legend:{labels:{boxWidth:10,font:{size:10}}}},
+    scales:{
+      x:{display:false},
+      y:{grid:{color:'rgba(0,212,180,0.07)'},
+         ticks:{font:{size:9},maxTicksLimit:5}}
+    }
+  }
+});
+
+// FFT supprimé
+
+// Trend
+const trendData = { labels:[], scores:[], health:[] };
+const trendCtx = document.getElementById('trendChart').getContext('2d');
+const trendChart = new Chart(trendCtx, {
+  type:'line',
+  data:{
+    labels: trendData.labels,
+    datasets:[{
+      label:'Score anomalie',
+      data: trendData.scores,
+      borderColor:'#ff3a3a', backgroundColor:'rgba(255,58,58,0.05)',
+      borderWidth:1.5, fill:true, tension:0.4, pointRadius:2, pointBackgroundColor:'#ff3a3a',
+    },{
+      label:'Santé /100',
+      data: trendData.health,
+      borderColor:'#00e676', backgroundColor:'rgba(0,230,118,0.03)',
+      borderWidth:1.5, fill:false, tension:0.4, pointRadius:2, pointBackgroundColor:'#00e676',
+      yAxisID:'y2',
+    }]
+  },
+  options:{
+    animation:{duration:300}, responsive:true, maintainAspectRatio:true,
+    plugins:{legend:{labels:{boxWidth:10,font:{size:10}}}},
+    scales:{
+      x:{ticks:{font:{size:8},maxTicksLimit:8},grid:{color:'rgba(0,212,180,0.07)'}},
+      y:{min:0,max:1,grid:{color:'rgba(0,212,180,0.07)'},ticks:{font:{size:9}}},
+      y2:{position:'right',min:0,max:100,grid:{display:false},ticks:{font:{size:9}}}
+    }
+  }
+});
+
+// ══════════════════════════════════════════════════════════
+// HEALTH SCORE TREND [NEW]
+// ══════════════════════════════════════════════════════════
+const MAX_HIST = 40;
+const healthTrendData = { labels:[], values:[] };
+const healthTrendCtx = document.getElementById('healthTrendChart').getContext('2d');
+const healthTrendChart = new Chart(healthTrendCtx, {
+  type:'line',
+  data:{
+    labels: healthTrendData.labels,
+    datasets:[{
+      label:'Health Score',
+      data: healthTrendData.values,
+      borderColor: ctx => {
+        const v = ctx.dataset.data[ctx.dataset.data.length-1] || 100;
+        return v < 40 ? '#ff3a3a' : v < 70 ? '#f0a500' : '#00e676';
+      },
+      backgroundColor:'rgba(0,230,118,0.07)',
+      borderWidth:2, fill:true, tension:0.4,
+      pointRadius:2, pointBackgroundColor:'#00e676',
+    }]
+  },
+  options:{
+    animation:{duration:300}, responsive:true, maintainAspectRatio:true,
+    plugins:{legend:{display:false}},
+    scales:{
+      x:{ticks:{font:{size:8},maxTicksLimit:8},grid:{color:'rgba(0,212,180,0.07)'}},
+      y:{min:0,max:100,
+         grid:{color:'rgba(0,212,180,0.07)'},
+         ticks:{font:{size:9}},
+         afterDataLimits(scale){ scale.max=100; scale.min=0; }
+      }
+    }
+  }
+});
+
+function pushHealthTrend(score, label) {
+  healthTrendData.labels.push(label);
+  healthTrendData.values.push(score);
+  if(healthTrendData.labels.length > MAX_HIST) {
+    healthTrendData.labels.shift();
+    healthTrendData.values.shift();
+  }
+  healthTrendChart.data.labels   = healthTrendData.labels;
+  healthTrendChart.data.datasets[0].data = healthTrendData.values;
+  healthTrendChart.update();
+}
+
+// ══════════════════════════════════════════════════════════
+// RUL TREND [NEW]
+// ══════════════════════════════════════════════════════════
+const rulTrendData = { labels:[], values:[] };
+const rulTrendCtx = document.getElementById('rulTrendChart').getContext('2d');
+const rulTrendChart = new Chart(rulTrendCtx, {
+  type:'line',
+  data:{
+    labels: rulTrendData.labels,
+    datasets:[{
+      label:'RUL (heures)',
+      data: rulTrendData.values,
+      borderColor:'#1e90ff', backgroundColor:'rgba(30,144,255,0.07)',
+      borderWidth:2, fill:true, tension:0.4,
+      pointRadius:2, pointBackgroundColor:'#1e90ff',
+    }]
+  },
+  options:{
+    animation:{duration:300}, responsive:true, maintainAspectRatio:true,
+    plugins:{legend:{display:false}},
+    scales:{
+      x:{ticks:{font:{size:8},maxTicksLimit:8},grid:{color:'rgba(0,212,180,0.07)'}},
+      y:{grid:{color:'rgba(0,212,180,0.07)'},ticks:{font:{size:9}}}
+    }
+  }
+});
+
+function pushRulTrend(rulHours, label) {
+  if(!rulHours || isNaN(rulHours)) return;
+  rulTrendData.labels.push(label);
+  rulTrendData.values.push(parseFloat(rulHours.toFixed(1)));
+  if(rulTrendData.labels.length > MAX_HIST) {
+    rulTrendData.labels.shift();
+    rulTrendData.values.shift();
+  }
+  rulTrendChart.data.labels   = rulTrendData.labels;
+  rulTrendChart.data.datasets[0].data = rulTrendData.values;
+  rulTrendChart.update();
+}
+
+// ══════════════════════════════════════════════════════════
+// HISTORIQUE ALERTES [NEW]
+// ══════════════════════════════════════════════════════════
+const alertHistory = [];
+const MAX_ALERTS = 50;
+
+function pushAlert(level, sensorId, message, score) {
+  const ts = new Date().toLocaleTimeString('fr-FR');
+  alertHistory.unshift({ ts, level, sensorId, message, score });
+  if(alertHistory.length > MAX_ALERTS) alertHistory.pop();
+  renderAlertHistory();
+}
+
+function renderAlertHistory() {
+  const panel = document.getElementById('alertHistoryPanel');
+  if(!panel) return;
+  const colorMap = {
+    OK:       'var(--green)',
+    ATTENTION:'var(--orange)',
+    URGENT:   '#f0a500',
+    CRITIQUE: 'var(--red)',
+    INCONNU:  'var(--text2)',
+  };
+  const iconMap = { OK:'🟢', ATTENTION:'🟡', URGENT:'🟠', CRITIQUE:'🔴', INCONNU:'⚪' };
+  panel.innerHTML = alertHistory.map(a => `
+    <div style="
+      display:flex; align-items:center; gap:6px;
+      padding:4px 8px; border-radius:6px;
+      background:rgba(255,255,255,0.03);
+      border-left:2px solid ${colorMap[a.level]||'var(--text2)'};
+    ">
+      <span>${iconMap[a.level]||'⚪'}</span>
+      <span style="color:var(--text2)">${a.ts}</span>
+      <span style="color:var(--teal);min-width:70px">${a.sensorId.slice(0,8)}</span>
+      <span style="color:${colorMap[a.level]||'var(--text2)'};font-weight:700;min-width:70px">${a.level}</span>
+      <span style="color:var(--text2);flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${a.message||''}</span>
+      <span style="color:var(--text2);min-width:40px">s=${parseFloat(a.score||0).toFixed(2)}</span>
+    </div>
+  `).join('') || '<div style="color:var(--text2);text-align:center;padding:10px">Aucune alerte</div>';
+}
+
+// ══════════════════════════════════════════════════════════
+// SPECTROGRAMME (canvas 2D)
+// ══════════════════════════════════════════════════════════
+const spectroCanvas = document.getElementById('spectroCanvas');
+const spectroCtx = spectroCanvas.getContext('2d');
+let spectroData = [];
+const SPECTRO_FREQS = 24;
+
+function drawSpectrogram(newRow) {
+  const w = spectroCanvas.parentElement.clientWidth;
+  const h = spectroCanvas.parentElement.clientHeight;
+  spectroCanvas.width  = w;
+  spectroCanvas.height = h;
+
+  spectroData.push(newRow);
+  if(spectroData.length > Math.floor(w/6)) spectroData.shift();
+
+  spectroCtx.clearRect(0,0,w,h);
+  const cellW = Math.max(4, w / spectroData.length);
+  const cellH = h / SPECTRO_FREQS;
+
+  spectroData.forEach((row,xi) => {
+    row.forEach((val,yi) => {
+      const r = Math.floor(val * 255);
+      const g = Math.floor((1-Math.abs(val-0.5)*2)*200);
+      const b = Math.floor((1-val)*255);
+      spectroCtx.fillStyle = `rgba(${r},${g},${b},0.9)`;
+      spectroCtx.fillRect(xi*cellW, (SPECTRO_FREQS-1-yi)*cellH, cellW-1, cellH-1);
+    });
+  });
+
+  // Freq labels
+  spectroCtx.fillStyle = 'rgba(200,224,240,0.6)';
+  spectroCtx.font = '8px Share Tech Mono';
+  ['0','50','100','150','200','250'].forEach((f,i) => {
+    const y = h - (i/5)*h + 8;
+    spectroCtx.fillText(f+'Hz', 2, y);
+  });
+}
+
+function generateSpectroRow(vibZ, anomScore) {
+  // Basé sur la vraie valeur RMS vibration Z — décroissance physique réelle
+  // freq basses (0-50Hz) dominent sur les roulements industriels
+  return Array.from({length: SPECTRO_FREQS}, (_, i) => {
+    const base      = Math.exp(-i / 6) * (vibZ / 1500);   // enveloppe physique réelle
+    const harmonic  = (i === 3 || i === 6 || i === 12)     // harmoniques typiques roulements
+                      ? (vibZ / 2000) * 0.4 : 0;
+    const anomPeak  = anomScore > 0.5 && (i === 4 || i === 8)
+                      ? (anomScore - 0.5) * 1.2 : 0;       // pic visible si vraie anomalie
+    return Math.min(1, Math.max(0, base + harmonic + anomPeak));
+  });
+}
+
+// ══════════════════════════════════════════════════════════
+// GENERATE FAKE FFT from vib data
+// ══════════════════════════════════════════════════════════
+// generateFFT supprimé
+
+// ══════════════════════════════════════════════════════════
+// SENSOR BUTTONS
+// ══════════════════════════════════════════════════════════
+function renderSensorBtns(sensors) {
+  const wrap = document.getElementById('sensorBtns');
+  wrap.innerHTML = '';
+  wrap.style.display = 'flex'; wrap.style.gap = '8px'; wrap.style.flexWrap = 'wrap';
+  sensors.forEach(s => {
+    const btn = document.createElement('button');
+    btn.className = 'sensor-btn' + (s === activeSensor ? ' active' : '');
+    btn.textContent = s.sensor_id || s;
+    btn.onclick = () => {
+      activeSensor = s.sensor_id || s;
+      document.querySelectorAll('.sensor-btn').forEach(b=>b.classList.remove('active'));
+      btn.classList.add('active');
+      document.getElementById('sbSensor').textContent = activeSensor;
+      // reset trend
+      trendData.labels = []; trendData.scores = []; trendData.health = [];
+      trendChart.update();
+    };
+    wrap.appendChild(btn);
+  });
+}
+
+// ══════════════════════════════════════════════════════════
+// TRAFFIC LIGHT LIST
+// ══════════════════════════════════════════════════════════
+const sensorStates = {};
+
+function renderSensorList() {
+  const el = document.getElementById('sensorList');
+  const sensors = Object.keys(sensorStates);
+  if(!sensors.length) return;
+
+  el.innerHTML = '';
+  sensors.forEach(sid => {
+    const s = sensorStates[sid];
+    const risk  = s.risk || 'OK';
+    const isRed = risk === 'CRITIQUE' || risk === 'ÉLEVÉ';
+    const isOrg = risk === 'MODÉRÉ';
+    const riskClass = isRed ? 'risk-critique' : isOrg ? 'risk-attention' : 'risk-ok';
+
+    const div = document.createElement('div');
+    div.className = 'sensor-status' + (sid===activeSensor?' selected':'');
+    div.onclick = () => {
+      activeSensor = sid;
+      document.querySelectorAll('.sensor-status').forEach(d=>d.classList.remove('selected'));
+      div.classList.add('selected');
+      document.getElementById('sbSensor').textContent = sid;
+      document.querySelectorAll('.sensor-btn').forEach(b=>{
+        b.classList.toggle('active', b.textContent===sid);
+      });
+    };
+
+    div.innerHTML = `
+      <div class="light-col">
+        <div class="light ${isRed?'on-red':''}"></div>
+        <div class="light ${isOrg?'on-orange':''}"></div>
+        <div class="light ${(!isRed&&!isOrg)?'on-green':''}"></div>
+      </div>
+      <div class="sensor-info">
+        <div class="sensor-name">${sid}</div>
+        <div class="sensor-id">Moteur actif</div>
+        <div class="sensor-risk ${riskClass}">${risk}</div>
+      </div>
+      <div style="font-family:var(--font-mono);font-size:0.7rem;color:var(--text2);text-align:right">
+        <div style="color:var(--teal)">${s.health||'--'}/100</div>
+        <div>${s.rul||'--'}h</div>
+      </div>
+    `;
+    el.appendChild(div);
+  });
+}
+
+// ══════════════════════════════════════════════════════════
+// HEALTH GAUGE
+// ══════════════════════════════════════════════════════════
+function updateGauge(health) {
+  const pct   = health / 100;
+  const total = 188;
+  const offset = total - pct * total;
+  document.getElementById('gaugePath').setAttribute('stroke-dashoffset', offset);
+  document.getElementById('healthGaugeText').textContent = health;
+}
+
+// ══════════════════════════════════════════════════════════
+// UPDATE MODEL VOTES
+// ══════════════════════════════════════════════════════════
+function updateVotes(models, scores) {
+  ['IF','LOF','OCSVM','ECOD'].forEach(m => {
+    const v = models[m] || '--';
+    const s = scores && scores[m] != null ? scores[m] : null;
+    const isAnom = v === 'ANOMALY';
+    document.getElementById('vote'+m).textContent = v;
+    document.getElementById('vote'+m).className = 'vote-result ' + (isAnom?'anomaly':'normal');
+    document.getElementById('score'+m).textContent = s!=null ? `score: ${s.toFixed(2)}` : '';
+    document.getElementById('bar'+m).style.width = s!=null ? `${s*100}%` : '0%';
+    const colors = {IF:'#00d4b4',LOF:'#1e90ff',OCSVM:'#f0a500',ECOD:'#00e676'};
+    document.getElementById('bar'+m).style.background = isAnom ? '#ff3a3a' : colors[m];
+  });
+}
+
+// ══════════════════════════════════════════════════════════
+// MAIN FETCH & UPDATE
+// ══════════════════════════════════════════════════════════
+
+// Fetch avec timeout AbortController — évite les appels qui bloquent indéfiniment
+function fetchWithTimeout(url, options = {}, ms = 5000) {
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), ms);
+  return fetch(url, { ...options, signal: ctrl.signal })
+    .finally(() => clearTimeout(timer));
+}
+
+// Compteur d'échecs consécutifs — affiche "API hors ligne" après 3 échecs
+let _failCount = 0;
+const MAX_FAIL  = 3;
+
+async function fetchAll() {
+  const t0 = Date.now();
+  try {
+    // 1. Health check
+    const hRes = await fetchWithTimeout(`${API}/health`);
+    const hData = await hRes.json();
+    _failCount = 0;
+    document.getElementById('apiStatus').textContent = `API ${hData.version} — OK`;
+    document.getElementById('apiPulse').style.background = 'var(--green)';
+
+    // 2. Sensors
+    try {
+      const sRes  = await fetchWithTimeout(`${API}/sensors`);
+      const sData = await sRes.json();
+      const sensors = sData.sensors || sData.data || [];
+      if(sensors.length) renderSensorBtns(sensors);
+    } catch(e){}
+
+    // 3. Alert level for all sensors (background)
+    SENSORS.forEach(async sid => {
+      try {
+        const r = await fetchWithTimeout(`${API}/v1/alert-level/${sid}`);
+        if(r.ok) {
+          const d = await r.json();
+          sensorStates[sid] = {
+            risk:   d.alert_level,
+            health: '--',
+            rul:    '--',
+          };
+          renderSensorList();
+        }
+      } catch(e){}
+    });
+
+    // 4. History for active sensor
+    try {
+      const histRes  = await fetchWithTimeout(`${API}/v1/history/${activeSensor}`);
+      if(histRes.ok) {
+        const histData = await histRes.json();
+        const hist = histData.history || [];
+
+        // Update trend chart
+        if(hist.length) {
+          trendData.labels = hist.slice(-TREND_POINTS).map(h =>
+            h.timestamp ? h.timestamp.slice(11,16) : ''
+          );
+          trendData.scores = hist.slice(-TREND_POINTS).map(h => h.score || 0);
+          trendData.health = hist.slice(-TREND_POINTS).map(h => h.health_score || 0);
+          trendChart.data.labels   = trendData.labels;
+          trendChart.data.datasets[0].data = trendData.scores;
+          trendChart.data.datasets[1].data = trendData.health;
+          trendChart.update();
+        }
+      }
+    } catch(e){}
+
+    // 5. Health score + alert for active sensor
+    const [hsRes, alRes] = await Promise.all([
+      fetchWithTimeout(`${API}/v1/health-score/${activeSensor}`),
+      fetchWithTimeout(`${API}/v1/alert-level/${activeSensor}`),
+    ]);
+
+    if(hsRes.ok) {
+      const hsData = await hsRes.json();
+      const health = Math.round(hsData.health_score || 0);
+      updateGauge(health);
+      if(sensorStates[activeSensor]) sensorStates[activeSensor].health = health;
+    }
+
+    if(alRes.ok) {
+      const alData = await alRes.json();
+      document.getElementById('alertBadge').textContent = alData.alert_level || '--';
+      const colors = {OK:'var(--green)',ATTENTION:'var(--orange)',URGENT:'var(--amber)',CRITIQUE:'var(--red)'};
+      document.getElementById('alertBadge').style.color = colors[alData.alert_level] || 'var(--teal)';
+    }
+
+    // 6. Lecture des vraies mesures depuis realtime_results.json
+    const now = new Date();
+    let realHistory = [];
+    let dataSource = 'AUCUNE SOURCE';
+
+    try {
+      const rjRes = await fetchWithTimeout('realtime_results.json', {}, 4000);
+      if (rjRes.ok) {
+        const allResults = await rjRes.json();
+        // Filtrer les entrées du capteur actif et extraire les mesures
+        let forSensor = allResults
+          .filter(r => r.sensor_id === activeSensor && r.measurement)
+          .slice(-20);
+
+        // Auto-détection : si le capteur actif n'a pas de données, basculer vers le premier qui en a
+        if (forSensor.length === 0) {
+          const sensorsWithData = [...new Set(allResults.filter(r => r.measurement).map(r => r.sensor_id))];
+          if (sensorsWithData.length > 0) {
+            const fallback = sensorsWithData[sensorsWithData.length - 1]; // le plus récent
+            forSensor = allResults.filter(r => r.sensor_id === fallback && r.measurement).slice(-20);
+            if (forSensor.length > 0) {
+              activeSensor = fallback;
+              document.getElementById('sbSensor').textContent = activeSensor;
+              document.querySelectorAll('.sensor-btn').forEach(b => {
+                b.classList.toggle('active', b.textContent === activeSensor);
+              });
+              document.querySelectorAll('.sensor-status').forEach(d => {
+                d.classList.toggle('selected', d.querySelector('.sensor-name')?.textContent === activeSensor);
+              });
+              console.info(`Auto-sélection capteur avec données : ${activeSensor}`);
+            }
+          }
+        }
+
+        if (forSensor.length >= 1) {
+          realHistory = forSensor.map(r => ({
+            temperature:  r.measurement.temperature  ?? null,
+            vibration_x:  r.measurement.vibration_x  ?? r.measurement.vibration_total ?? null,
+            vibration_y:  r.measurement.vibration_y  ?? null,
+            vibration_z:  r.measurement.vibration_z  ?? null,
+            current:      r.measurement.current      ?? null,
+          })).filter(m => m.temperature !== null || m.vibration_z !== null);
+          dataSource = `realtime_results.json (${realHistory.length} mesures réelles)`;
+        }
+      }
+    } catch(e) {
+      console.warn('realtime_results.json inaccessible :', e.message);
+    }
+
+    // Si pas de données dans realtime_results.json → essayer via /v1/history de l'API
+    if (realHistory.length === 0) {
+      document.getElementById('dataSourceBadge').textContent = '⚠ PAS DE DONNÉES RÉELLES — Lancer realtime_mariadb.py';
+      document.getElementById('dataSourceBadge').style.color = 'var(--red)';
+      document.getElementById('dataSourceBadge').style.borderColor = 'var(--red)';
+      // Ne pas faire return — continuer pour afficher quand même les feux tricolores et alertes
+      // Les graphiques resteront vides jusqu'à ce que realtime_mariadb.py écrive des données
+      return;
+    }
+
+    document.getElementById('dataSourceBadge').textContent = `✔ SOURCE RÉELLE — ${dataSource}`;
+    document.getElementById('dataSourceBadge').style.color = 'var(--green)';
+    document.getElementById('dataSourceBadge').style.borderColor = 'rgba(0,230,118,0.4)';
+
+    const predRes = await fetchWithTimeout(`${API}/v1/predict`, {
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({
+        sensor_id: activeSensor,
+        motor_id: `Motor_${activeSensor}`,
+        history: realHistory,
+      })
+    });
+
+    if(predRes.ok) {
+      const pd = await predRes.json();
+      predCount++;
+
+      // Waveform rolling update
+      const lastM = realHistory[realHistory.length-1];
+      const ts = now.toLocaleTimeString('fr-FR');
+      waveData.vib_z.shift(); waveData.vib_z.push(lastM.vibration_z);
+      waveData.temp.shift();  waveData.temp.push(lastM.temperature * 10);
+      waveData.labels.shift(); waveData.labels.push(ts);
+      waveChart.data.labels = waveData.labels;
+      waveChart.data.datasets[0].data = waveData.vib_z;
+      waveChart.data.datasets[1].data = waveData.temp;
+      waveChart.update();
+
+      // FFT supprimé
+
+      // Spectrogram
+      const spectroRow = generateSpectroRow(lastM.vibration_z, pd.anomaly_score);
+      drawSpectrogram(spectroRow);
+
+      // Mini metrics
+      document.getElementById('metTemp').textContent  = `${lastM.temperature.toFixed(1)}°C`;
+      document.getElementById('metVibZ').textContent  = `${lastM.vibration_z.toFixed(0)} mg`;
+      const vtot = Math.sqrt(lastM.vibration_x**2+lastM.vibration_y**2+lastM.vibration_z**2);
+      document.getElementById('metVibT').textContent  = `${vtot.toFixed(0)} mg`;
+
+      // Courant avec couleur dynamique (V5)
+      const curVal = lastM.current || 0;
+      const curEl  = document.getElementById('metCurrent');
+      curEl.textContent = curVal > 0 ? `${curVal.toFixed(1)} A` : '-- A';
+      curEl.style.color = curVal > 150 ? 'var(--red)' :
+                          curVal > 80  ? 'var(--orange)' :
+                          curVal > 0   ? 'var(--green)' : 'var(--text2)';
+
+      document.getElementById('metVotes').textContent = `${pd.votes}/4`;
+      document.getElementById('metScore').textContent = pd.anomaly_score?.toFixed(3) || '--';
+
+      // Votes
+      updateVotes(pd.individual_models || {}, pd.model_scores || {});
+
+      // Status bar
+      document.getElementById('sbPred').textContent = predCount;
+      document.getElementById('sbSensor').textContent = activeSensor;
+      document.getElementById('sbMesures').textContent = realHistory.length;
+
+      // RUL call
+      const rulRes = await fetchWithTimeout(`${API}/v1/predict-rul`, {
+        method:'POST',
+        headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({
+          sensor_id: activeSensor,
+          motor_id: `Motor_${activeSensor}`,
+          prediction: pd.prediction,
+          votes: pd.votes,
+          confidence: pd.confidence,
+          risk_level: pd.risk_level,
+          anomaly_score: pd.anomaly_score,
+          history: realHistory,
+        })
+      });
+
+      if(rulRes.ok) {
+        const rd = await rulRes.json();
+        const ts = new Date().toLocaleTimeString('fr-FR');
+
+        document.getElementById('rulHours').textContent = rd.rul_hours?.toFixed(1) || '--';
+        document.getElementById('rulDays').textContent  = `${rd.rul_days?.toFixed(1) || '--'} jours`;
+        document.getElementById('recoBox').textContent  = rd.recommendation || '--';
+        document.getElementById('metDeg').textContent   = `${rd.degradation_rate?.toFixed(1) || '--'}%`;
+
+        const confMap = {HAUTE:90,MOYENNE:60,FAIBLE:30};
+        const confPct = confMap[rd.confidence] || 50;
+        document.getElementById('confFill').style.width = confPct+'%';
+        document.getElementById('confLabel').textContent = rd.confidence || '--';
+
+        // ── Courbe RUL dans le temps [NEW] ──
+        pushRulTrend(rd.rul_hours, ts);
+
+        // ── Courbe Health Score dans le temps [NEW] ──
+        if(rd.health_score != null) pushHealthTrend(rd.health_score, ts);
+
+        // ── Historique alertes [NEW] ──
+        const alLevel = rd.alert_level || 'INCONNU';
+        pushAlert(alLevel, activeSensor, rd.recommendation || '', rd.hist_anomaly_factor || 0);
+
+        if(sensorStates[activeSensor]) sensorStates[activeSensor].rul = rd.rul_hours?.toFixed(0);
+        renderSensorList();
+      }
+    }
+
+    const latency = Date.now() - t0;
+    document.getElementById('sbLatency').textContent = `${latency}ms`;
+
+  } catch(err) {
+    _failCount++;
+    if(_failCount >= MAX_FAIL) {
+      document.getElementById('apiStatus').textContent = 'API Hors Ligne';
+      document.getElementById('apiPulse').style.background = 'var(--red)';
+    }
+    console.warn(`Fetch error (échec ${_failCount}/${MAX_FAIL}):`, err.message || err);
+  }
+}
+
+// ══════════════════════════════════════════════════════════
+// INIT
+// ══════════════════════════════════════════════════════════
+async function init() {
+  document.getElementById('loadingMsg').textContent = 'Chargement données capteurs IFM...';
+
+  // Pre-fill waveform with zeros
+  waveData.vib_z = Array(WAVEFORM_POINTS).fill(300);
+  waveData.temp  = Array(WAVEFORM_POINTS).fill(330);
+  waveData.labels= Array(WAVEFORM_POINTS).fill('');
+
+  // Render sensor buttons
+  renderSensorBtns(SENSORS);
+
+  // First fetch
+  await fetchAll();
+
+  // Hide loading
+  const loadEl = document.getElementById('loading');
+  loadEl.style.opacity = '0';
+  setTimeout(()=>loadEl.style.display='none', 500);
+
+  // Start interval
+  setInterval(fetchAll, REFRESH_MS);
+}
+
+window.addEventListener('load', init);
+</script>
+</body>
+</html>

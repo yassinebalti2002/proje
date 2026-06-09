@@ -1,0 +1,994 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Maintenance Prédictive — ISG Bizerte</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600;700&family=Syne:wght@400;700;800&display=swap');
+:root{
+  --bg0:#04080f; --bg1:#080f1a; --bg2:#0c1624; --bg3:#111e30;
+  --c1:#00e5c0; --c2:#0ea5e9;
+  --red:#ef4444; --orange:#f97316; --green:#22c55e; --yellow:#eab308; --purple:#8b5cf6;
+  --t1:#e2f0ff; --t2:#7ba8c8; --t3:#3d5f7a;
+  --bd:rgba(0,229,192,.1); --bd2:rgba(14,165,233,.15);
+  --mono:'JetBrains Mono',monospace; --sans:'Syne',sans-serif;
+}
+*{margin:0;padding:0;box-sizing:border-box}
+body{background:var(--bg0);color:var(--t1);font-family:var(--sans);min-height:100vh;overflow-x:hidden}
+body::before{
+  content:'';position:fixed;inset:0;pointer-events:none;z-index:0;
+  background:
+    radial-gradient(ellipse 70% 40% at 20% 0%,rgba(0,229,192,.04),transparent),
+    radial-gradient(ellipse 50% 35% at 85% 85%,rgba(14,165,233,.04),transparent)
+}
+
+/* ── HEADER ── */
+header{
+  display:flex;align-items:center;justify-content:space-between;
+  padding:11px 22px;background:rgba(4,8,15,.94);
+  border-bottom:1px solid var(--bd);
+  position:sticky;top:0;z-index:200;backdrop-filter:blur(20px)
+}
+.logo{display:flex;align-items:center;gap:11px}
+.logo-icon{
+  width:36px;height:36px;border-radius:9px;
+  background:linear-gradient(135deg,var(--c1),var(--c2));
+  display:flex;align-items:center;justify-content:center;font-size:16px;
+  box-shadow:0 0 20px rgba(0,229,192,.25)
+}
+.logo h1{font-size:.85rem;font-weight:800;letter-spacing:2px;color:var(--c1)}
+.logo p{font-size:.6rem;color:var(--t3);font-family:var(--mono);margin-top:1px}
+.hdr-kpis{display:flex;gap:7px}
+.hk{
+  display:flex;align-items:center;gap:5px;padding:4px 10px;
+  border-radius:6px;background:rgba(255,255,255,.03);
+  border:1px solid var(--bd);font-size:.67rem;font-family:var(--mono)
+}
+.hk .v{color:var(--c1);font-weight:700} .hk .l{color:var(--t3)}
+.hdr-right{display:flex;align-items:center;gap:10px}
+#clk{font-family:var(--mono);font-size:.7rem;color:var(--c2)}
+.apib{
+  display:flex;align-items:center;gap:5px;padding:4px 11px;
+  border-radius:20px;font-size:.65rem;font-family:var(--mono);border:1px solid;transition:.3s
+}
+.apib.ok{background:rgba(34,197,94,.08);border-color:rgba(34,197,94,.3);color:var(--green)}
+.apib.err{background:rgba(239,68,68,.08);border-color:rgba(239,68,68,.3);color:var(--red)}
+.dot{width:6px;height:6px;border-radius:50%;background:currentColor;animation:pd 2s infinite}
+@keyframes pd{0%,100%{opacity:1;transform:scale(1)}50%{opacity:.4;transform:scale(.7)}}
+
+/* ── LAYOUT ── */
+.main{
+  display:grid;
+  grid-template-columns:280px 1fr 300px;
+  gap:12px;padding:12px 16px;
+  min-height:calc(100vh - 58px);
+  position:relative;z-index:1
+}
+
+/* ── KPI ROW ── */
+.krow{grid-column:1/-1;display:grid;grid-template-columns:repeat(6,1fr);gap:10px}
+.kc{
+  background:var(--bg1);border:1px solid var(--bd);border-radius:10px;
+  padding:12px 14px;position:relative;overflow:hidden;
+  transition:.2s;cursor:default
+}
+.kc:hover{border-color:rgba(0,229,192,.3);transform:translateY(-1px)}
+.kc-l{font-size:.6rem;color:var(--t3);text-transform:uppercase;letter-spacing:1px;margin-bottom:4px}
+.kc-v{font-size:1.45rem;font-weight:800;font-family:var(--mono);line-height:1}
+.kc-s{font-size:.6rem;color:var(--t3);margin-top:3px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.kc-b{position:absolute;bottom:0;left:0;height:2px;border-radius:0 1px 10px 0;transition:width 1.2s ease}
+
+/* ── LEFT PANEL ── */
+.pl{
+  background:var(--bg1);border:1px solid var(--bd);border-radius:13px;
+  display:flex;flex-direction:column;overflow:hidden;
+  max-height:calc(100vh - 108px)
+}
+.ptitle{
+  display:flex;align-items:center;justify-content:space-between;
+  padding:11px 13px;border-bottom:1px solid var(--bd);flex-shrink:0;
+  font-size:.67rem;font-weight:700;letter-spacing:1px;text-transform:uppercase;color:var(--c1)
+}
+.pcnt{font-family:var(--mono);font-size:.64rem;color:var(--t3);font-weight:400}
+.slist{flex:1;overflow-y:auto;padding:5px}
+.slist::-webkit-scrollbar{width:3px}
+.slist::-webkit-scrollbar-thumb{background:var(--bd2);border-radius:2px}
+.si{
+  display:flex;align-items:center;gap:9px;padding:9px 11px;
+  border-radius:8px;cursor:pointer;transition:.15s;
+  margin-bottom:3px;border:1px solid transparent
+}
+.si:hover{background:rgba(255,255,255,.03);border-color:var(--bd)}
+.si.sel{background:rgba(0,229,192,.06);border-color:rgba(0,229,192,.3)}
+.sled{width:9px;height:9px;border-radius:50%;flex-shrink:0;box-shadow:0 0 7px currentColor}
+.ln{color:var(--green);background:var(--green)}
+.lm{color:var(--yellow);background:var(--yellow)}
+.lh{color:var(--orange);background:var(--orange)}
+.lc{color:var(--red);background:var(--red);animation:bk .7s infinite}
+@keyframes bk{0%,100%{opacity:1}50%{opacity:.15}}
+.si-info{flex:1;min-width:0}
+.si-id{font-family:var(--mono);font-size:.7rem;color:var(--t1);font-weight:600}
+.si-sub{font-size:.6rem;color:var(--t3);margin-top:1px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.si-pct{font-family:var(--mono);font-size:.73rem;font-weight:700;min-width:30px;text-align:right}
+
+/* ── CENTER ── */
+.pc{display:flex;flex-direction:column;gap:11px}
+.dhdr{
+  background:var(--bg1);border:1px solid var(--bd);border-radius:13px;
+  padding:14px 17px;display:flex;align-items:center;justify-content:space-between
+}
+.d-id{font-family:var(--mono);font-size:1.2rem;font-weight:700;color:var(--c1)}
+.d-meta{font-size:.62rem;color:var(--t3);margin-top:2px}
+.dbdgs{display:flex;gap:6px;align-items:center;flex-wrap:wrap}
+.dbg{
+  padding:4px 10px;border-radius:5px;font-size:.64rem;
+  font-weight:700;font-family:var(--mono);border:1px solid
+}
+.dbg-n{background:rgba(34,197,94,.08);border-color:rgba(34,197,94,.3);color:var(--green)}
+.dbg-m{background:rgba(234,179,8,.08);border-color:rgba(234,179,8,.3);color:var(--yellow)}
+.dbg-h{background:rgba(249,115,22,.08);border-color:rgba(249,115,22,.3);color:var(--orange)}
+.dbg-c{background:rgba(239,68,68,.1);border-color:rgba(239,68,68,.4);color:var(--red)}
+.cr2{display:grid;grid-template-columns:1fr 1fr;gap:11px}
+.cc{
+  background:var(--bg1);border:1px solid var(--bd);border-radius:13px;
+  padding:13px;display:flex;flex-direction:column
+}
+.clbl{
+  font-size:.61rem;color:var(--t3);text-transform:uppercase;
+  letter-spacing:1px;margin-bottom:9px;
+  display:flex;align-items:center;justify-content:space-between
+}
+.clbl span{font-family:var(--mono);color:var(--c1);font-size:.69rem}
+canvas{max-height:150px}
+
+/* ── RIGHT PANEL ── */
+.pr{
+  background:var(--bg1);border:1px solid var(--bd);border-radius:13px;
+  display:flex;flex-direction:column;
+  overflow-y:auto;max-height:calc(100vh - 108px)
+}
+.pr::-webkit-scrollbar{width:3px}
+.pr::-webkit-scrollbar-thumb{background:var(--bd2);border-radius:2px}
+.ds{padding:11px 13px;border-bottom:1px solid var(--bd);flex-shrink:0}
+.ds:last-child{border-bottom:none}
+.dst{font-size:.61rem;color:var(--t3);text-transform:uppercase;letter-spacing:1px;margin-bottom:8px}
+
+.rul-dsp{text-align:center;padding:4px 0}
+.rul-h{font-family:var(--mono);font-size:1.9rem;font-weight:700;color:var(--c1);line-height:1}
+.rul-d{font-size:.7rem;color:var(--t2);margin-top:3px}
+.rul-bar{height:5px;background:var(--bg3);border-radius:3px;margin:8px 0}
+.rul-fill{height:100%;border-radius:3px;transition:width 1s,background 1s}
+
+.hring{display:flex;justify-content:center;padding:4px 0}
+
+.mg{display:grid;grid-template-columns:1fr 1fr;gap:4px}
+.mi{background:var(--bg2);border-radius:7px;padding:6px 9px}
+.mi-l{font-size:.57rem;color:var(--t3);margin-bottom:2px}
+.mi-v{font-family:var(--mono);font-size:.78rem;font-weight:600;color:var(--t1)}
+.mi-u{font-size:.58rem;color:var(--t3)}
+
+.vg{display:grid;grid-template-columns:1fr 1fr;gap:4px}
+.vi{display:flex;align-items:center;gap:7px;background:var(--bg2);border-radius:7px;padding:6px 9px}
+.vi-n{font-family:var(--mono);font-size:.66rem;color:var(--t2);flex:1}
+.vi-r{font-size:.64rem;font-weight:700;font-family:var(--mono)}
+.vok{color:var(--green)} .van{color:var(--red)}
+
+.alist{display:flex;flex-direction:column;gap:4px}
+.ai{
+  display:flex;align-items:flex-start;gap:6px;
+  padding:6px 9px;border-radius:7px;font-size:.63rem
+}
+.aic{background:rgba(239,68,68,.07);border:1px solid rgba(239,68,68,.2)}
+.aiw{background:rgba(249,115,22,.06);border:1px solid rgba(249,115,22,.15)}
+.aio{background:rgba(0,229,192,.04);border:1px solid rgba(0,229,192,.12)}
+.ai-ico{font-size:.8rem;flex-shrink:0}
+.ai-txt{color:var(--t2);line-height:1.4}
+.ai-ts{color:var(--t3);font-family:var(--mono);font-size:.58rem;margin-top:1px}
+
+.reco{
+  background:var(--bg2);border-radius:8px;padding:8px 11px;
+  font-size:.68rem;color:var(--t2);line-height:1.5;border-left:3px solid var(--c1)
+}
+
+.ld{
+  display:flex;align-items:center;justify-content:center;
+  height:55px;color:var(--t3);font-size:.7rem;font-family:var(--mono);gap:7px
+}
+.sp{
+  width:13px;height:13px;border:2px solid var(--bd2);border-top-color:var(--c1);
+  border-radius:50%;animation:rt .8s linear infinite;flex-shrink:0
+}
+@keyframes rt{to{transform:rotate(360deg)}}
+
+/* ── OVERLAY ── */
+#ov{
+  position:fixed;inset:0;background:rgba(4,8,15,.96);
+  display:flex;flex-direction:column;align-items:center;justify-content:center;
+  z-index:999;gap:13px;transition:opacity .5s
+}
+#ov.hidden{opacity:0;pointer-events:none}
+.ov-spin{
+  width:32px;height:32px;border:3px solid var(--bd2);border-top-color:var(--c1);
+  border-radius:50%;animation:rt .8s linear infinite;display:none
+}
+.ov-t{font-size:1.2rem;font-weight:800;color:var(--c1);letter-spacing:2px}
+.ov-s{font-size:.7rem;color:var(--t3);font-family:var(--mono)}
+#api-inp{
+  background:var(--bg2);border:1px solid var(--bd2);border-radius:8px;
+  color:var(--t1);font-family:var(--mono);font-size:.75rem;
+  padding:8px 14px;width:280px;outline:none;text-align:center
+}
+#api-inp:focus{border-color:var(--c1)}
+.ov-btn{
+  background:linear-gradient(135deg,var(--c1),var(--c2));
+  border:none;border-radius:8px;color:#000;
+  font-family:var(--sans);font-weight:700;font-size:.78rem;
+  padding:9px 26px;cursor:pointer;transition:.2s
+}
+.ov-btn:hover{opacity:.85;transform:translateY(-1px)}
+#ov-err{
+  color:var(--red);font-size:.68rem;font-family:var(--mono);
+  display:none;text-align:center;max-width:300px;line-height:1.5
+}
+</style>
+</head>
+<body>
+
+<!-- OVERLAY -->
+<div id="ov">
+  <div class="ov-spin" id="ovsp"></div>
+  <div class="ov-t">⚙ MAINTENANCE PRÉDICTIVE</div>
+  <div class="ov-s">ISG Bizerte · Novation City · API v3.1.0</div>
+  <div style="font-size:.68rem;color:var(--t3)">URL de votre API FastAPI</div>
+  <input id="api-inp" type="text" value="http://localhost:8000">
+  <button class="ov-btn" onclick="doConnect()">CONNECTER</button>
+  <div id="ov-err">❌ Connexion impossible<br>Vérifiez que python api_unified_pythagore.py tourne</div>
+</div>
+
+<!-- HEADER -->
+<header>
+  <div class="logo">
+    <div class="logo-icon">⚙</div>
+    <div>
+      <h1>Maintenance Prédictive</h1>
+      <p>ISG Bizerte · Novation City · API v3.1.0</p>
+    </div>
+  </div>
+  <div class="hdr-kpis">
+    <div class="hk"><span class="l">Capteurs</span>&nbsp;<span class="v" id="h-s">—</span></div>
+    <div class="hk"><span class="l">Anomalies</span>&nbsp;<span class="v" id="h-a" style="color:var(--red)">—</span></div>
+    <div class="hk"><span class="l">AUC-ROC</span>&nbsp;<span class="v" id="h-auc">0.683</span></div>
+    <div class="hk"><span class="l">F1</span>&nbsp;<span class="v" id="h-f1">0.401</span></div>
+    <div class="hk"><span class="l">Modèles</span>&nbsp;<span class="v">IF·LOF·OCSVM·ECOD</span></div>
+  </div>
+  <div class="hdr-right">
+    <div id="clk"></div>
+    <div class="apib err" id="apib"><span class="dot"></span><span id="apit">Déconnecté</span></div>
+  </div>
+</header>
+
+<!-- MAIN GRID -->
+<div class="main">
+
+  <!-- KPIs -->
+  <div class="krow">
+    <div class="kc">
+      <div class="kc-l">Capteurs actifs</div>
+      <div class="kc-v" id="k1" style="color:var(--c1)">—</div>
+      <div class="kc-s">sur 19 installés</div>
+      <div class="kc-b" id="kb1" style="background:linear-gradient(90deg,var(--c1),var(--c2))"></div>
+    </div>
+    <div class="kc">
+      <div class="kc-l">En anomalie</div>
+      <div class="kc-v" id="k2" style="color:var(--red)">—</div>
+      <div class="kc-s" id="k2s">taux —%</div>
+      <div class="kc-b" id="kb2" style="background:linear-gradient(90deg,var(--red),var(--orange))"></div>
+    </div>
+    <div class="kc">
+      <div class="kc-l">Santé moyenne</div>
+      <div class="kc-v" id="k3" style="color:var(--green)">—</div>
+      <div class="kc-s">score /100</div>
+      <div class="kc-b" id="kb3" style="background:linear-gradient(90deg,var(--green),var(--c1))"></div>
+    </div>
+    <div class="kc">
+      <div class="kc-l">RUL minimum</div>
+      <div class="kc-v" id="k4" style="color:var(--orange)">—</div>
+      <div class="kc-s" id="k4s">heures</div>
+      <div class="kc-b" id="kb4" style="background:linear-gradient(90deg,var(--orange),var(--yellow))"></div>
+    </div>
+    <div class="kc">
+      <div class="kc-l">Temp. max parc</div>
+      <div class="kc-v" id="k5" style="color:var(--yellow)">—</div>
+      <div class="kc-s" id="k5s">°C</div>
+      <div class="kc-b" id="kb5" style="background:linear-gradient(90deg,var(--yellow),var(--orange))"></div>
+    </div>
+    <div class="kc">
+      <div class="kc-l">Vib. max parc</div>
+      <div class="kc-v" id="k6" style="color:var(--c2)">—</div>
+      <div class="kc-s" id="k6s">mg</div>
+      <div class="kc-b" id="kb6" style="background:linear-gradient(90deg,var(--c2),var(--purple))"></div>
+    </div>
+  </div>
+
+  <!-- LEFT -->
+  <div class="pl">
+    <div class="ptitle">État du parc <span class="pcnt" id="pcnt">— capteurs</span></div>
+    <div class="slist" id="slist">
+      <div class="ld"><div class="sp"></div>Chargement capteurs IFM...</div>
+    </div>
+  </div>
+
+  <!-- CENTER -->
+  <div class="pc">
+    <div class="dhdr">
+      <div>
+        <div class="d-id" id="did">Sélectionnez un capteur</div>
+        <div class="d-meta" id="dmeta">Cliquez sur un capteur dans la liste à gauche</div>
+      </div>
+      <div class="dbdgs" id="dbdgs"></div>
+    </div>
+    <div class="cr2">
+      <div class="cc">
+        <div class="clbl">Score anomalie — historique <span id="sc-v">—</span></div>
+        <canvas id="cs" height="150"></canvas>
+      </div>
+      <div class="cc">
+        <div class="clbl">Vibrations totales 3D (mg) <span id="vb-v">—</span></div>
+        <canvas id="cv" height="150"></canvas>
+      </div>
+    </div>
+    <div class="cr2">
+      <div class="cc">
+        <div class="clbl">Température (°C) <span id="tp-v">—</span></div>
+        <canvas id="ct" height="150"></canvas>
+      </div>
+      <div class="cc">
+        <div class="clbl">Score santé — comparaison parc <span id="hs-v">—</span></div>
+        <canvas id="ch" height="150"></canvas>
+      </div>
+    </div>
+  </div>
+
+  <!-- RIGHT -->
+  <div class="pr">
+
+    <!-- RUL -->
+    <div class="ds">
+      <div class="dst">Remaining Useful Life</div>
+      <div class="rul-dsp">
+        <div class="rul-h" id="rh">—</div>
+        <div class="rul-d" id="rd">— jours estimés</div>
+      </div>
+      <div class="rul-bar"><div class="rul-fill" id="rf" style="width:0%"></div></div>
+      <div style="font-size:.61rem;color:var(--t3);text-align:center;margin-top:3px" id="r-al">Alerte : —</div>
+    </div>
+
+    <!-- Health gauge -->
+    <div class="ds">
+      <div class="dst">Score de santé moteur</div>
+      <div class="hring">
+        <svg width="90" height="90" viewBox="0 0 100 100">
+          <circle cx="50" cy="50" r="40" fill="none" stroke="#0c1624" stroke-width="9"/>
+          <circle id="harc" cx="50" cy="50" r="40" fill="none"
+            stroke="#00e5c0" stroke-width="9" stroke-linecap="round"
+            stroke-dasharray="251.2" stroke-dashoffset="251.2"
+            transform="rotate(-90 50 50)"
+            style="transition:stroke-dashoffset 1s ease,stroke 1s ease"/>
+          <text id="htxt" x="50" y="47" text-anchor="middle"
+            style="font-family:'JetBrains Mono';font-size:20px;font-weight:700;fill:#00e5c0">—</text>
+          <text x="50" y="61" text-anchor="middle"
+            style="font-family:'JetBrains Mono';font-size:9px;fill:#3d5f7a">/100</text>
+        </svg>
+      </div>
+      <div style="font-size:.6rem;color:var(--t3);text-align:center;margin-top:-3px">
+        35% Temp · 35% Vib3D · 30% Kurt
+      </div>
+    </div>
+
+    <!-- Mesures -->
+    <div class="ds">
+      <div class="dst">Mesures capteur</div>
+      <div class="mg">
+        <div class="mi"><div class="mi-l">Température</div><div class="mi-v"><span id="mt">—</span><span class="mi-u"> °C</span></div></div>
+        <div class="mi"><div class="mi-l">Vib Z RMS</div><div class="mi-v"><span id="mvz">—</span><span class="mi-u"> mg</span></div></div>
+        <div class="mi"><div class="mi-l">Vib Totale 3D</div><div class="mi-v"><span id="mvt">—</span><span class="mi-u"> mg</span></div></div>
+        <div class="mi"><div class="mi-l">Kurtosis</div><div class="mi-v"><span id="mk">—</span></div></div>
+        <div class="mi"><div class="mi-l">Dégradation</div><div class="mi-v"><span id="md">—</span><span class="mi-u"> %</span></div></div>
+        <div class="mi"><div class="mi-l">Tendance vib</div><div class="mi-v"><span id="mtr">—</span></div></div>
+      </div>
+    </div>
+
+    <!-- Votes -->
+    <div class="ds">
+      <div class="dst">Votes des 4 modèles ML</div>
+      <div class="vg">
+        <div class="vi"><span class="vi-n">Isolation Forest</span><span class="vi-r" id="vIF">—</span></div>
+        <div class="vi"><span class="vi-n">LOF</span><span class="vi-r" id="vLOF">—</span></div>
+        <div class="vi"><span class="vi-n">OCSVM</span><span class="vi-r" id="vOCSVM">—</span></div>
+        <div class="vi"><span class="vi-n">ECOD</span><span class="vi-r" id="vECOD">—</span></div>
+      </div>
+    </div>
+
+    <!-- Recommandation -->
+    <div class="ds">
+      <div class="dst">Recommandation</div>
+      <div class="reco" id="dreco">Sélectionnez un capteur</div>
+    </div>
+
+    <!-- Alertes -->
+    <div class="ds" style="flex:1">
+      <div class="dst">Journal alertes parc</div>
+      <div class="alist" id="alist">
+        <div class="ld" style="height:40px"><div class="sp"></div>En attente...</div>
+      </div>
+    </div>
+
+  </div><!-- /pr -->
+</div><!-- /main -->
+
+<script>
+// ═══════════════════════════════════════════
+// CONFIGURATION
+// ═══════════════════════════════════════════
+var API = 'http://' + window.location.hostname + ':8000';
+var SEL = null;
+var SD  = {};  // sensor_id -> data
+var HS  = {};  // history score
+var HV  = {};  // history vib
+var HT  = {};  // history temp
+var MX  = 30;  // max history points
+
+// 19 vrais capteurs IFM de la table full_data (SQL ai_cp)
+var IFM_IDS = [
+  '07da47b8','0ff416d2','2c6254af','3a782f1b','4b5e4b32',
+  '53cb61b2','68c11f06','6e0c1740','718fd2af','8f7f2f7e',
+  '91d92804','99695e98','a6a46be1','aa7b02a1','b2acdf45',
+  'bc59bf5f','d9508e77','eb084747','f48c25f9'
+];
+var IFM_SET = {};
+IFM_IDS.forEach(function(id){ IFM_SET[id] = true; });
+
+// ═══════════════════════════════════════════
+// HORLOGE
+// ═══════════════════════════════════════════
+setInterval(function(){
+  var n = new Date();
+  var el = document.getElementById('clk');
+  if(el) el.textContent = n.toLocaleDateString('fr-FR') + '  ' + n.toTimeString().slice(0,8);
+}, 1000);
+
+// ═══════════════════════════════════════════
+// GRAPHIQUES
+// ═══════════════════════════════════════════
+function makeLineChart(id, color, yMin, yMax){
+  return new Chart(document.getElementById(id), {
+    type: 'line',
+    data: { labels:[], datasets:[{
+      data:[], borderColor:color,
+      backgroundColor: color + '14',
+      borderWidth:2, pointRadius:0, fill:true, tension:.35
+    }]},
+    options:{
+      responsive:true, maintainAspectRatio:false, animation:{duration:250},
+      scales:{
+        x:{display:false},
+        y:{
+          min:yMin, max:yMax,
+          grid:{color:'rgba(255,255,255,.04)'},
+          ticks:{color:'#3d5f7a', font:{family:'JetBrains Mono', size:9}}
+        }
+      },
+      plugins:{
+        legend:{display:false},
+        tooltip:{
+          backgroundColor:'#0c1624', borderColor:'rgba(0,229,192,.25)',
+          borderWidth:1, titleColor:'#7ba8c8', bodyColor:'#e2f0ff',
+          titleFont:{family:'JetBrains Mono'}, bodyFont:{family:'JetBrains Mono'}
+        }
+      }
+    }
+  });
+}
+
+var cS = makeLineChart('cs', '#ef4444', 0, 1.1);
+var cV = makeLineChart('cv', '#0ea5e9', 0, 2500);
+var cT = makeLineChart('ct', '#f59e0b', 15, 70);
+
+var cH = new Chart(document.getElementById('ch'), {
+  type:'bar',
+  data:{labels:[], datasets:[{data:[], backgroundColor:[], borderRadius:4, barPercentage:.7}]},
+  options:{
+    responsive:true, maintainAspectRatio:false, animation:{duration:400},
+    scales:{
+      x:{ticks:{color:'#3d5f7a', font:{family:'JetBrains Mono',size:8}, maxRotation:45}, grid:{display:false}},
+      y:{min:0, max:100,
+         grid:{color:'rgba(255,255,255,.04)'},
+         ticks:{color:'#3d5f7a', font:{family:'JetBrains Mono',size:9}}}
+    },
+    plugins:{
+      legend:{display:false},
+      tooltip:{
+        backgroundColor:'#0c1624', borderColor:'rgba(0,229,192,.25)',
+        borderWidth:1, titleColor:'#7ba8c8', bodyColor:'#e2f0ff',
+        titleFont:{family:'JetBrains Mono'}, bodyFont:{family:'JetBrains Mono'},
+        callbacks:{label:function(ctx){ return 'Santé: ' + ctx.parsed.y.toFixed(1) + '/100'; }}
+      }
+    }
+  }
+});
+
+// ═══════════════════════════════════════════
+// CONNEXION API
+// ═══════════════════════════════════════════
+function initApiInput(){
+  var inp = document.getElementById('api-inp');
+  var host = window.location.hostname;
+  inp.value = 'http://' + host + ':8000';
+  API = inp.value;
+}
+
+function fetchMetrics(url){
+  fetch(url + '/metrics')
+    .then(function(r){ return r.json(); })
+    .then(function(m){
+      if(m.auc_roc && m.auc_roc > 0)
+        document.getElementById('h-auc').textContent = m.auc_roc.toFixed(3);
+      if(m.f1_score && m.f1_score > 0)
+        document.getElementById('h-f1').textContent = m.f1_score.toFixed(3);
+    })
+    .catch(function(){});
+}
+
+function doConnect(){
+  var url = document.getElementById('api-inp').value.trim().replace(/\/$/, '');
+  document.getElementById('ovsp').style.display = 'block';
+  document.getElementById('ov-err').style.display = 'none';
+  fetch(url + '/health')
+    .then(function(r){ if(!r.ok) throw new Error(); return r.json(); })
+    .then(function(d){
+      API = url;
+      document.getElementById('ov').classList.add('hidden');
+      setApiOK();
+      fetchMetrics(url);
+      startLoop();
+    })
+    .catch(function(){
+      document.getElementById('ovsp').style.display = 'none';
+      document.getElementById('ov-err').style.display = 'block';
+    });
+}
+
+function setApiOK(){
+  document.getElementById('apib').className = 'apib ok';
+  document.getElementById('apit').textContent = 'API — OK';
+}
+function setApiErr(){
+  document.getElementById('apib').className = 'apib err';
+  document.getElementById('apit').textContent = 'Connexion perdue';
+}
+
+window.addEventListener('load', function(){ setTimeout(doConnect, 600); });
+
+// ═══════════════════════════════════════════
+// BOUCLE PRINCIPALE
+// ═══════════════════════════════════════════
+function startLoop(){
+  fetchData();
+  setInterval(fetchData, 4000);
+}
+
+function fetchData(){
+  var url = 'realtime_results.json?t=' + Date.now();
+  fetch(url, {cache:'no-store', mode:'same-origin'})
+    .then(function(r){
+      if(!r.ok) throw new Error('HTTP ' + r.status);
+      return r.json();
+    })
+    .then(function(raw){
+      if(!Array.isArray(raw) || raw.length === 0) throw new Error('JSON vide');
+      processJSON(raw);
+      setApiOK();
+    })
+    .catch(function(err){
+      // Fallback /sensors uniquement si aucune donnée live en mémoire
+      // Evite de mélanger données live + données historiques CSV
+      if(Object.keys(SD).length > 0) return;
+      fetch(API + '/sensors', {signal: AbortSignal.timeout ? AbortSignal.timeout(3000) : undefined})
+        .then(function(r){ return r.json(); })
+        .then(function(d){
+          if(d.sensors && d.sensors.length > 0){
+            processAPISensors(d.sensors);
+            setApiOK();
+          }
+        })
+        .catch(setApiErr);
+    });
+}
+
+// ═══════════════════════════════════════════
+// TRAITEMENT realtime_results.json
+// ═══════════════════════════════════════════
+function processJSON(raw){
+  // Filtrer strictement les 20 capteurs IFM connus (ignore test_*, port*, Motor_*)
+  var valid = raw.filter(function(e){ return e && e.sensor_id && IFM_SET[e.sensor_id]; });
+  if(valid.length === 0) return;
+
+  // Trier par itération croissante
+  valid.sort(function(a,b){ return (a.iteration||0) - (b.iteration||0); });
+
+  // Reset historique
+  HS = {}; HV = {}; HT = {};
+
+  // Construire l'historique ET garder la dernière entrée par capteur
+  var latest = {};
+  valid.forEach(function(e){
+    var sid  = e.sensor_id;
+    var pred = e.predict || {};
+    var rul  = e.rul     || {};
+    var feat = pred.features || {};
+    var msr  = e.measurement || {};
+    var ts   = (pred.timestamp || e.timestamp || '').slice(11, 19);
+
+    if(!HS[sid]){ HS[sid]=[]; HV[sid]=[]; HT[sid]=[]; }
+    var hs_val = (pred.anomaly_score !== undefined && pred.anomaly_score !== null) ? +pred.anomaly_score : 0;
+    HS[sid].push({v: hs_val, ts: ts});
+    var hv_val = (feat.vib_total !== undefined && feat.vib_total !== null) ? +feat.vib_total
+              : (msr.vibration_total !== undefined && msr.vibration_total !== null) ? +msr.vibration_total
+              : (feat.vib_z_mean !== undefined && feat.vib_z_mean !== null) ? +feat.vib_z_mean : 0;
+    var ht_val = (feat.temp_cur !== undefined && feat.temp_cur !== null) ? +feat.temp_cur
+              : (feat.temp_mean !== undefined && feat.temp_mean !== null) ? +feat.temp_mean
+              : (msr.temperature !== undefined && msr.temperature !== null) ? +msr.temperature : 0;
+    HV[sid].push({v: hv_val, ts: ts});
+    HT[sid].push({v: ht_val, ts: ts});
+    if(HS[sid].length > MX){ HS[sid].shift(); HV[sid].shift(); HT[sid].shift(); }
+
+    if(!latest[sid] || (e.iteration||0) > (latest[sid].iteration||0)){
+      latest[sid] = e;
+    }
+  });
+
+  // Construire SD depuis la dernière entrée de chaque capteur
+  SD = {};
+  Object.keys(latest).forEach(function(sid){
+    var e    = latest[sid];
+    var pred = e.predict     || {};
+    var rul  = e.rul         || {};
+    var feat = pred.features || {};
+    var msr  = e.measurement || {};
+    var trend= rul.trend     || {};
+
+    // health_score depuis rul (formule: 30%temp+30%vib3D+25%kurt+15%courant)
+    var health = (rul.health_score !== null && rul.health_score !== undefined)
+                 ? +rul.health_score
+                 : (feat.health_score !== null && feat.health_score !== undefined)
+                 ? +feat.health_score : 0;
+
+    // RUL depuis /v1/predict-rul
+    var rul_h = (rul.rul_hours !== null && rul.rul_hours !== undefined) ? +rul.rul_hours : 0;
+    var rul_d = (rul.rul_days  !== null && rul.rul_days  !== undefined) ? +rul.rul_days  : 0;
+
+    // Utiliser une fonction sûre pour eviter le problème || avec 0
+    function safeNum(v){ return (v !== null && v !== undefined) ? +v : 0; }
+    SD[sid] = {
+      sid:        sid,
+      score:      safeNum(pred.anomaly_score),
+      risk:       pred.risk_level    || 'FAIBLE',
+      prediction: pred.prediction    || 'NORMAL',
+      votes:      safeNum(pred.votes),
+      models:     pred.individual_models || {},
+      health:     health,
+      rul_h:      rul_h,
+      rul_d:      rul_d,
+      alert:      rul.alert_level    || 'OK',
+      reco:       rul.recommendation || pred.recommendation || '—',
+      deg_rate:   safeNum(rul.degradation_rate),
+      temp:       feat.temp_cur   !== undefined ? safeNum(feat.temp_cur)
+                : feat.temp_mean  !== undefined ? safeNum(feat.temp_mean)
+                : safeNum(msr.temperature),
+      vib_z:      feat.vib_z_cur  !== undefined ? safeNum(feat.vib_z_cur)
+                : feat.vib_z_mean !== undefined ? safeNum(feat.vib_z_mean)
+                : safeNum(msr.vibration_z),
+      vib_total:  feat.vib_total       !== undefined ? safeNum(feat.vib_total)
+                : msr.vibration_total  !== undefined ? safeNum(msr.vibration_total)
+                : safeNum(feat.vib_z_mean),
+      kurt:       safeNum(feat.vib_z_kurt),
+      vib_trend:  safeNum(trend.vib_total_trend),
+      ts:         (pred.timestamp || e.timestamp || '').slice(11, 19),
+      iter:       safeNum(e.iteration)
+    };
+  });
+
+  renderList();
+  updateKPIs();
+  if(SEL && SD[SEL]) renderDetail(SEL);
+  else if(!SEL){
+    var ids = Object.keys(SD);
+    if(ids.length > 0) selectSensor(ids[0]);
+  }
+}
+
+// Fallback si realtime_results.json non disponible
+function processAPISensors(list){
+  SD = {};  // toujours repartir de zero
+  list.filter(function(s){ return s && s.sensor_id && IFM_SET[s.sensor_id]; }).forEach(function(s){
+    var sid = s.sensor_id;
+    SD[sid] = {
+      sid:sid, score:+(s.avg_score||0), health:+(s.avg_health||0),
+      risk:'FAIBLE', prediction:'NORMAL', votes:0, models:{}, rul_h:0, rul_d:0,
+      alert:'OK', reco:'En attente de données temps réel...', deg_rate:0,
+      temp:0, vib_z:0, vib_total:0, kurt:0, vib_trend:0, ts:'—', iter:0
+    };
+  });
+  renderList(); updateKPIs();
+}
+
+// ═══════════════════════════════════════════
+// HELPERS LED / COULEUR
+// ═══════════════════════════════════════════
+function ledClass(s){
+  if(s >= .67) return 'lc';
+  if(s >= .45) return 'lh';
+  if(s >= .25) return 'lm';
+  return 'ln';
+}
+function ledColor(s){
+  if(s >= .67) return '#ef4444';
+  if(s >= .45) return '#f97316';
+  if(s >= .25) return '#eab308';
+  return '#22c55e';
+}
+function badgeClass(s){
+  if(s >= .67) return 'dbg-c';
+  if(s >= .45) return 'dbg-h';
+  if(s >= .25) return 'dbg-m';
+  return 'dbg-n';
+}
+function alertColor(al){
+  if(al === 'CRITIQUE') return '#ef4444';
+  if(al === 'URGENT')   return '#f97316';
+  if(al === 'ATTENTION')return '#eab308';
+  return '#22c55e';
+}
+
+// ═══════════════════════════════════════════
+// RENDU LISTE CAPTEURS
+// ═══════════════════════════════════════════
+function renderList(){
+  var list = document.getElementById('slist');
+  var sorted = Object.values(SD).sort(function(a,b){ return b.score - a.score; });
+  document.getElementById('pcnt').textContent = sorted.length + ' capteurs';
+  document.getElementById('h-s').textContent  = sorted.length;
+
+  var html = '';
+  sorted.forEach(function(s){
+    var sel = s.sid === SEL ? ' sel' : '';
+    html += '<div class="si' + sel + '" id="si-' + s.sid + '" onclick="selectSensor(\'' + s.sid + '\')">'
+          + '<div class="sled ' + ledClass(s.score) + '"></div>'
+          + '<div class="si-info">'
+          + '<div class="si-id">' + s.sid + '</div>'
+          + '<div class="si-sub">' + (s.iter>0&&s.temp>0 ? s.temp.toFixed(1)+'°C' : '—') + ' · ' + (s.iter>0&&s.vib_total>0 ? s.vib_total.toFixed(0)+'mg' : '—') + ' · ' + s.risk + '</div>'
+          + '</div>'
+          + '<div class="si-pct" style="color:' + ledColor(s.score) + '">' + (s.score*100).toFixed(0) + '%</div>'
+          + '</div>';
+  });
+  list.innerHTML = html;
+}
+
+// ═══════════════════════════════════════════
+// MISE À JOUR KPIs
+// ═══════════════════════════════════════════
+function setEl(id, v){ var el=document.getElementById(id); if(el) el.textContent=v; }
+function setW(id, pct){ var el=document.getElementById(id); if(el) el.style.width=pct+'%'; }
+
+function updateKPIs(){
+  var vals = Object.values(SD);
+  if(!vals.length) return;
+  var n    = vals.length;
+  var nAn  = vals.filter(function(s){ return s.score >= .45; }).length;
+  var avgH = vals.reduce(function(a,s){ return a+s.health; }, 0) / n;
+
+  var minRUL = 99999, minRULSid = '';
+  vals.forEach(function(s){ if(s.rul_h>0 && s.rul_h<minRUL){ minRUL=s.rul_h; minRULSid=s.sid; }});
+
+  var maxT = vals.reduce(function(a,s){ return (s.temp||0)>(a.temp||0)?s:a; }, vals[0]);
+  var maxV = vals.reduce(function(a,s){ return (s.vib_total||0)>(a.vib_total||0)?s:a; }, vals[0]);
+  var hasRealData = vals.some(function(s){ return s.iter > 0; });
+
+  setEl('k1', n);             setW('kb1', n/19*100);
+  setEl('k2', nAn);           setEl('k2s','taux '+(nAn/n*100).toFixed(0)+'%'); setW('kb2', nAn/n*100);
+  setEl('k3', avgH.toFixed(1)); setW('kb3', avgH);
+  setEl('h-a', nAn);
+
+  if(minRUL < 99999){
+    setEl('k4', minRUL.toFixed(0));
+    setEl('k4s', 'h · ' + minRULSid);
+    setW('kb4', Math.min(100, minRUL/720*100));
+  } else {
+    setEl('k4', '—'); setEl('k4s', 'en attente...');
+  }
+  if(hasRealData && maxT.temp > 0){
+    setEl('k5', maxT.temp.toFixed(1)); setEl('k5s','°C · '+maxT.sid); setW('kb5', Math.min(100,(maxT.temp-15)/60*100));
+    setEl('k6', maxV.vib_total.toFixed(0)); setEl('k6s','mg · '+maxV.sid); setW('kb6', Math.min(100,maxV.vib_total/2500*100));
+  } else {
+    setEl('k5','—'); setEl('k5s','en attente de données...');
+    setEl('k6','—'); setEl('k6s','en attente de données...');
+  }
+
+  // Graphique santé comparaison (tous capteurs)
+  var sorted = Object.values(SD).slice().sort(function(a,b){ return a.health-b.health; });
+  cH.data.labels = sorted.map(function(s){ return s.sid.slice(0,8); });
+  cH.data.datasets[0].data = sorted.map(function(s){ return +s.health.toFixed(1); });
+  cH.data.datasets[0].backgroundColor = sorted.map(function(s){
+    if(s.health>=80) return '#22c55e55';
+    if(s.health>=65) return '#eab30855';
+    if(s.health>=50) return '#f9731655';
+    return '#ef444455';
+  });
+  cH.update('none');
+  setEl('hs-v', avgH.toFixed(1));
+}
+
+// ═══════════════════════════════════════════
+// SÉLECTION + DÉTAIL CAPTEUR
+// ═══════════════════════════════════════════
+function selectSensor(sid){
+  SEL = sid;
+  document.querySelectorAll('.si').forEach(function(e){ e.classList.remove('sel'); });
+  var el = document.getElementById('si-'+sid);
+  if(el) el.classList.add('sel');
+  renderDetail(sid);
+}
+
+function renderDetail(sid){
+  var s = SD[sid];
+  if(!s) return;
+
+  // En-tête
+  setEl('did',   sid);
+  setEl('dmeta', 'Capteur IFM · Novation City · ' + s.ts + ' · Itération ' + s.iter);
+
+  // Badges
+  var bc = badgeClass(s.score);
+  document.getElementById('dbdgs').innerHTML =
+    '<div class="dbg ' + bc + '">' + s.risk + '</div>'
+  + '<div class="dbg" style="background:rgba(14,165,233,.07);border-color:rgba(14,165,233,.25);color:#0ea5e9">'
+  + s.votes + '/4 votes · ' + (s.score*100).toFixed(0) + '%</div>'
+  + '<div class="dbg" style="background:rgba(139,92,246,.07);border-color:rgba(139,92,246,.25);color:#a78bfa">'
+  + s.prediction + '</div>';
+
+  // ─── Graphique score anomalie
+  if(HS[sid] && HS[sid].length){
+    cS.data.labels = HS[sid].map(function(h){ return h.ts; });
+    cS.data.datasets[0].data = HS[sid].map(function(h){ return h.v; });
+    var maxS = Math.max.apply(null, HS[sid].map(function(h){ return h.v; }));
+    cS.options.scales.y.max = Math.min(1.05, +(maxS * 1.1).toFixed(2));
+    cS.options.scales.y.min = 0;
+    cS.update('none');
+    setEl('sc-v', s.score.toFixed(3));
+  }
+
+  // ─── Graphique vibrations
+  if(HV[sid] && HV[sid].length){
+    cV.data.labels = HV[sid].map(function(h){ return h.ts; });
+    cV.data.datasets[0].data = HV[sid].map(function(h){ return h.v; });
+    var maxV = Math.max.apply(null, HV[sid].map(function(h){ return h.v; }));
+    cV.options.scales.y.max = Math.min(2500, +(maxV * 1.2).toFixed(0));
+    cV.update('none');
+    setEl('vb-v', s.vib_total.toFixed(0) + ' mg');
+  }
+
+  // ─── Graphique température
+  if(HT[sid] && HT[sid].length){
+    cT.data.labels = HT[sid].map(function(h){ return h.ts; });
+    cT.data.datasets[0].data = HT[sid].map(function(h){ return h.v; });
+    var maxT2 = Math.max.apply(null, HT[sid].map(function(h){ return h.v; }));
+    var minT2 = Math.min.apply(null, HT[sid].map(function(h){ return h.v; }));
+    cT.options.scales.y.max = Math.min(75, maxT2 + 5);
+    cT.options.scales.y.min = Math.max(10, minT2 - 5);
+    cT.update('none');
+    setEl('tp-v', s.temp.toFixed(1) + '°C');
+  }
+
+  // ─── RUL (depuis entry.rul.rul_hours)
+  setEl('rh', s.rul_h > 0 ? s.rul_h.toFixed(0) + ' h' : '—');
+  setEl('rd', s.rul_d > 0 ? s.rul_d.toFixed(1) + ' jours estimés' : '—');
+  var pct = Math.min(100, s.rul_h / 720 * 100);
+  var rf = document.getElementById('rf');
+  rf.style.width = pct + '%';
+  // CDC : OK>14j(47%), ATTENTION 7-14j(23%), URGENT 3-7j(10%), CRITIQUE<3j
+  rf.style.background = pct > 47 ? '#22c55e' : pct > 23 ? '#eab308' : pct > 10 ? '#f97316' : '#ef4444';
+  var alC = alertColor(s.alert);
+  document.getElementById('r-al').innerHTML =
+    'Alerte : <b style="color:' + alC + '">' + s.alert + '</b>'
+  + ' · Dégradation <b>' + s.deg_rate.toFixed(1) + '%</b>';
+
+  // ─── Jauge santé (depuis entry.rul.health_score = formule corrigée)
+  setGauge(s.health);
+
+  // ─── Mesures (afficher — si pas encore de données temps réel)
+  var hasData = s.iter > 0;
+  setEl('mt',  hasData && s.temp>0      ? s.temp.toFixed(1)      : '—');
+  setEl('mvz', hasData && s.vib_z>0     ? s.vib_z.toFixed(0)     : '—');
+  setEl('mvt', hasData && s.vib_total>0 ? s.vib_total.toFixed(0) : '—');
+  setEl('mk',  hasData                  ? s.kurt.toFixed(2)      : '—');
+  setEl('md',  hasData && s.deg_rate>0  ? s.deg_rate.toFixed(1)  : '—');
+  var mtr = document.getElementById('mtr');
+  var tr = s.vib_trend;
+  if(tr > 0.5){
+    mtr.textContent = '↑ En hausse'; mtr.style.color = '#ef4444';
+  } else if(tr < -0.5){
+    mtr.textContent = '↓ En baisse'; mtr.style.color = '#22c55e';
+  } else {
+    mtr.textContent = '→ Stable'; mtr.style.color = '#00e5c0';
+  }
+
+  // ─── Votes des 4 modèles
+  ['IF','LOF','OCSVM','ECOD'].forEach(function(nm){
+    var el  = document.getElementById('v' + nm);
+    if(!el) return;
+    var isA = s.models[nm] === 'ANOMALY';
+    el.textContent = isA ? '🔴 ANOMALY' : '🟢 NORMAL';
+    el.className   = 'vi-r ' + (isA ? 'van' : 'vok');
+  });
+
+  // ─── Recommandation
+  setEl('dreco', s.reco || '—');
+
+  // ─── Alertes
+  renderAlerts();
+}
+
+// ═══════════════════════════════════════════
+// JAUGE SANTÉ SVG
+// ═══════════════════════════════════════════
+function setGauge(val){
+  var arc = document.getElementById('harc');
+  var txt = document.getElementById('htxt');
+  var offset = 251.2 - (val / 100) * 251.2;
+  arc.style.strokeDashoffset = offset;
+  txt.textContent = val > 0 ? val.toFixed(0) : '—';
+  var c = val >= 80 ? '#22c55e' : val >= 65 ? '#f59e0b' : val >= 50 ? '#f97316' : '#ef4444';
+  arc.style.stroke = c;
+  txt.setAttribute('fill', c);
+}
+
+// ═══════════════════════════════════════════
+// JOURNAL ALERTES
+// ═══════════════════════════════════════════
+function renderAlerts(){
+  var list = document.getElementById('alist');
+  var crits = Object.values(SD)
+    .filter(function(s){ return s.score >= .45; })
+    .sort(function(a,b){ return b.score - a.score; });
+
+  if(!crits.length){
+    list.innerHTML = '<div class="ai aio"><span class="ai-ico">✅</span>'
+      + '<div><div class="ai-txt">Aucune anomalie détectée</div></div></div>';
+    return;
+  }
+
+  var html = '';
+  crits.slice(0, 8).forEach(function(s){
+    var cls = s.score >= .67 ? 'aic' : 'aiw';
+    var ico = s.score >= .67 ? '🔴' : '🟠';
+    html += '<div class="ai ' + cls + '">'
+          + '<span class="ai-ico">' + ico + '</span>'
+          + '<div>'
+          + '<div class="ai-txt"><b>' + s.sid + '</b>'
+          + ' · ' + s.temp.toFixed(1) + '°C'
+          + ' · ' + s.vib_total.toFixed(0) + 'mg'
+          + ' · ' + s.risk + '</div>'
+          + '<div class="ai-ts">' + s.ts
+          + ' · RUL ' + s.rul_h.toFixed(0) + 'h'
+          + ' · Santé ' + s.health.toFixed(0) + '/100</div>'
+          + '</div></div>';
+  });
+  list.innerHTML = html;
+}
+
+window.addEventListener('load', function(){ initApiInput(); });
+</script>
+</body>
+</html>

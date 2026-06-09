@@ -1,0 +1,106 @@
+{
+  "model": "GradientBoostingRegressor",
+  "n_features": 46,
+  "n_train": 6000,
+  "n_test": 1500,
+  "mae_train_h": 267.91,
+  "mae_test_h": 300.04,
+  "mae_test_pct": 35.05,
+  "rmse_test_h": 408.58,
+  "r2_test": 0.5907,
+  "cv_mae_h": 310.49,
+  "cv_std_h": 8.19,
+  "rf_mae_test_h": 297.43,
+  "rf_r2_test": 0.593,
+  "top10_features": [
+    {
+      "feature": "spec_total_energy",
+      "importance": 0.4049
+    },
+    {
+      "feature": "health_score",
+      "importance": 0.1016
+    },
+    {
+      "feature": "spectral_kurtosis",
+      "importance": 0.089
+    },
+    {
+      "feature": "acc_p2p",
+      "importance": 0.0841
+    },
+    {
+      "feature": "env_rms",
+      "importance": 0.044
+    },
+    {
+      "feature": "spec_entropy",
+      "importance": 0.0163
+    },
+    {
+      "feature": "temp_cur",
+      "importance": 0.0132
+    },
+    {
+      "feature": "env_kurtosis",
+      "importance": 0.0132
+    },
+    {
+      "feature": "vib_x_rms_w",
+      "importance": 0.0127
+    },
+    {
+      "feature": "current_std",
+      "importance": 0.0113
+    }
+  ],
+  "trained_at": "2026-06-04T18:12:30.835104",
+  "feature_cols": [
+    "temp_mean",
+    "temp_std",
+    "temp_trend",
+    "temp_cur",
+    "vib_z_mean",
+    "vib_z_std",
+    "vib_z_rms_w",
+    "vib_z_kurt",
+    "vib_z_crest",
+    "vib_z_cur",
+    "vib_x_mean",
+    "vib_x_std",
+    "vib_x_rms_w",
+    "vib_x_kurt",
+    "vib_y_mean",
+    "vib_y_std",
+    "vib_y_rms_w",
+    "vib_y_kurt",
+    "vib_xy_ratio",
+    "vib_xz_ratio",
+    "current_mean",
+    "current_std",
+    "vib_total",
+    "health_score",
+    "acc_p2p",
+    "spec_peak_freq",
+    "spec_centroid",
+    "spec_bandwidth",
+    "spec_entropy",
+    "spec_flatness",
+    "spec_total_energy",
+    "spec_band_low_ratio",
+    "spec_band_mid_ratio",
+    "spec_band_high_ratio",
+    "env_kurtosis",
+    "env_rms",
+    "env_crest",
+    "bearing_bpfo_snr",
+    "bearing_bpfi_snr",
+    "bearing_bsf_snr",
+    "bearing_fault_severity",
+    "spectral_skewness",
+    "spectral_kurtosis",
+    "harmonic_ratio",
+    "noise_ratio",
+    "wavelet_entropy"
+  ]
+}

@@ -1,0 +1,23 @@
+metric,value
+f1_score,0.1894
+accuracy,0.8473
+precision,0.1884
+recall,0.1904
+auc_roc,0.5528
+n_anomalies,7000
+n_total,73917
+contamination,0.094
+model_version,V3
+n_features,31
+ensemble,IF + LOF + OCSVM + ECOD
+voting,Vote2/4 majoritaire
+augmentation,x3
+pca_variance,0.95
+window_size,20
+dataset,ai_cp full_data — mesures reelles — 20 capteurs IFM — nov2025-mar2026
+ecod_type,pyod
+weights_if,0.25
+weights_lof,0.25
+weights_ocsvm,0.25
+weights_ecod,0.25
+trained_at,2026-06-08T23:50:08.703348

@@ -1,0 +1,47 @@
+# Environnement virtuel
+venv/
+.venv/
+env/
+
+# Cache Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Logs runtime (générés automatiquement)
+*.log
+logs_moteur.txt
+logs_api.txt
+logs_http.txt
+api_test_output.log
+
+# Fichiers runtime (générés au démarrage)
+realtime_results.json
+simulator_results.json
+anomaly_history_persist.json
+alert_history.json
+test_report.json
+
+# Dataset trop volumineux pour GitHub (30 MB)
+data/dataset_real_full.csv
+
+# Fichiers marqueurs vides
+REPLAY SQL*
+TEMPS REEL*
+
+# Fichiers non utilisés
+api_client.py
+fix_mariadb.py
+
+# IDE
+.vscode/
+.idea/
+*.swp
+
+# OS
+.DS_Store
+Thumbs.db
+
+# pytest
+.pytest_cache/

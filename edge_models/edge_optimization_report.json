@@ -1,0 +1,62 @@
+{
+  "timestamp": "2026-06-04T15:21:39",
+  "platform": "AMD64",
+  "is_arm": false,
+  "dependencies": {
+    "skl2onnx": null,
+    "onnxruntime": null,
+    "onnx": null,
+    "platform": "AMD64",
+    "python": "3.11.9",
+    "is_arm": false
+  },
+  "model_sizes": {
+    "features_rul_v1.pkl": 0.0,
+    "features_v3.pkl": 0.0,
+    "model_ecod_v3.pkl": 175.66,
+    "model_if_v3.pkl": 1.49,
+    "model_lof_v3.pkl": 5.65,
+    "model_ocsvm_v3.pkl": 57.86,
+    "model_rul_rf_edge_v1.pkl": 0.45,
+    "model_rul_v1.pkl": 0.09,
+    "pca_v3.pkl": 0.0,
+    "scaler_rul_v1.pkl": 0.0,
+    "scaler_v3.pkl": 0.0,
+    "threshold_v3.pkl": 0.0,
+    "TOTAL_MB": 241.21
+  },
+  "sklearn_benchmark": {
+    "preprocess_ms": 0.6379,
+    "if_ms": 4.1412,
+    "lof_ms": 21.1487,
+    "ocsvm_ms": 2.6328,
+    "total_ensemble_ms": 28.5607,
+    "throughput_pred_per_sec": 35.0
+  },
+  "onnx_export": {},
+  "onnx_vs_sklearn": {},
+  "recommendations": [
+    {
+      "priority": "HIGH",
+      "message": "Taille totale mod\u00e8les : 241 MB \u2014 trop lourds pour un Pi 4 (RAM 4GB limit\u00e9e).",
+      "action": "Utiliser edge_pipeline_if_only.pkl (< 5MB) pour l'Edge."
+    },
+    {
+      "priority": "HIGH",
+      "message": "ECOD : 176 MB \u2014 \u00e0 exclure du d\u00e9ploiement Edge.",
+      "action": "Supprimer ECOD du docker-compose Edge, utiliser IF+OCSVM seulement."
+    },
+    {
+      "priority": "LOW",
+      "message": "skl2onnx non install\u00e9 \u2014 export ONNX non disponible.",
+      "action": "pip install skl2onnx onnxruntime"
+    }
+  ],
+  "summary": {
+    "total_model_size_mb": 241.21,
+    "inference_latency_ms": 28.5607,
+    "recommended_for_edge": "edge_pipeline_if_only.pkl",
+    "onnx_available": false,
+    "offline_mode_ready": true
+  }
+}

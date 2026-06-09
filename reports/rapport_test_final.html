@@ -1,0 +1,1224 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Rapport Quotidien — Maintenance Prédictive</title>
+<style>
+  :root {
+    --primary: #1a3a5c; --accent: #0088cc; --danger: #dc3545;
+    --warning: #fd7e14; --success: #28a745; --info: #17a2b8;
+    --bg: #f4f7fb; --card: #ffffff; --text: #2c3e50;
+    --border: #dee2e6; --muted: #6c757d;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: 'Segoe UI', Arial, sans-serif; background: var(--bg); color: var(--text); }
+  .header { background: linear-gradient(135deg, var(--primary), #2d6a9f); color: white;
+             padding: 24px 32px; display: flex; justify-content: space-between; align-items: center; }
+  .header h1 { font-size: 24px; font-weight: 700; }
+  .header .meta { font-size: 13px; opacity: 0.85; text-align: right; }
+  .container { max-width: 1200px; margin: 0 auto; padding: 24px; }
+  .section { margin-bottom: 28px; }
+  .section-title { font-size: 16px; font-weight: 700; color: var(--primary);
+                    border-left: 4px solid var(--accent); padding-left: 12px;
+                    margin-bottom: 16px; text-transform: uppercase; letter-spacing: 0.5px; }
+  .kpi-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 16px; }
+  .kpi-card { background: var(--card); border-radius: 10px; padding: 20px; text-align: center;
+               box-shadow: 0 2px 8px rgba(0,0,0,0.08); border-top: 4px solid var(--accent); }
+  .kpi-card.danger  { border-top-color: var(--danger); }
+  .kpi-card.warning { border-top-color: var(--warning); }
+  .kpi-card.success { border-top-color: var(--success); }
+  .kpi-value { font-size: 36px; font-weight: 800; color: var(--primary); line-height: 1.1; }
+  .kpi-value.danger  { color: var(--danger); }
+  .kpi-value.warning { color: var(--warning); }
+  .kpi-value.success { color: var(--success); }
+  .kpi-label { font-size: 12px; color: var(--muted); margin-top: 6px; font-weight: 600; text-transform: uppercase; }
+  table { width: 100%; border-collapse: collapse; background: var(--card);
+           border-radius: 10px; overflow: hidden; box-shadow: 0 2px 8px rgba(0,0,0,0.08); }
+  thead { background: var(--primary); color: white; }
+  th { padding: 12px 14px; font-size: 12px; font-weight: 700; text-transform: uppercase;
+        letter-spacing: 0.5px; text-align: left; }
+  td { padding: 11px 14px; font-size: 13px; border-bottom: 1px solid var(--border); }
+  tr:last-child td { border-bottom: none; }
+  tr:hover td { background: #f0f4f8; }
+  .badge { display: inline-block; padding: 3px 10px; border-radius: 12px; font-size: 11px;
+            font-weight: 700; text-transform: uppercase; }
+  .badge-danger  { background: #fde8ea; color: var(--danger); }
+  .badge-warning { background: #fff3e0; color: #e65100; }
+  .badge-info    { background: #e0f4ff; color: #0277bd; }
+  .badge-success { background: #e8f5e9; color: #1b5e20; }
+  .badge-secondary { background: #f0f0f0; color: #555; }
+  .alert-box { padding: 14px 18px; border-radius: 8px; margin-bottom: 12px;
+                border-left: 5px solid; display: flex; align-items: flex-start; gap: 12px; }
+  .alert-box.critical { background: #fde8ea; border-color: var(--danger); }
+  .alert-box.warning  { background: #fff8e1; border-color: var(--warning); }
+  .alert-box.info     { background: #e3f2fd; border-color: var(--info); }
+  .alert-box .alert-title { font-weight: 700; font-size: 14px; }
+  .alert-box .alert-body  { font-size: 13px; color: var(--muted); margin-top: 3px; }
+  .health-bar { height: 8px; border-radius: 4px; background: #e9ecef; overflow: hidden; }
+  .health-fill { height: 100%; border-radius: 4px; transition: width 0.3s; }
+  .timeline { list-style: none; position: relative; padding-left: 24px; }
+  .timeline::before { content: ''; position: absolute; left: 8px; top: 0; bottom: 0;
+                       width: 2px; background: var(--border); }
+  .timeline li { position: relative; padding: 0 0 18px 20px; }
+  .timeline li::before { content: ''; position: absolute; left: -8px; top: 4px;
+                          width: 12px; height: 12px; border-radius: 50%;
+                          background: var(--accent); border: 2px solid white;
+                          box-shadow: 0 0 0 2px var(--accent); }
+  .timeline li.critical::before { background: var(--danger); box-shadow: 0 0 0 2px var(--danger); }
+  .timeline li.urgent::before   { background: var(--warning); box-shadow: 0 0 0 2px var(--warning); }
+  .footer { text-align: center; padding: 24px; color: var(--muted); font-size: 12px;
+             border-top: 1px solid var(--border); margin-top: 32px; }
+  @media print {
+    .no-print { display: none !important; }
+    body { background: white; }
+    .kpi-card, table { box-shadow: none; border: 1px solid var(--border); }
+  }
+</style>
+</head>
+<body>
+
+<div class="header">
+  <div>
+    <h1>Rapport de Maintenance Prédictive</h1>
+    <div style="font-size:14px; opacity:0.9; margin-top:4px;">Tous capteurs — 19 capteurs</div>
+  </div>
+  <div class="meta">
+    Généré le 04/06/2026 à 18:17:33<br>
+    Système : PFE Maintenance Prédictive v5.1<br>
+    Période : Dernières 24h
+  </div>
+</div>
+
+<div class="container">
+
+  <!-- RÉSUMÉ EXÉCUTIF -->
+  <div class="section">
+    <div class="section-title">Résumé Exécutif</div>
+    <div class="kpi-grid">
+      <div class="kpi-card danger">
+        <div class="kpi-value danger">375</div>
+        <div class="kpi-label">Anomalies Détectées</div>
+      </div>
+      <div class="kpi-card danger">
+        <div class="kpi-value danger">75.0%</div>
+        <div class="kpi-label">Taux d'Anomalie</div>
+      </div>
+      <div class="kpi-card success">
+        <div class="kpi-value success">74.4</div>
+        <div class="kpi-label">Score Santé Moyen</div>
+      </div>
+      <div class="kpi-card">
+        <div class="kpi-value">19</div>
+        <div class="kpi-label">Capteurs Actifs</div>
+      </div>
+      <div class="kpi-card danger">
+        <div class="kpi-value danger">499</div>
+        <div class="kpi-label">Alertes Critiques</div>
+      </div>
+      <div class="kpi-card">
+        <div class="kpi-value">500</div>
+        <div class="kpi-label">Prédictions Totales</div>
+      </div>
+      <div class="kpi-card">
+        <div class="kpi-value">349.6h</div>
+        <div class="kpi-label">RUL Moyen</div>
+      </div>
+      <div class="kpi-card warning">
+        <div class="kpi-value warning">184.1h</div>
+        <div class="kpi-label">RUL Minimum</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ALERTES ACTIVES -->
+  <div class="section">
+    <div class="section-title">Alertes Actives (19)</div>
+    <div class="alert-box critical">
+      <div>
+        <div class="alert-title">CRITIQUE — Capteur port2_VVB001</div>
+        <div class="alert-body">
+          Santé : 75/100 &bull;
+          RUL estimé : 220h &bull;
+          Anomalies récentes : 27
+        </div>
+      </div>
+    </div><div class="alert-box warning">
+      <div>
+        <div class="alert-title">ÉLEVÉ — Capteur port3_VVB001</div>
+        <div class="alert-body">
+          Santé : 78/100 &bull;
+          RUL estimé : 737h &bull;
+          Anomalies récentes : 16
+        </div>
+      </div>
+    </div><div class="alert-box critical">
+      <div>
+        <div class="alert-title">CRITIQUE — Capteur port4_VSE002</div>
+        <div class="alert-body">
+          Santé : 86/100 &bull;
+          RUL estimé : 233h &bull;
+          Anomalies récentes : 16
+        </div>
+      </div>
+    </div><div class="alert-box critical">
+      <div>
+        <div class="alert-title">CRITIQUE — Capteur port5_VVB001</div>
+        <div class="alert-body">
+          Santé : 68/100 &bull;
+          RUL estimé : 213h &bull;
+          Anomalies récentes : 25
+        </div>
+      </div>
+    </div><div class="alert-box critical">
+      <div>
+        <div class="alert-title">CRITIQUE — Capteur port6_VVB001</div>
+        <div class="alert-body">
+          Santé : 74/100 &bull;
+          RUL estimé : 216h &bull;
+          Anomalies récentes : 27
+        </div>
+      </div>
+    </div><div class="alert-box critical">
+      <div>
+        <div class="alert-title">CRITIQUE — Capteur port7_VVB001</div>
+        <div class="alert-body">
+          Santé : 66/100 &bull;
+          RUL estimé : 210h &bull;
+          Anomalies récentes : 27
+        </div>
+      </div>
+    </div><div class="alert-box warning">
+      <div>
+        <div class="alert-title">ÉLEVÉ — Capteur port8_VVB001</div>
+        <div class="alert-body">
+          Santé : 81/100 &bull;
+          RUL estimé : 753h &bull;
+          Anomalies récentes : 10
+        </div>
+      </div>
+    </div><div class="alert-box critical">
+      <div>
+        <div class="alert-title">CRITIQUE — Capteur port9_VVB001</div>
+        <div class="alert-body">
+          Santé : 72/100 &bull;
+          RUL estimé : 223h &bull;
+          Anomalies récentes : 7
+        </div>
+      </div>
+    </div><div class="alert-box critical">
+      <div>
+        <div class="alert-title">CRITIQUE — Capteur port10_VVB001</div>
+        <div class="alert-body">
+          Santé : 67/100 &bull;
+          RUL estimé : 206h &bull;
+          Anomalies récentes : 20
+        </div>
+      </div>
+    </div><div class="alert-box critical">
+      <div>
+        <div class="alert-title">CRITIQUE — Capteur port11_VVB001</div>
+        <div class="alert-body">
+          Santé : 60/100 &bull;
+          RUL estimé : 206h &bull;
+          Anomalies récentes : 26
+        </div>
+      </div>
+    </div><div class="alert-box critical">
+      <div>
+        <div class="alert-title">CRITIQUE — Capteur port12_VSE002</div>
+        <div class="alert-body">
+          Santé : 86/100 &bull;
+          RUL estimé : 229h &bull;
+          Anomalies récentes : 22
+        </div>
+      </div>
+    </div><div class="alert-box warning">
+      <div>
+        <div class="alert-title">ÉLEVÉ — Capteur port13_VVB001</div>
+        <div class="alert-body">
+          Santé : 76/100 &bull;
+          RUL estimé : 741h &bull;
+          Anomalies récentes : 21
+        </div>
+      </div>
+    </div><div class="alert-box warning">
+      <div>
+        <div class="alert-title">ÉLEVÉ — Capteur port14_VVB001</div>
+        <div class="alert-body">
+          Santé : 66/100 &bull;
+          RUL estimé : 715h &bull;
+          Anomalies récentes : 8
+        </div>
+      </div>
+    </div><div class="alert-box critical">
+      <div>
+        <div class="alert-title">CRITIQUE — Capteur port15_VSE002</div>
+        <div class="alert-body">
+          Santé : 84/100 &bull;
+          RUL estimé : 226h &bull;
+          Anomalies récentes : 16
+        </div>
+      </div>
+    </div><div class="alert-box critical">
+      <div>
+        <div class="alert-title">CRITIQUE — Capteur port16_VVB001</div>
+        <div class="alert-body">
+          Santé : 70/100 &bull;
+          RUL estimé : 213h &bull;
+          Anomalies récentes : 26
+        </div>
+      </div>
+    </div><div class="alert-box critical">
+      <div>
+        <div class="alert-title">CRITIQUE — Capteur port17_VVB001</div>
+        <div class="alert-body">
+          Santé : 70/100 &bull;
+          RUL estimé : 208h &bull;
+          Anomalies récentes : 26
+        </div>
+      </div>
+    </div><div class="alert-box critical">
+      <div>
+        <div class="alert-title">CRITIQUE — Capteur port18_VVB001</div>
+        <div class="alert-body">
+          Santé : 65/100 &bull;
+          RUL estimé : 197h &bull;
+          Anomalies récentes : 25
+        </div>
+      </div>
+    </div><div class="alert-box warning">
+      <div>
+        <div class="alert-title">ÉLEVÉ — Capteur port19_VSE002</div>
+        <div class="alert-body">
+          Santé : 85/100 &bull;
+          RUL estimé : 804h &bull;
+          Anomalies récentes : 17
+        </div>
+      </div>
+    </div><div class="alert-box critical">
+      <div>
+        <div class="alert-title">CRITIQUE — Capteur port1_VVB001</div>
+        <div class="alert-body">
+          Santé : 78/100 &bull;
+          RUL estimé : 224h &bull;
+          Anomalies récentes : 13
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- PLANNING DE MAINTENANCE -->
+  <div class="section">
+    <div class="section-title">Planning de Maintenance Préventive</div>
+    <ul class="timeline"><li class="critical">
+      <div style="display:flex;justify-content:space-between;align-items:flex-start;">
+        <div>
+          <strong>port10_VVB001</strong>
+          &nbsp;(None)
+          &nbsp;<span class="badge badge-danger">IMMÉDIAT</span>
+        </div>
+        <div style="font-size:12px;color:#6c757d;">2026-06-04 18:17</div>
+      </div>
+      <div style="font-size:13px;margin-top:4px;color:#2c3e50;">Arrêt moteur et remplacement roulement</div>
+      <div style="font-size:11px;color:#6c757d;margin-top:2px;">
+        RUL : 206h — Santé : 73/100
+      </div>
+    </li><li class="critical">
+      <div style="display:flex;justify-content:space-between;align-items:flex-start;">
+        <div>
+          <strong>port11_VVB001</strong>
+          &nbsp;(None)
+          &nbsp;<span class="badge badge-danger">IMMÉDIAT</span>
+        </div>
+        <div style="font-size:12px;color:#6c757d;">2026-06-04 18:17</div>
+      </div>
+      <div style="font-size:13px;margin-top:4px;color:#2c3e50;">Arrêt moteur et remplacement roulement</div>
+      <div style="font-size:11px;color:#6c757d;margin-top:2px;">
+        RUL : 206h — Santé : 58/100
+      </div>
+    </li><li class="critical">
+      <div style="display:flex;justify-content:space-between;align-items:flex-start;">
+        <div>
+          <strong>port12_VSE002</strong>
+          &nbsp;(None)
+          &nbsp;<span class="badge badge-danger">IMMÉDIAT</span>
+        </div>
+        <div style="font-size:12px;color:#6c757d;">2026-06-04 18:17</div>
+      </div>
+      <div style="font-size:13px;margin-top:4px;color:#2c3e50;">Arrêt moteur et remplacement roulement</div>
+      <div style="font-size:11px;color:#6c757d;margin-top:2px;">
+        RUL : 229h — Santé : 83/100
+      </div>
+    </li><li class="critical">
+      <div style="display:flex;justify-content:space-between;align-items:flex-start;">
+        <div>
+          <strong>port15_VSE002</strong>
+          &nbsp;(None)
+          &nbsp;<span class="badge badge-danger">IMMÉDIAT</span>
+        </div>
+        <div style="font-size:12px;color:#6c757d;">2026-06-04 18:17</div>
+      </div>
+      <div style="font-size:13px;margin-top:4px;color:#2c3e50;">Arrêt moteur et remplacement roulement</div>
+      <div style="font-size:11px;color:#6c757d;margin-top:2px;">
+        RUL : 226h — Santé : 85/100
+      </div>
+    </li><li class="critical">
+      <div style="display:flex;justify-content:space-between;align-items:flex-start;">
+        <div>
+          <strong>port16_VVB001</strong>
+          &nbsp;(None)
+          &nbsp;<span class="badge badge-danger">IMMÉDIAT</span>
+        </div>
+        <div style="font-size:12px;color:#6c757d;">2026-06-04 18:17</div>
+      </div>
+      <div style="font-size:13px;margin-top:4px;color:#2c3e50;">Arrêt moteur et remplacement roulement</div>
+      <div style="font-size:11px;color:#6c757d;margin-top:2px;">
+        RUL : 213h — Santé : 70/100
+      </div>
+    </li><li class="critical">
+      <div style="display:flex;justify-content:space-between;align-items:flex-start;">
+        <div>
+          <strong>port17_VVB001</strong>
+          &nbsp;(None)
+          &nbsp;<span class="badge badge-danger">IMMÉDIAT</span>
+        </div>
+        <div style="font-size:12px;color:#6c757d;">2026-06-04 18:17</div>
+      </div>
+      <div style="font-size:13px;margin-top:4px;color:#2c3e50;">Arrêt moteur et remplacement roulement</div>
+      <div style="font-size:11px;color:#6c757d;margin-top:2px;">
+        RUL : 208h — Santé : 73/100
+      </div>
+    </li><li class="critical">
+      <div style="display:flex;justify-content:space-between;align-items:flex-start;">
+        <div>
+          <strong>port18_VVB001</strong>
+          &nbsp;(None)
+          &nbsp;<span class="badge badge-danger">IMMÉDIAT</span>
+        </div>
+        <div style="font-size:12px;color:#6c757d;">2026-06-04 18:17</div>
+      </div>
+      <div style="font-size:13px;margin-top:4px;color:#2c3e50;">Arrêt moteur et remplacement roulement</div>
+      <div style="font-size:11px;color:#6c757d;margin-top:2px;">
+        RUL : 197h — Santé : 70/100
+      </div>
+    </li><li class="critical">
+      <div style="display:flex;justify-content:space-between;align-items:flex-start;">
+        <div>
+          <strong>port1_VVB001</strong>
+          &nbsp;(None)
+          &nbsp;<span class="badge badge-danger">IMMÉDIAT</span>
+        </div>
+        <div style="font-size:12px;color:#6c757d;">2026-06-04 18:17</div>
+      </div>
+      <div style="font-size:13px;margin-top:4px;color:#2c3e50;">Arrêt moteur et remplacement roulement</div>
+      <div style="font-size:11px;color:#6c757d;margin-top:2px;">
+        RUL : 224h — Santé : 78/100
+      </div>
+    </li><li class="critical">
+      <div style="display:flex;justify-content:space-between;align-items:flex-start;">
+        <div>
+          <strong>port2_VVB001</strong>
+          &nbsp;(None)
+          &nbsp;<span class="badge badge-danger">IMMÉDIAT</span>
+        </div>
+        <div style="font-size:12px;color:#6c757d;">2026-06-04 18:17</div>
+      </div>
+      <div style="font-size:13px;margin-top:4px;color:#2c3e50;">Arrêt moteur et remplacement roulement</div>
+      <div style="font-size:11px;color:#6c757d;margin-top:2px;">
+        RUL : 220h — Santé : 75/100
+      </div>
+    </li><li class="critical">
+      <div style="display:flex;justify-content:space-between;align-items:flex-start;">
+        <div>
+          <strong>port4_VSE002</strong>
+          &nbsp;(None)
+          &nbsp;<span class="badge badge-danger">IMMÉDIAT</span>
+        </div>
+        <div style="font-size:12px;color:#6c757d;">2026-06-04 18:17</div>
+      </div>
+      <div style="font-size:13px;margin-top:4px;color:#2c3e50;">Arrêt moteur et remplacement roulement</div>
+      <div style="font-size:11px;color:#6c757d;margin-top:2px;">
+        RUL : 233h — Santé : 85/100
+      </div>
+    </li><li class="critical">
+      <div style="display:flex;justify-content:space-between;align-items:flex-start;">
+        <div>
+          <strong>port5_VVB001</strong>
+          &nbsp;(None)
+          &nbsp;<span class="badge badge-danger">IMMÉDIAT</span>
+        </div>
+        <div style="font-size:12px;color:#6c757d;">2026-06-04 18:17</div>
+      </div>
+      <div style="font-size:13px;margin-top:4px;color:#2c3e50;">Arrêt moteur et remplacement roulement</div>
+      <div style="font-size:11px;color:#6c757d;margin-top:2px;">
+        RUL : 213h — Santé : 66/100
+      </div>
+    </li><li class="critical">
+      <div style="display:flex;justify-content:space-between;align-items:flex-start;">
+        <div>
+          <strong>port6_VVB001</strong>
+          &nbsp;(None)
+          &nbsp;<span class="badge badge-danger">IMMÉDIAT</span>
+        </div>
+        <div style="font-size:12px;color:#6c757d;">2026-06-04 18:17</div>
+      </div>
+      <div style="font-size:13px;margin-top:4px;color:#2c3e50;">Arrêt moteur et remplacement roulement</div>
+      <div style="font-size:11px;color:#6c757d;margin-top:2px;">
+        RUL : 216h — Santé : 73/100
+      </div>
+    </li><li class="critical">
+      <div style="display:flex;justify-content:space-between;align-items:flex-start;">
+        <div>
+          <strong>port7_VVB001</strong>
+          &nbsp;(None)
+          &nbsp;<span class="badge badge-danger">IMMÉDIAT</span>
+        </div>
+        <div style="font-size:12px;color:#6c757d;">2026-06-04 18:17</div>
+      </div>
+      <div style="font-size:13px;margin-top:4px;color:#2c3e50;">Arrêt moteur et remplacement roulement</div>
+      <div style="font-size:11px;color:#6c757d;margin-top:2px;">
+        RUL : 210h — Santé : 70/100
+      </div>
+    </li><li class="critical">
+      <div style="display:flex;justify-content:space-between;align-items:flex-start;">
+        <div>
+          <strong>port9_VVB001</strong>
+          &nbsp;(None)
+          &nbsp;<span class="badge badge-danger">IMMÉDIAT</span>
+        </div>
+        <div style="font-size:12px;color:#6c757d;">2026-06-04 18:17</div>
+      </div>
+      <div style="font-size:13px;margin-top:4px;color:#2c3e50;">Arrêt moteur et remplacement roulement</div>
+      <div style="font-size:11px;color:#6c757d;margin-top:2px;">
+        RUL : 223h — Santé : 71/100
+      </div>
+    </li><li class="urgent">
+      <div style="display:flex;justify-content:space-between;align-items:flex-start;">
+        <div>
+          <strong>port13_VVB001</strong>
+          &nbsp;(None)
+          &nbsp;<span class="badge badge-warning">URGENT</span>
+        </div>
+        <div style="font-size:12px;color:#6c757d;">2026-06-20 04:47</div>
+      </div>
+      <div style="font-size:13px;margin-top:4px;color:#2c3e50;">Planifier remplacement roulement sous 48h</div>
+      <div style="font-size:11px;color:#6c757d;margin-top:2px;">
+        RUL : 741h — Santé : 75/100
+      </div>
+    </li><li class="urgent">
+      <div style="display:flex;justify-content:space-between;align-items:flex-start;">
+        <div>
+          <strong>port14_VVB001</strong>
+          &nbsp;(None)
+          &nbsp;<span class="badge badge-warning">URGENT</span>
+        </div>
+        <div style="font-size:12px;color:#6c757d;">2026-06-19 15:47</div>
+      </div>
+      <div style="font-size:13px;margin-top:4px;color:#2c3e50;">Planifier remplacement roulement sous 48h</div>
+      <div style="font-size:11px;color:#6c757d;margin-top:2px;">
+        RUL : 715h — Santé : 66/100
+      </div>
+    </li><li class="urgent">
+      <div style="display:flex;justify-content:space-between;align-items:flex-start;">
+        <div>
+          <strong>port19_VSE002</strong>
+          &nbsp;(None)
+          &nbsp;<span class="badge badge-warning">URGENT</span>
+        </div>
+        <div style="font-size:12px;color:#6c757d;">2026-06-21 12:17</div>
+      </div>
+      <div style="font-size:13px;margin-top:4px;color:#2c3e50;">Planifier remplacement roulement sous 48h</div>
+      <div style="font-size:11px;color:#6c757d;margin-top:2px;">
+        RUL : 804h — Santé : 84/100
+      </div>
+    </li><li class="urgent">
+      <div style="display:flex;justify-content:space-between;align-items:flex-start;">
+        <div>
+          <strong>port3_VVB001</strong>
+          &nbsp;(None)
+          &nbsp;<span class="badge badge-warning">URGENT</span>
+        </div>
+        <div style="font-size:12px;color:#6c757d;">2026-06-20 02:47</div>
+      </div>
+      <div style="font-size:13px;margin-top:4px;color:#2c3e50;">Planifier remplacement roulement sous 48h</div>
+      <div style="font-size:11px;color:#6c757d;margin-top:2px;">
+        RUL : 737h — Santé : 78/100
+      </div>
+    </li><li class="urgent">
+      <div style="display:flex;justify-content:space-between;align-items:flex-start;">
+        <div>
+          <strong>port8_VVB001</strong>
+          &nbsp;(None)
+          &nbsp;<span class="badge badge-warning">URGENT</span>
+        </div>
+        <div style="font-size:12px;color:#6c757d;">2026-06-20 10:47</div>
+      </div>
+      <div style="font-size:13px;margin-top:4px;color:#2c3e50;">Planifier remplacement roulement sous 48h</div>
+      <div style="font-size:11px;color:#6c757d;margin-top:2px;">
+        RUL : 753h — Santé : 80/100
+      </div>
+    </li></ul>
+  </div>
+
+  <!-- ÉTAT DES CAPTEURS -->
+  <div class="section">
+    <div class="section-title">État des Capteurs / Moteurs</div>
+    <table>
+  <thead><tr>
+    <th>Capteur ID</th><th>Moteur</th><th>Risque</th><th>Santé</th>
+    <th>Anomalies</th><th>RUL Estimé</th><th>Mesures</th><th>Dernière Vue</th>
+  </tr></thead>
+  <tbody><tr>
+      <td><code style="font-size:12px;">port10_VVB001</code></td>
+      <td>None</td>
+      <td><span class="badge badge-danger">CRITIQUE</span></td>
+      <td><div style="display:flex;align-items:center;gap:8px;"><div class="health-bar" style="width:80px;"><div class="health-fill" style="width:72.8%;background:#28a745;"></div></div><span style="font-size:12px;font-weight:600;">73</span></div></td>
+      <td>20 <span style="color:#6c757d;font-size:11px;">(76.9%)</span></td>
+      <td style="font-weight:600;">206h
+        <span style="color:#6c757d;font-size:11px;">(8.6j)</span></td>
+      <td>26</td>
+      <td style="font-size:11px;color:#6c757d;">2026-06-02T16:26:36</td>
+    </tr><tr>
+      <td><code style="font-size:12px;">port11_VVB001</code></td>
+      <td>None</td>
+      <td><span class="badge badge-danger">CRITIQUE</span></td>
+      <td><div style="display:flex;align-items:center;gap:8px;"><div class="health-bar" style="width:80px;"><div class="health-fill" style="width:58.0%;background:#fd7e14;"></div></div><span style="font-size:12px;font-weight:600;">58</span></div></td>
+      <td>26 <span style="color:#6c757d;font-size:11px;">(100.0%)</span></td>
+      <td style="font-weight:600;">206h
+        <span style="color:#6c757d;font-size:11px;">(8.6j)</span></td>
+      <td>26</td>
+      <td style="font-size:11px;color:#6c757d;">2026-06-02T16:26:40</td>
+    </tr><tr>
+      <td><code style="font-size:12px;">port12_VSE002</code></td>
+      <td>None</td>
+      <td><span class="badge badge-danger">CRITIQUE</span></td>
+      <td><div style="display:flex;align-items:center;gap:8px;"><div class="health-bar" style="width:80px;"><div class="health-fill" style="width:83.2%;background:#28a745;"></div></div><span style="font-size:12px;font-weight:600;">83</span></div></td>
+      <td>22 <span style="color:#6c757d;font-size:11px;">(84.6%)</span></td>
+      <td style="font-weight:600;">229h
+        <span style="color:#6c757d;font-size:11px;">(9.6j)</span></td>
+      <td>26</td>
+      <td style="font-size:11px;color:#6c757d;">2026-06-02T16:26:44</td>
+    </tr><tr>
+      <td><code style="font-size:12px;">port15_VSE002</code></td>
+      <td>None</td>
+      <td><span class="badge badge-danger">CRITIQUE</span></td>
+      <td><div style="display:flex;align-items:center;gap:8px;"><div class="health-bar" style="width:80px;"><div class="health-fill" style="width:84.6%;background:#28a745;"></div></div><span style="font-size:12px;font-weight:600;">85</span></div></td>
+      <td>16 <span style="color:#6c757d;font-size:11px;">(61.5%)</span></td>
+      <td style="font-weight:600;">226h
+        <span style="color:#6c757d;font-size:11px;">(9.4j)</span></td>
+      <td>26</td>
+      <td style="font-size:11px;color:#6c757d;">2026-06-02T16:26:57</td>
+    </tr><tr>
+      <td><code style="font-size:12px;">port16_VVB001</code></td>
+      <td>None</td>
+      <td><span class="badge badge-danger">CRITIQUE</span></td>
+      <td><div style="display:flex;align-items:center;gap:8px;"><div class="health-bar" style="width:80px;"><div class="health-fill" style="width:70.1%;background:#28a745;"></div></div><span style="font-size:12px;font-weight:600;">70</span></div></td>
+      <td>26 <span style="color:#6c757d;font-size:11px;">(100.0%)</span></td>
+      <td style="font-weight:600;">213h
+        <span style="color:#6c757d;font-size:11px;">(8.9j)</span></td>
+      <td>26</td>
+      <td style="font-size:11px;color:#6c757d;">2026-06-02T16:27:01</td>
+    </tr><tr>
+      <td><code style="font-size:12px;">port17_VVB001</code></td>
+      <td>None</td>
+      <td><span class="badge badge-danger">CRITIQUE</span></td>
+      <td><div style="display:flex;align-items:center;gap:8px;"><div class="health-bar" style="width:80px;"><div class="health-fill" style="width:73.2%;background:#28a745;"></div></div><span style="font-size:12px;font-weight:600;">73</span></div></td>
+      <td>26 <span style="color:#6c757d;font-size:11px;">(100.0%)</span></td>
+      <td style="font-weight:600;">208h
+        <span style="color:#6c757d;font-size:11px;">(8.7j)</span></td>
+      <td>26</td>
+      <td style="font-size:11px;color:#6c757d;">2026-06-02T16:27:05</td>
+    </tr><tr>
+      <td><code style="font-size:12px;">port18_VVB001</code></td>
+      <td>None</td>
+      <td><span class="badge badge-danger">CRITIQUE</span></td>
+      <td><div style="display:flex;align-items:center;gap:8px;"><div class="health-bar" style="width:80px;"><div class="health-fill" style="width:70.3%;background:#28a745;"></div></div><span style="font-size:12px;font-weight:600;">70</span></div></td>
+      <td>25 <span style="color:#6c757d;font-size:11px;">(96.2%)</span></td>
+      <td style="font-weight:600;">197h
+        <span style="color:#6c757d;font-size:11px;">(8.2j)</span></td>
+      <td>26</td>
+      <td style="font-size:11px;color:#6c757d;">2026-06-02T16:27:10</td>
+    </tr><tr>
+      <td><code style="font-size:12px;">port1_VVB001</code></td>
+      <td>None</td>
+      <td><span class="badge badge-danger">CRITIQUE</span></td>
+      <td><div style="display:flex;align-items:center;gap:8px;"><div class="health-bar" style="width:80px;"><div class="health-fill" style="width:77.9%;background:#28a745;"></div></div><span style="font-size:12px;font-weight:600;">78</span></div></td>
+      <td>13 <span style="color:#6c757d;font-size:11px;">(50.0%)</span></td>
+      <td style="font-weight:600;">224h
+        <span style="color:#6c757d;font-size:11px;">(9.3j)</span></td>
+      <td>26</td>
+      <td style="font-size:11px;color:#6c757d;">2026-06-02T16:27:21</td>
+    </tr><tr>
+      <td><code style="font-size:12px;">port2_VVB001</code></td>
+      <td>None</td>
+      <td><span class="badge badge-danger">CRITIQUE</span></td>
+      <td><div style="display:flex;align-items:center;gap:8px;"><div class="health-bar" style="width:80px;"><div class="health-fill" style="width:75.1%;background:#28a745;"></div></div><span style="font-size:12px;font-weight:600;">75</span></div></td>
+      <td>27 <span style="color:#6c757d;font-size:11px;">(100.0%)</span></td>
+      <td style="font-weight:600;">220h
+        <span style="color:#6c757d;font-size:11px;">(9.2j)</span></td>
+      <td>27</td>
+      <td style="font-size:11px;color:#6c757d;">2026-06-02T16:27:25</td>
+    </tr><tr>
+      <td><code style="font-size:12px;">port4_VSE002</code></td>
+      <td>None</td>
+      <td><span class="badge badge-danger">CRITIQUE</span></td>
+      <td><div style="display:flex;align-items:center;gap:8px;"><div class="health-bar" style="width:80px;"><div class="health-fill" style="width:85.2%;background:#28a745;"></div></div><span style="font-size:12px;font-weight:600;">85</span></div></td>
+      <td>16 <span style="color:#6c757d;font-size:11px;">(59.3%)</span></td>
+      <td style="font-weight:600;">233h
+        <span style="color:#6c757d;font-size:11px;">(9.7j)</span></td>
+      <td>27</td>
+      <td style="font-size:11px;color:#6c757d;">2026-06-02T16:27:33</td>
+    </tr><tr>
+      <td><code style="font-size:12px;">port5_VVB001</code></td>
+      <td>None</td>
+      <td><span class="badge badge-danger">CRITIQUE</span></td>
+      <td><div style="display:flex;align-items:center;gap:8px;"><div class="health-bar" style="width:80px;"><div class="health-fill" style="width:66.5%;background:#fd7e14;"></div></div><span style="font-size:12px;font-weight:600;">66</span></div></td>
+      <td>25 <span style="color:#6c757d;font-size:11px;">(92.6%)</span></td>
+      <td style="font-weight:600;">213h
+        <span style="color:#6c757d;font-size:11px;">(8.9j)</span></td>
+      <td>27</td>
+      <td style="font-size:11px;color:#6c757d;">2026-06-02T16:27:38</td>
+    </tr><tr>
+      <td><code style="font-size:12px;">port6_VVB001</code></td>
+      <td>None</td>
+      <td><span class="badge badge-danger">CRITIQUE</span></td>
+      <td><div style="display:flex;align-items:center;gap:8px;"><div class="health-bar" style="width:80px;"><div class="health-fill" style="width:73.1%;background:#28a745;"></div></div><span style="font-size:12px;font-weight:600;">73</span></div></td>
+      <td>27 <span style="color:#6c757d;font-size:11px;">(100.0%)</span></td>
+      <td style="font-weight:600;">216h
+        <span style="color:#6c757d;font-size:11px;">(9.0j)</span></td>
+      <td>27</td>
+      <td style="font-size:11px;color:#6c757d;">2026-06-02T16:27:42</td>
+    </tr><tr>
+      <td><code style="font-size:12px;">port7_VVB001</code></td>
+      <td>None</td>
+      <td><span class="badge badge-danger">CRITIQUE</span></td>
+      <td><div style="display:flex;align-items:center;gap:8px;"><div class="health-bar" style="width:80px;"><div class="health-fill" style="width:70.0%;background:#28a745;"></div></div><span style="font-size:12px;font-weight:600;">70</span></div></td>
+      <td>27 <span style="color:#6c757d;font-size:11px;">(100.0%)</span></td>
+      <td style="font-weight:600;">210h
+        <span style="color:#6c757d;font-size:11px;">(8.7j)</span></td>
+      <td>27</td>
+      <td style="font-size:11px;color:#6c757d;">2026-06-02T16:27:46</td>
+    </tr><tr>
+      <td><code style="font-size:12px;">port9_VVB001</code></td>
+      <td>None</td>
+      <td><span class="badge badge-danger">CRITIQUE</span></td>
+      <td><div style="display:flex;align-items:center;gap:8px;"><div class="health-bar" style="width:80px;"><div class="health-fill" style="width:71.2%;background:#28a745;"></div></div><span style="font-size:12px;font-weight:600;">71</span></div></td>
+      <td>7 <span style="color:#6c757d;font-size:11px;">(26.9%)</span></td>
+      <td style="font-weight:600;">223h
+        <span style="color:#6c757d;font-size:11px;">(9.3j)</span></td>
+      <td>26</td>
+      <td style="font-size:11px;color:#6c757d;">2026-06-02T16:26:31</td>
+    </tr><tr>
+      <td><code style="font-size:12px;">port13_VVB001</code></td>
+      <td>None</td>
+      <td><span class="badge badge-warning">ÉLEVÉ</span></td>
+      <td><div style="display:flex;align-items:center;gap:8px;"><div class="health-bar" style="width:80px;"><div class="health-fill" style="width:74.8%;background:#28a745;"></div></div><span style="font-size:12px;font-weight:600;">75</span></div></td>
+      <td>21 <span style="color:#6c757d;font-size:11px;">(80.8%)</span></td>
+      <td style="font-weight:600;">741h
+        <span style="color:#6c757d;font-size:11px;">(30.9j)</span></td>
+      <td>26</td>
+      <td style="font-size:11px;color:#6c757d;">2026-06-02T16:26:48</td>
+    </tr><tr>
+      <td><code style="font-size:12px;">port14_VVB001</code></td>
+      <td>None</td>
+      <td><span class="badge badge-warning">ÉLEVÉ</span></td>
+      <td><div style="display:flex;align-items:center;gap:8px;"><div class="health-bar" style="width:80px;"><div class="health-fill" style="width:65.7%;background:#fd7e14;"></div></div><span style="font-size:12px;font-weight:600;">66</span></div></td>
+      <td>8 <span style="color:#6c757d;font-size:11px;">(30.8%)</span></td>
+      <td style="font-weight:600;">715h
+        <span style="color:#6c757d;font-size:11px;">(29.8j)</span></td>
+      <td>26</td>
+      <td style="font-size:11px;color:#6c757d;">2026-06-02T16:26:53</td>
+    </tr><tr>
+      <td><code style="font-size:12px;">port19_VSE002</code></td>
+      <td>None</td>
+      <td><span class="badge badge-warning">ÉLEVÉ</span></td>
+      <td><div style="display:flex;align-items:center;gap:8px;"><div class="health-bar" style="width:80px;"><div class="health-fill" style="width:83.7%;background:#28a745;"></div></div><span style="font-size:12px;font-weight:600;">84</span></div></td>
+      <td>17 <span style="color:#6c757d;font-size:11px;">(65.4%)</span></td>
+      <td style="font-weight:600;">804h
+        <span style="color:#6c757d;font-size:11px;">(33.5j)</span></td>
+      <td>26</td>
+      <td style="font-size:11px;color:#6c757d;">2026-06-02T16:27:14</td>
+    </tr><tr>
+      <td><code style="font-size:12px;">port3_VVB001</code></td>
+      <td>None</td>
+      <td><span class="badge badge-warning">ÉLEVÉ</span></td>
+      <td><div style="display:flex;align-items:center;gap:8px;"><div class="health-bar" style="width:80px;"><div class="health-fill" style="width:77.7%;background:#28a745;"></div></div><span style="font-size:12px;font-weight:600;">78</span></div></td>
+      <td>16 <span style="color:#6c757d;font-size:11px;">(59.3%)</span></td>
+      <td style="font-weight:600;">737h
+        <span style="color:#6c757d;font-size:11px;">(30.7j)</span></td>
+      <td>27</td>
+      <td style="font-size:11px;color:#6c757d;">2026-06-02T16:27:29</td>
+    </tr><tr>
+      <td><code style="font-size:12px;">port8_VVB001</code></td>
+      <td>None</td>
+      <td><span class="badge badge-warning">ÉLEVÉ</span></td>
+      <td><div style="display:flex;align-items:center;gap:8px;"><div class="health-bar" style="width:80px;"><div class="health-fill" style="width:79.7%;background:#28a745;"></div></div><span style="font-size:12px;font-weight:600;">80</span></div></td>
+      <td>10 <span style="color:#6c757d;font-size:11px;">(38.5%)</span></td>
+      <td style="font-weight:600;">753h
+        <span style="color:#6c757d;font-size:11px;">(31.4j)</span></td>
+      <td>26</td>
+      <td style="font-size:11px;color:#6c757d;">2026-06-02T16:26:27</td>
+    </tr></tbody>
+</table>
+  </div>
+
+  <!-- HISTORIQUE DES ANOMALIES -->
+  <div class="section">
+    <div class="section-title">Historique Anomalies (Mémoire Persistante)</div>
+    <table>
+      <thead><tr>
+        <th>Capteur</th><th>Total Mesures</th><th>Anomalies</th>
+        <th>Score Moyen</th><th>Dernière Mesure</th>
+      </tr></thead>
+      <tbody><tr>
+      <td><code style="font-size:12px;">07da47b8</code></td>
+      <td>50</td>
+      <td>25</td>
+      <td>0.519</td>
+      <td>2026-06-01T01:09:15</td>
+    </tr><tr>
+      <td><code style="font-size:12px;">0ff416d2</code></td>
+      <td>50</td>
+      <td>25</td>
+      <td>0.588</td>
+      <td>2026-06-01T01:08:41</td>
+    </tr><tr>
+      <td><code style="font-size:12px;">2c6254af</code></td>
+      <td>50</td>
+      <td>25</td>
+      <td>0.554</td>
+      <td>2026-06-01T01:09:42</td>
+    </tr><tr>
+      <td><code style="font-size:12px;">3a782f1b</code></td>
+      <td>50</td>
+      <td>25</td>
+      <td>0.565</td>
+      <td>2026-06-01T01:09:11</td>
+    </tr><tr>
+      <td><code style="font-size:12px;">4b5e4b32</code></td>
+      <td>50</td>
+      <td>25</td>
+      <td>0.557</td>
+      <td>2026-06-01T01:09:33</td>
+    </tr><tr>
+      <td><code style="font-size:12px;">53cb61b2</code></td>
+      <td>50</td>
+      <td>25</td>
+      <td>0.573</td>
+      <td>2026-06-01T01:09:38</td>
+    </tr><tr>
+      <td><code style="font-size:12px;">68c11f06</code></td>
+      <td>50</td>
+      <td>25</td>
+      <td>0.552</td>
+      <td>2026-06-01T01:09:24</td>
+    </tr><tr>
+      <td><code style="font-size:12px;">6e0c1740</code></td>
+      <td>50</td>
+      <td>25</td>
+      <td>0.512</td>
+      <td>2026-06-01T01:09:07</td>
+    </tr><tr>
+      <td><code style="font-size:12px;">718fd2af</code></td>
+      <td>50</td>
+      <td>25</td>
+      <td>0.495</td>
+      <td>2026-06-01T01:08:32</td>
+    </tr><tr>
+      <td><code style="font-size:12px;">8f7f2f7e</code></td>
+      <td>50</td>
+      <td>24</td>
+      <td>0.420</td>
+      <td>2026-06-04T14:55:26</td>
+    </tr><tr>
+      <td><code style="font-size:12px;">91d92804</code></td>
+      <td>50</td>
+      <td>25</td>
+      <td>0.598</td>
+      <td>2026-06-01T01:08:49</td>
+    </tr><tr>
+      <td><code style="font-size:12px;">99695e98</code></td>
+      <td>50</td>
+      <td>25</td>
+      <td>0.576</td>
+      <td>2026-06-01T01:08:54</td>
+    </tr><tr>
+      <td><code style="font-size:12px;">Motor_0821</code></td>
+      <td>50</td>
+      <td>19</td>
+      <td>0.510</td>
+      <td>2026-05-31T16:37:07</td>
+    </tr><tr>
+      <td><code style="font-size:12px;">a6a46be1</code></td>
+      <td>50</td>
+      <td>25</td>
+      <td>0.568</td>
+      <td>2026-06-01T01:09:46</td>
+    </tr><tr>
+      <td><code style="font-size:12px;">aa7b02a1</code></td>
+      <td>50</td>
+      <td>25</td>
+      <td>0.445</td>
+      <td>2026-06-01T01:08:36</td>
+    </tr><tr>
+      <td><code style="font-size:12px;">b2acdf45</code></td>
+      <td>50</td>
+      <td>25</td>
+      <td>0.517</td>
+      <td>2026-06-01T01:08:58</td>
+    </tr><tr>
+      <td><code style="font-size:12px;">bc59bf5f</code></td>
+      <td>50</td>
+      <td>25</td>
+      <td>0.498</td>
+      <td>2026-05-31T17:33:07</td>
+    </tr><tr>
+      <td><code style="font-size:12px;">d9508e77</code></td>
+      <td>50</td>
+      <td>25</td>
+      <td>0.566</td>
+      <td>2026-06-01T01:09:29</td>
+    </tr><tr>
+      <td><code style="font-size:12px;">eb084747</code></td>
+      <td>50</td>
+      <td>25</td>
+      <td>0.476</td>
+      <td>2026-06-01T01:08:45</td>
+    </tr><tr>
+      <td><code style="font-size:12px;">ed6fa322</code></td>
+      <td>50</td>
+      <td>25</td>
+      <td>0.560</td>
+      <td>2026-06-01T01:09:20</td>
+    </tr><tr>
+      <td><code style="font-size:12px;">f48c25f9</code></td>
+      <td>50</td>
+      <td>25</td>
+      <td>0.570</td>
+      <td>2026-06-01T01:09:02</td>
+    </tr><tr>
+      <td><code style="font-size:12px;">port1</code></td>
+      <td>16</td>
+      <td>8</td>
+      <td>0.570</td>
+      <td>2026-06-01T01:21:28</td>
+    </tr><tr>
+      <td><code style="font-size:12px;">port10</code></td>
+      <td>14</td>
+      <td>7</td>
+      <td>0.516</td>
+      <td>2026-06-01T01:20:43</td>
+    </tr><tr>
+      <td><code style="font-size:12px;">port10_VVB001</code></td>
+      <td>50</td>
+      <td>0</td>
+      <td>0.179</td>
+      <td>2026-06-04T18:04:33</td>
+    </tr><tr>
+      <td><code style="font-size:12px;">port11</code></td>
+      <td>14</td>
+      <td>7</td>
+      <td>0.594</td>
+      <td>2026-06-01T01:20:47</td>
+    </tr><tr>
+      <td><code style="font-size:12px;">port11_VVB001</code></td>
+      <td>50</td>
+      <td>23</td>
+      <td>0.466</td>
+      <td>2026-06-04T18:04:39</td>
+    </tr><tr>
+      <td><code style="font-size:12px;">port12</code></td>
+      <td>14</td>
+      <td>7</td>
+      <td>0.446</td>
+      <td>2026-06-01T01:20:52</td>
+    </tr><tr>
+      <td><code style="font-size:12px;">port12_VSE002</code></td>
+      <td>50</td>
+      <td>6</td>
+      <td>0.208</td>
+      <td>2026-06-04T18:04:44</td>
+    </tr><tr>
+      <td><code style="font-size:12px;">port13</code></td>
+      <td>14</td>
+      <td>7</td>
+      <td>0.571</td>
+      <td>2026-06-01T01:20:56</td>
+    </tr><tr>
+      <td><code style="font-size:12px;">port13_VVB001</code></td>
+      <td>50</td>
+      <td>0</td>
+      <td>0.183</td>
+      <td>2026-06-04T18:04:49</td>
+    </tr><tr>
+      <td><code style="font-size:12px;">port14</code></td>
+      <td>14</td>
+      <td>7</td>
+      <td>0.574</td>
+      <td>2026-06-01T01:21:00</td>
+    </tr><tr>
+      <td><code style="font-size:12px;">port14_VVB001</code></td>
+      <td>50</td>
+      <td>0</td>
+      <td>0.187</td>
+      <td>2026-06-04T18:04:54</td>
+    </tr><tr>
+      <td><code style="font-size:12px;">port15</code></td>
+      <td>14</td>
+      <td>7</td>
+      <td>0.520</td>
+      <td>2026-06-01T01:21:04</td>
+    </tr><tr>
+      <td><code style="font-size:12px;">port15_VSE002</code></td>
+      <td>50</td>
+      <td>0</td>
+      <td>0.159</td>
+      <td>2026-06-04T18:05:00</td>
+    </tr><tr>
+      <td><code style="font-size:12px;">port16</code></td>
+      <td>14</td>
+      <td>7</td>
+      <td>0.584</td>
+      <td>2026-06-01T01:21:09</td>
+    </tr><tr>
+      <td><code style="font-size:12px;">port16_VVB001</code></td>
+      <td>50</td>
+      <td>8</td>
+      <td>0.271</td>
+      <td>2026-06-04T18:05:05</td>
+    </tr><tr>
+      <td><code style="font-size:12px;">port17</code></td>
+      <td>14</td>
+      <td>7</td>
+      <td>0.572</td>
+      <td>2026-06-01T01:21:13</td>
+    </tr><tr>
+      <td><code style="font-size:12px;">port17_VVB001</code></td>
+      <td>50</td>
+      <td>0</td>
+      <td>0.174</td>
+      <td>2026-06-04T18:05:10</td>
+    </tr><tr>
+      <td><code style="font-size:12px;">port18</code></td>
+      <td>14</td>
+      <td>7</td>
+      <td>0.578</td>
+      <td>2026-06-01T01:21:17</td>
+    </tr><tr>
+      <td><code style="font-size:12px;">port18_VVB001</code></td>
+      <td>50</td>
+      <td>25</td>
+      <td>0.490</td>
+      <td>2026-06-04T18:05:16</td>
+    </tr><tr>
+      <td><code style="font-size:12px;">port19</code></td>
+      <td>14</td>
+      <td>7</td>
+      <td>0.562</td>
+      <td>2026-06-01T01:21:21</td>
+    </tr><tr>
+      <td><code style="font-size:12px;">port19_VSE002</code></td>
+      <td>50</td>
+      <td>12</td>
+      <td>0.282</td>
+      <td>2026-06-04T18:05:21</td>
+    </tr><tr>
+      <td><code style="font-size:12px;">port1_VVB001</code></td>
+      <td>50</td>
+      <td>25</td>
+      <td>0.444</td>
+      <td>2026-06-04T18:05:28</td>
+    </tr><tr>
+      <td><code style="font-size:12px;">port2</code></td>
+      <td>16</td>
+      <td>8</td>
+      <td>0.574</td>
+      <td>2026-06-01T01:21:32</td>
+    </tr><tr>
+      <td><code style="font-size:12px;">port2_VVB001</code></td>
+      <td>50</td>
+      <td>0</td>
+      <td>0.184</td>
+      <td>2026-06-04T18:07:06</td>
+    </tr><tr>
+      <td><code style="font-size:12px;">port3</code></td>
+      <td>16</td>
+      <td>8</td>
+      <td>0.571</td>
+      <td>2026-06-01T01:21:37</td>
+    </tr><tr>
+      <td><code style="font-size:12px;">port3_VVB001</code></td>
+      <td>50</td>
+      <td>25</td>
+      <td>0.449</td>
+      <td>2026-06-04T18:09:56</td>
+    </tr><tr>
+      <td><code style="font-size:12px;">port4</code></td>
+      <td>16</td>
+      <td>8</td>
+      <td>0.497</td>
+      <td>2026-06-01T01:21:41</td>
+    </tr><tr>
+      <td><code style="font-size:12px;">port4_VSE002</code></td>
+      <td>50</td>
+      <td>14</td>
+      <td>0.302</td>
+      <td>2026-06-04T18:10:02</td>
+    </tr><tr>
+      <td><code style="font-size:12px;">port5</code></td>
+      <td>16</td>
+      <td>8</td>
+      <td>0.582</td>
+      <td>2026-06-01T01:21:45</td>
+    </tr><tr>
+      <td><code style="font-size:12px;">port5_VVB001</code></td>
+      <td>50</td>
+      <td>0</td>
+      <td>0.194</td>
+      <td>2026-06-04T18:04:07</td>
+    </tr><tr>
+      <td><code style="font-size:12px;">port6</code></td>
+      <td>14</td>
+      <td>7</td>
+      <td>0.584</td>
+      <td>2026-06-01T01:20:26</td>
+    </tr><tr>
+      <td><code style="font-size:12px;">port6_VVB001</code></td>
+      <td>50</td>
+      <td>0</td>
+      <td>0.161</td>
+      <td>2026-06-04T18:04:12</td>
+    </tr><tr>
+      <td><code style="font-size:12px;">port7</code></td>
+      <td>14</td>
+      <td>7</td>
+      <td>0.488</td>
+      <td>2026-06-01T01:20:30</td>
+    </tr><tr>
+      <td><code style="font-size:12px;">port7_VVB001</code></td>
+      <td>50</td>
+      <td>3</td>
+      <td>0.207</td>
+      <td>2026-06-04T18:04:17</td>
+    </tr><tr>
+      <td><code style="font-size:12px;">port8</code></td>
+      <td>14</td>
+      <td>7</td>
+      <td>0.573</td>
+      <td>2026-06-01T01:20:35</td>
+    </tr><tr>
+      <td><code style="font-size:12px;">port8_VVB001</code></td>
+      <td>50</td>
+      <td>0</td>
+      <td>0.149</td>
+      <td>2026-06-04T18:04:23</td>
+    </tr><tr>
+      <td><code style="font-size:12px;">port9</code></td>
+      <td>14</td>
+      <td>7</td>
+      <td>0.462</td>
+      <td>2026-06-01T01:20:39</td>
+    </tr><tr>
+      <td><code style="font-size:12px;">port9_VVB001</code></td>
+      <td>50</td>
+      <td>0</td>
+      <td>0.155</td>
+      <td>2026-06-04T18:04:28</td>
+    </tr><tr>
+      <td><code style="font-size:12px;">test</code></td>
+      <td>1</td>
+      <td>1</td>
+      <td>1.000</td>
+      <td>2026-05-30T16:01:48</td>
+    </tr><tr>
+      <td><code style="font-size:12px;">test_CRITIQUE_MAX   </code></td>
+      <td>1</td>
+      <td>1</td>
+      <td>1.000</td>
+      <td>2026-06-02T01:16:01</td>
+    </tr><tr>
+      <td><code style="font-size:12px;">test_CRITIQUE_P99   </code></td>
+      <td>1</td>
+      <td>1</td>
+      <td>1.000</td>
+      <td>2026-06-02T01:16:01</td>
+    </tr><tr>
+      <td><code style="font-size:12px;">test_DEGRADE_P95    </code></td>
+      <td>1</td>
+      <td>1</td>
+      <td>1.000</td>
+      <td>2026-06-02T01:16:01</td>
+    </tr><tr>
+      <td><code style="font-size:12px;">test_FRONTIERE      </code></td>
+      <td>1</td>
+      <td>1</td>
+      <td>1.000</td>
+      <td>2026-06-02T01:16:01</td>
+    </tr><tr>
+      <td><code style="font-size:12px;">test_NORMAL_haut    </code></td>
+      <td>1</td>
+      <td>1</td>
+      <td>1.000</td>
+      <td>2026-06-02T01:16:01</td>
+    </tr><tr>
+      <td><code style="font-size:12px;">test_NORMAL_port10  </code></td>
+      <td>1</td>
+      <td>1</td>
+      <td>1.000</td>
+      <td>2026-06-02T01:16:01</td>
+    </tr><tr>
+      <td><code style="font-size:12px;">test_SURCHAUFFE     </code></td>
+      <td>1</td>
+      <td>1</td>
+      <td>1.000</td>
+      <td>2026-06-02T01:16:01</td>
+    </tr><tr>
+      <td><code style="font-size:12px;">test_TRES_NORMAL    </code></td>
+      <td>1</td>
+      <td>1</td>
+      <td>0.500</td>
+      <td>2026-06-02T01:16:01</td>
+    </tr><tr>
+      <td><code style="font-size:12px;">test_critique</code></td>
+      <td>1</td>
+      <td>1</td>
+      <td>1.000</td>
+      <td>2026-06-02T01:06:04</td>
+    </tr><tr>
+      <td><code style="font-size:12px;">test_critique_prod</code></td>
+      <td>1</td>
+      <td>1</td>
+      <td>1.000</td>
+      <td>2026-06-02T01:11:13</td>
+    </tr><tr>
+      <td><code style="font-size:12px;">test_degrade_prod</code></td>
+      <td>1</td>
+      <td>1</td>
+      <td>1.000</td>
+      <td>2026-06-02T01:11:02</td>
+    </tr><tr>
+      <td><code style="font-size:12px;">test_normal</code></td>
+      <td>1</td>
+      <td>1</td>
+      <td>1.000</td>
+      <td>2026-06-02T01:05:52</td>
+    </tr><tr>
+      <td><code style="font-size:12px;">test_normal_prod</code></td>
+      <td>1</td>
+      <td>1</td>
+      <td>1.000</td>
+      <td>2026-06-02T01:10:52</td>
+    </tr></tbody>
+    </table>
+  </div>
+
+</div>
+
+<div class="footer">
+  Rapport généré automatiquement par le système de maintenance prédictive PFE &mdash;
+  04/06/2026 à 18:17:33 &mdash; Toute décision de maintenance doit être validée par un technicien qualifié.
+</div>
+
+</body>
+</html>
