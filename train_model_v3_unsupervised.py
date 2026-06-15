@@ -303,24 +303,40 @@ def parse_features_from_realtime(path: str) -> tuple:
         kurt        = feat.get("vib_z_kurt", 0) or 0
         crest       = feat.get("vib_z_crest", 0) or 0
 
-        is_anom = (
-            vib_total > 1039        # P99 production
-            or vib_z_rms > 650      # P90 production
-            or health < 60          # degradation composite severe
-            or temp > 50.4          # surchauffe P95
-            or kurt > 5.0           # choc impulsif roulement
-            or crest > 3.5          # facteur de crête
-        )
+        # Stocker toutes les valeurs pour calcul des percentiles après
         X_rows.append(row)
-        y_rows.append(1 if is_anom else 0)
+        y_rows.append(0)  # placeholder, remplacé ci-dessous
 
     if not X_rows:
         warn("Aucune feature extraite de realtime_results.json")
         return np.array([]), [], np.array([])
 
     X = np.array(X_rows, dtype=np.float32)
-    y = np.array(y_rows, dtype=int)
     X = np.nan_to_num(X, nan=0.0, posinf=999.0, neginf=-999.0)
+
+    # V9 : labels basés sur percentiles des features (alignés avec les modèles)
+    ki = {k: i for i, k in enumerate(FEAT_KEYS)}
+    vib_rms_col = X[:, ki['vib_z_rms_w']]
+    vib_tot_col = X[:, ki['vib_total']]
+    temp_col    = X[:, ki['temp_mean']]
+    health_col  = X[:, ki['health_score']]
+    kurt_col    = X[:, ki['vib_z_kurt']]
+
+    p97_vib  = float(np.percentile(vib_rms_col[vib_rms_col > 0], 97)) if (vib_rms_col > 0).any() else 650.0
+    p97_vtot = float(np.percentile(vib_tot_col[vib_tot_col > 0], 97)) if (vib_tot_col > 0).any() else 1039.0
+    p97_temp = float(np.percentile(temp_col, 97))
+    p3_hlth  = float(np.percentile(health_col, 3))
+    p99_kurt = float(np.percentile(kurt_col[kurt_col > 0], 99)) if (kurt_col > 0).any() else 5.0
+    info(f"Seuils realtime V9 — VibRMS P97={p97_vib:.1f}  VibTot P97={p97_vtot:.1f}  Temp P97={p97_temp:.1f}°C  Health P3={p3_hlth:.1f}  Kurt P99={p99_kurt:.2f}")
+
+    anom_score = (
+        (vib_rms_col > p97_vib ).astype(int)
+        + (vib_tot_col > p97_vtot).astype(int)
+        + (temp_col   > p97_temp ).astype(int)
+        + (health_col < p3_hlth  ).astype(int)
+        + (kurt_col   > p99_kurt ).astype(int)
+    )
+    y = (anom_score >= 2).astype(int)
 
     n_anom = int(y.sum())
     ok(f"Features production : {len(X)} vecteurs × {len(FEAT_KEYS)} features | {n_anom} anomalies ({n_anom/len(y)*100:.1f}%)")
@@ -581,6 +597,41 @@ def build_feature_matrix(df: pd.DataFrame) -> tuple:
     X = np.array(all_features, dtype=np.float32)
     y = np.array(heuristic_labels, dtype=int)
     X = np.nan_to_num(X, nan=0.0, posinf=999.0, neginf=-999.0)
+
+    # ── V9 : Re-étiquetage basé sur les percentiles des FEATURES (pas mesures brutes) ──
+    # Problème des labels P85/P90 bruts : désalignés avec ce que les modèles détectent
+    # (la feature vib_z_rms_w est une RMS fenêtrée ≠ mesure individuelle P85).
+    # Solution : calculer les percentiles sur les features déjà lissées → meilleur alignement.
+    feat_idx = {name: i for i, name in enumerate(FEATURES_ORDER)}
+    vib_rms_col  = X[:, feat_idx['vib_z_rms_w']]    # RMS vib_z sur 20 fenêtres
+    temp_col     = X[:, feat_idx['temp_mean']]        # température moyenne fenêtre
+    health_col   = X[:, feat_idx['health_score']]     # score santé composite
+    kurt_col     = X[:, feat_idx['vib_z_kurt']]       # kurtosis (choc impulsif)
+    vib_tot_col  = X[:, feat_idx['vib_total']]        # norme 3D vibration
+
+    # Seuils P97 sur les valeurs de FEATURES (top 3% sévères = anomalies certaines)
+    p97_vib_rms  = float(np.percentile(vib_rms_col[vib_rms_col > 0], 97))
+    p97_temp     = float(np.percentile(temp_col, 97))
+    p3_health    = float(np.percentile(health_col, 3))   # bottom 3% = très dégradé
+    p99_kurt     = float(np.percentile(kurt_col[kurt_col > 0], 99))
+    p97_vib_tot  = float(np.percentile(vib_tot_col[vib_tot_col > 0], 97))
+
+    info(f"Seuils V9 (features fenêtrées) — VibRMS P97={p97_vib_rms:.1f}mg  Temp P97={p97_temp:.1f}°C  Health P3={p3_health:.1f}  Kurt P99={p99_kurt:.2f}  VibTot P97={p97_vib_tot:.1f}mg")
+
+    # Score anomalie V9 : au moins 2 indicateurs de dégradation sévère simultanément
+    # Logique industrielle : un vrai défaut (roulement, surchauffe) se manifeste
+    # sur PLUSIEURS indicateurs à la fois, pas sur un seul seuil marginal.
+    anom_score_v9 = (
+        (vib_rms_col  > p97_vib_rms ).astype(int)   # vibration fenêtre sévère (P97)
+        + (vib_tot_col > p97_vib_tot ).astype(int)   # norme 3D sévère (P97)
+        + (temp_col   > p97_temp     ).astype(int)   # surchauffe confirmée (P97)
+        + (health_col < p3_health    ).astype(int)   # dégradation composite sévère (P3)
+        + (kurt_col   > p99_kurt     ).astype(int)   # choc impulsif extrême (P99)
+    )
+    n_old = int(y.sum())
+    y = (anom_score_v9 >= 2).astype(int)   # anomalie = au moins 2 indicateurs sévères
+    n_new = int(y.sum())
+    info(f"Labels V9 : {n_new} anomalies sévères ({n_new/len(y)*100:.1f}%) — V8 avait {n_old} ({n_old/len(y)*100:.1f}%)")
 
     # ── V6 : Data augmentation (×AUGMENT_FACTOR) ─────────────────────────
     # Ajoute du bruit gaussien faible (2%) sur chaque échantillon normal
