@@ -796,49 +796,100 @@ def evaluate_models(trained: dict, X_pca: np.ndarray, y_true: np.ndarray,
     """
     Évalue chaque modèle (seuil fixe + seuil optimal) et le soft-voting ensemble.
     Labels de référence = étiquettes heuristiques industrielles.
+    V9 : évaluation sur données originales + filtre de persistance temporelle (k=3)
+         + contrainte precision >= 0.70 sur le SoftVote.
     """
     from sklearn.preprocessing import MinMaxScaler as MMS
 
-    head("ÉTAPE 5 — ÉVALUATION DES MODÈLES (V6 : cross-val 5-fold + vote 2/4)")
+    head("ÉTAPE 5 — ÉVALUATION DES MODÈLES (V9 : persistance temporelle + précision ≥ 0.70)")
 
     # V8 : tous les modèles utilisent X_unsup (31 features)
     X_unsup_eval = X_scaled if X_scaled is not None else X_pca
 
+    # ── V9 : Évaluation sur données originales uniquement (pas les copies augmentées)
+    # Le dataset augmenté = [original | bruit1 | bruit2] — le premier tiers est l'original
+    n_total_aug = len(y_true)
+    n_orig      = n_total_aug // AUGMENT_FACTOR   # taille originale avant augmentation
+    y_orig      = y_true[:n_orig]                  # labels sur données réelles seulement
+    X_orig      = X_unsup_eval[:n_orig]            # features originales (pas augmentées)
+    info(f"Évaluation sur {n_orig} échantillons originaux (/{n_total_aug} total augmenté) | {int(y_orig.sum())} anomalies ({y_orig.mean()*100:.1f}%)")
+
     # ── Scores continus (anomalie = valeur haute) ──────────────────────────────
-    scores_if    = -trained['if'].score_samples(X_unsup_eval)
-    scores_lof   = -trained['lof'].score_samples(X_unsup_eval)
-    scores_ocsvm = -trained['ocsvm'].decision_function(X_unsup_eval)
+    scores_if    = -trained['if'].score_samples(X_orig)
+    scores_lof   = -trained['lof'].score_samples(X_orig)
+    scores_ocsvm = -trained['ocsvm'].decision_function(X_orig)
     ecod_type = trained.get('ecod_type', 'pyod')
     if ecod_type == 'pyod':
-        scores_ecod = trained['ecod'].decision_scores_
+        scores_ecod = trained['ecod'].decision_function(X_orig)
     else:
-        scores_ecod = -trained['ecod'].score_samples(X_unsup_eval)
+        scores_ecod = -trained['ecod'].score_samples(X_orig)
 
     # HBOS et COPOD (scores continus)
-    scores_hbos  = trained['hbos'].decision_scores_  if 'hbos'  in trained else None
-    scores_copod = trained['copod'].decision_scores_ if 'copod' in trained else None
+    scores_hbos  = trained['hbos'].decision_function(X_orig)  if 'hbos'  in trained else None
+    scores_copod = trained['copod'].decision_function(X_orig) if 'copod' in trained else None
 
-    # ── Seuil optimal par modèle (sweep 1%-55% → maximise F1) ─────────────────
-    def best_threshold_f1(scores, y_true):
-        best_f1, best_preds = 0.0, np.zeros(len(y_true), dtype=int)
-        for pct in range(1, 71):   # étendu à 70% pour couvrir plus de cas
+    # ── V9 : Filtre de persistance temporelle ─────────────────────────────────
+    # Une anomalie n'est confirmée que si k fenêtres consécutives dépassent le seuil.
+    # Principe industriel : un vrai défaut (roulement, surchauffe) est PERSISTANT
+    # alors qu'un faux positif est un pic isolé.
+    def persistence_filter(preds_arr: np.ndarray, k: int = 3) -> np.ndarray:
+        result = np.zeros_like(preds_arr)
+        for i in range(k - 1, len(preds_arr)):
+            if preds_arr[i - k + 1: i + 1].sum() >= k:
+                result[i] = 1
+        return result
+
+    # ── Seuil optimal par modèle : precision ≥ 0.70 + persistance ─────────────
+    def best_threshold_precision_f1(scores, y_ref, min_prec: float = 0.70, k_persist: int = 3):
+        """Trouve le seuil maximisant F1 sous contrainte precision >= min_prec, avec filtre persistance."""
+        best_f1, best_preds, best_thr_val = 0.0, np.zeros(len(y_ref), dtype=int), 0.5
+        for pct in range(1, 71):
+            thr  = np.percentile(scores, 100 - pct)
+            raw  = (scores >= thr).astype(int)
+            filt = persistence_filter(raw, k=k_persist)
+            prec = precision_score(y_ref, filt, zero_division=0)
+            if prec >= min_prec:
+                f1 = f1_score(y_ref, filt, zero_division=0)
+                if f1 > best_f1:
+                    best_f1, best_preds, best_thr_val = f1, filt.copy(), float(thr)
+        if best_f1 == 0.0:   # pas de seuil avec precision >= min_prec → relâcher contrainte
+            for fallback_prec in [0.60, 0.50, 0.0]:
+                for pct in range(1, 71):
+                    thr  = np.percentile(scores, 100 - pct)
+                    raw  = (scores >= thr).astype(int)
+                    filt = persistence_filter(raw, k=k_persist)
+                    prec = precision_score(y_ref, filt, zero_division=0)
+                    if prec >= fallback_prec:
+                        f1 = f1_score(y_ref, filt, zero_division=0)
+                        if f1 > best_f1:
+                            best_f1, best_preds, best_thr_val = f1, filt.copy(), float(thr)
+                if best_f1 > 0:
+                    info(f"  Contrainte relaxée à precision >= {fallback_prec:.0%}")
+                    break
+        return best_preds, best_f1, best_thr_val
+
+    # Seuil optimal par modèle individuel (avec persistance k=3)
+    def best_threshold_f1(scores, y_ref):
+        """Standard F1-optimal (sans contrainte précision) — pour comparaison."""
+        best_f1, best_preds = 0.0, np.zeros(len(y_ref), dtype=int)
+        for pct in range(1, 71):
             thr  = np.percentile(scores, 100 - pct)
             pred = (scores >= thr).astype(int)
-            f1   = f1_score(y_true, pred, zero_division=0)
+            f1   = f1_score(y_ref, pred, zero_division=0)
             if f1 > best_f1:
                 best_f1, best_preds = f1, pred.copy()
         return best_preds, best_f1
 
-    opt_if,    f1_opt_if    = best_threshold_f1(scores_if,    y_true)
-    opt_lof,   f1_opt_lof   = best_threshold_f1(scores_lof,   y_true)
-    opt_ocsvm, f1_opt_ocsvm = best_threshold_f1(scores_ocsvm, y_true)
-    opt_ecod,  f1_opt_ecod  = best_threshold_f1(scores_ecod,  y_true)
-    opt_hbos,  f1_opt_hbos  = best_threshold_f1(scores_hbos,  y_true) if scores_hbos  is not None else (None, 0)
-    opt_copod, f1_opt_copod = best_threshold_f1(scores_copod, y_true) if scores_copod is not None else (None, 0)
+    opt_if,    f1_opt_if    = best_threshold_f1(scores_if,    y_orig)
+    opt_lof,   f1_opt_lof   = best_threshold_f1(scores_lof,   y_orig)
+    opt_ocsvm, f1_opt_ocsvm = best_threshold_f1(scores_ocsvm, y_orig)
+    opt_ecod,  f1_opt_ecod  = best_threshold_f1(scores_ecod,  y_orig)
+    opt_hbos,  f1_opt_hbos  = best_threshold_f1(scores_hbos,  y_orig) if scores_hbos  is not None else (None, 0)
+    opt_copod, f1_opt_copod = best_threshold_f1(scores_copod, y_orig) if scores_copod is not None else (None, 0)
 
     def norm(s): return MMS().fit_transform(s.reshape(-1,1)).flatten()
 
-    # ── Soft-vote purement non-supervisé : IF + LOF + OCSVM + ECOD + HBOS + COPOD ──
+    # ── Soft-vote : IF + LOF + OCSVM + ECOD + HBOS + COPOD (données originales) ──
     unsup_scores = [norm(scores_if), norm(scores_lof), norm(scores_ocsvm), norm(scores_ecod)]
     unsup_names  = ['IF', 'LOF', 'OCSVM', 'ECOD']
     if scores_hbos is not None:
@@ -847,24 +898,36 @@ def evaluate_models(trained: dict, X_pca: np.ndarray, y_true: np.ndarray,
     if scores_copod is not None:
         unsup_scores.append(norm(scores_copod))
         unsup_names.append('COPOD')
-    avg_score = np.mean(unsup_scores, axis=0)
-    info(f"Soft-vote non-supervisé : {' + '.join(unsup_names)} ({len(unsup_scores)} modèles)")
-    opt_soft, f1_opt_soft = best_threshold_f1(avg_score, y_true)
+    avg_score = np.mean(unsup_scores, axis=0)   # scores sur données originales
+    info(f"Soft-vote : {' + '.join(unsup_names)} ({len(unsup_scores)} modèles) | données originales")
+
+    # SoftVote standard (sans persistance, pour comparaison)
+    opt_soft_std, f1_opt_soft_std = best_threshold_f1(avg_score, y_orig)
+
+    # SoftVote V9 : avec filtre persistance k=3 + contrainte precision >= 0.70
+    opt_soft, f1_opt_soft, sv_thr_precision = best_threshold_precision_f1(avg_score, y_orig, min_prec=0.70, k_persist=3)
+    prec_sv = precision_score(y_orig, opt_soft, zero_division=0)
+    rec_sv  = recall_score(y_orig,  opt_soft, zero_division=0)
+    info(f"SoftVote+Persistence : F1={f1_opt_soft:.4f}  Prec={prec_sv:.4f}  Recall={rec_sv:.4f}  Seuil={sv_thr_precision:.4f}")
 
     # ── Prédictions binaires à contamination fixe (pour comparaison) ──────────
     def to_bin_if(p):    return (p == -1).astype(int)
     def to_bin_ecod(p):  return (p == 1).astype(int) if ecod_type=='pyod' else (p==-1).astype(int)
     def to_bin_pyod(p):  return (p == 1).astype(int)
 
-    preds_if    = to_bin_if(trained['if'].predict(X_unsup_eval))
-    preds_lof   = to_bin_if(trained['lof'].predict(X_unsup_eval))
-    preds_ocsvm = to_bin_if(trained['ocsvm'].predict(X_unsup_eval))
-    preds_ecod  = to_bin_ecod(trained['ecod'].predict(X_unsup_eval))
-    preds_hbos  = to_bin_pyod(trained['hbos'].predict(X_unsup_eval))  if 'hbos'  in trained else np.zeros(len(y_true), dtype=int)
-    preds_copod = to_bin_pyod(trained['copod'].predict(X_unsup_eval)) if 'copod' in trained else np.zeros(len(y_true), dtype=int)
+    preds_if    = to_bin_if(trained['if'].predict(X_orig))
+    preds_lof   = to_bin_if(trained['lof'].predict(X_orig))
+    preds_ocsvm = to_bin_if(trained['ocsvm'].predict(X_orig))
+    preds_ecod  = to_bin_ecod(trained['ecod'].predict(X_orig))
+    preds_hbos  = to_bin_pyod(trained['hbos'].predict(X_orig))  if 'hbos'  in trained else np.zeros(len(y_orig), dtype=int)
+    preds_copod = to_bin_pyod(trained['copod'].predict(X_orig)) if 'copod' in trained else np.zeros(len(y_orig), dtype=int)
     votes        = preds_if + preds_lof + preds_ocsvm + preds_ecod + preds_hbos + preds_copod
     preds_vote3  = (votes >= 3).astype(int)   # majorité sur 6
     preds_vote2  = (votes >= 2).astype(int)   # seuil bas
+
+    # V9 : appliquer le filtre persistance aux votes binaires aussi
+    preds_vote3_p = persistence_filter(preds_vote3, k=3)
+    preds_vote2_p = persistence_filter(preds_vote2, k=3)
 
     # ── V6 : Cross-validation 5-fold ─────────────────────────────────────────
     print(f"\n  {C}[CV] Cross-validation 5-fold (IF — référence)...{RS}")
@@ -885,8 +948,9 @@ def evaluate_models(trained: dict, X_pca: np.ndarray, y_true: np.ndarray,
             return (self.model_.predict(X) == -1).astype(int)
 
     cv = StratifiedKFold(n_splits=5, shuffle=True, random_state=RANDOM_STATE)
+    X_pca_orig = X_pca[:n_orig] if X_pca is not None else None
     try:
-        cv_scores = cross_val_score(IFWrapper(CONTAMINATION), X_pca, y_true,
+        cv_scores = cross_val_score(IFWrapper(CONTAMINATION), X_pca_orig, y_orig,
                                     cv=cv, scoring='f1')
         # Filtrer les NaN (peuvent survenir quand un fold n'a pas les 2 classes)
         valid = cv_scores[~np.isnan(cv_scores)]
@@ -898,50 +962,56 @@ def evaluate_models(trained: dict, X_pca: np.ndarray, y_true: np.ndarray,
     except Exception as e:
         warn(f"Cross-val echouee : {e}")
 
-    # ── Tableau comparatif ────────────────────────────────────────────────────
+    # ── Tableau comparatif (évaluation sur données originales) ───────────────
     metrics = {}
     models_preds = {
-        'IF':        preds_if,
-        'LOF':       preds_lof,
-        'OCSVM':     preds_ocsvm,
-        'ECOD':      preds_ecod,
-        'HBOS':      preds_hbos,
-        'COPOD':     preds_copod,
-        'Vote2/6':   preds_vote2,
-        'Vote3/6':   preds_vote3,
-        'IF_opt':    opt_if,
-        'LOF_opt':   opt_lof,
-        'OCSVM_opt': opt_ocsvm,
-        'ECOD_opt':  opt_ecod,
-        'SoftVote':  opt_soft,
+        'IF':           preds_if,
+        'LOF':          preds_lof,
+        'OCSVM':        preds_ocsvm,
+        'ECOD':         preds_ecod,
+        'HBOS':         preds_hbos,
+        'COPOD':        preds_copod,
+        'Vote2/6':      preds_vote2,
+        'Vote3/6':      preds_vote3,
+        'Vote2/6+P':    preds_vote2_p,   # avec filtre persistance k=3
+        'Vote3/6+P':    preds_vote3_p,   # avec filtre persistance k=3
+        'IF_opt':       opt_if,
+        'LOF_opt':      opt_lof,
+        'OCSVM_opt':    opt_ocsvm,
+        'ECOD_opt':     opt_ecod,
+        'SoftVote_std': opt_soft_std,    # SoftVote standard (référence)
+        'SoftVote':     opt_soft,        # SoftVote + persistance k=3 + prec≥70% ← RAPPORT
     }
     if opt_hbos  is not None: models_preds['HBOS_opt']  = opt_hbos
     if opt_copod is not None: models_preds['COPOD_opt'] = opt_copod
 
-    print(f"\n  {'Modèle':<12} {'F1':>6} {'Précision':>10} {'Rappel':>8} {'AUC-ROC':>8} {'Anomalies':>10}")
-    print(f"  {'─'*12} {'─'*6} {'─'*10} {'─'*8} {'─'*8} {'─'*10}")
+    print(f"\n  {'Modèle':<14} {'F1':>6} {'Précision':>10} {'Rappel':>8} {'AUC-ROC':>8} {'Anomalies':>10}")
+    print(f"  {'─'*14} {'─'*6} {'─'*10} {'─'*8} {'─'*8} {'─'*10}")
 
     for name, preds in models_preds.items():
-        f1   = f1_score(y_true, preds, zero_division=0)
-        prec = precision_score(y_true, preds, zero_division=0)
-        rec  = recall_score(y_true, preds, zero_division=0)
+        f1   = f1_score(y_orig, preds, zero_division=0)
+        prec = precision_score(y_orig, preds, zero_division=0)
+        rec  = recall_score(y_orig, preds, zero_division=0)
         try:
-            auc = roc_auc_score(y_true, preds)
+            auc = roc_auc_score(y_orig, preds)
         except Exception:
             auc = 0.5
         n_a  = int(preds.sum())
-        acc  = accuracy_score(y_true, preds)
-        color = G if f1 > 0.75 else (Y if f1 > 0.5 else R)
-        print(f"  {name:<12} {color}{f1:>6.4f}{RS} {prec:>10.4f} {rec:>8.4f} {auc:>8.4f} {n_a:>10d}")
+        acc  = accuracy_score(y_orig, preds)
+        marker = " ← RAPPORT" if name == 'SoftVote' else ""
+        color  = G if f1 > 0.65 else (Y if f1 > 0.45 else R)
+        print(f"  {name:<14} {color}{f1:>6.4f}{RS} {prec:>10.4f} {rec:>8.4f} {auc:>8.4f} {n_a:>10d}{marker}")
         metrics[name] = {'f1': f1, 'precision': prec, 'recall': rec, 'auc_roc': auc, 'n_anomalies': n_a, 'accuracy': acc}
 
     # Stocker scores et seuils optimaux pour la sauvegarde (préfixe _ = interne)
     def _get_thr(scores, n_anom):
         return float(np.percentile(scores, 100 - n_anom / len(scores) * 100))
 
-    metrics['_opt_preds']   = opt_soft
-    metrics['_avg_score']   = avg_score
-    metrics['_f1_softvote'] = f1_opt_soft
+    metrics['_opt_preds']         = opt_soft
+    metrics['_avg_score']         = avg_score
+    metrics['_f1_softvote']       = f1_opt_soft
+    metrics['_sv_thr_precision']  = sv_thr_precision   # seuil brut pour le filtre persistance API
+    metrics['_n_orig']            = n_orig
     # Stats de normalisation par modèle (p1/p99) — utilisées par l'API pour le soft score continu
     metrics['_score_stats'] = {
         'if':    {'p1': float(np.percentile(scores_if,    1)), 'p99': float(np.percentile(scores_if,    99))},
@@ -1048,20 +1118,26 @@ def save_models(trained: dict, scaler, pca, feature_names: list, metrics: dict, 
     head("ÉTAPE 6 — SAUVEGARDE")
 
     # Seuils optimaux (stockés par evaluate_models pour l'API)
-    avg_score      = metrics.pop('_avg_score', None)
-    opt_thresholds = metrics.pop('_opt_thresholds', {})
-    score_stats    = metrics.pop('_score_stats', {})
+    avg_score          = metrics.pop('_avg_score', None)
+    opt_thresholds     = metrics.pop('_opt_thresholds', {})
+    score_stats        = metrics.pop('_score_stats', {})
+    sv_thr_precision   = metrics.pop('_sv_thr_precision', None)   # seuil precision-contraint
     metrics.pop('_opt_preds', None)
     metrics.pop('_f1_softvote', None)
-    if avg_score is not None:
+    metrics.pop('_n_orig', None)
+    if sv_thr_precision is not None:
+        # V9 : utiliser le seuil optimisé pour precision >= 0.70 (avec filtre persistance)
+        sv_thr = sv_thr_precision
+    elif avg_score is not None:
         sv_n   = metrics.get('SoftVote', {}).get('n_anomalies', int(len(avg_score) * CONTAMINATION))
         sv_thr = float(np.percentile(avg_score, 100 - sv_n / len(avg_score) * 100))
     else:
         sv_thr = 0.5
     threshold_data = {
-        'softvote_threshold': sv_thr,
-        'contamination':      float(CONTAMINATION),
-        'score_stats':        score_stats,   # p1/p99 par modèle — pour normalisation API
+        'softvote_threshold':   sv_thr,         # seuil brut pour le soft score normalisé [0,1]
+        'persistence_k':        3,               # fenêtres consécutives requises pour confirmer
+        'contamination':        float(CONTAMINATION),
+        'score_stats':          score_stats,     # p1/p99 par modèle — pour normalisation API
         **opt_thresholds,
     }
 

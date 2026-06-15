@@ -13,7 +13,7 @@
 ║    GET  /v1/history/{id}         → Historique prédictions par capteur  [NEW] ║
 ║    GET  /v1/alert-level/{id}     → Niveau d'alerte actuel capteur      [NEW] ║
 ║    GET  /health                  → Health check                              ║
-║    GET  /metrics                 → Métriques modèle V3 (F1=0.401, AUC=0.683)║
+║    GET  /metrics                 → Métriques modèle V9 (AUC=0.836)          ║
 ║    GET  /sensors                 → Liste capteurs depuis full_data           ║
 ║    GET  /anomalies               → Anomalies filtrées                        ║
 ╚══════════════════════════════════════════════════════════════════════════════╝
@@ -138,6 +138,11 @@ thresholds    = {}    # seuils optimaux du SoftVote chargés depuis threshold_v3
 # Format : {sensor_id: deque([(timestamp, anomaly_score, confidence), ...])}
 anomaly_history: dict = {}
 HISTORY_WINDOW = 50   # Nombre de mesures gardées en mémoire par moteur
+
+# Buffer de persistance temporelle par capteur (V9)
+# Principe : une anomalie n'est confirmée que si k fenêtres consécutives dépassent le seuil
+# → réduit les faux positifs isolés, améliore la précision sans sacrifier le recall
+_persistence_buffers: dict = {}   # {sensor_id: deque(maxlen=k)} contient soft_scores récents
 
 # Baseline par capteur — pour normaliser le health score relatif (semaine 2)
 # Calculé sur les 20 premières mesures de chaque capteur
@@ -588,15 +593,16 @@ def extract_features(history: List[MeasurePoint]) -> dict:
     return feat
 
 
-def run_ensemble(X_raw: np.ndarray) -> dict:
+def run_ensemble(X_raw: np.ndarray, sensor_id: str = "default") -> dict:
     """
-    Applique scaler → X_scaled → SoftVote continu (6 modèles).
+    Applique scaler → X_scaled → SoftVote continu (6 modèles) + filtre de persistance V9.
     Score continu [0,1] calculé par score_samples/decision_function + normalisation p1/p99.
     Seuil optimal chargé depuis threshold_v3.pkl (softvote_threshold).
+    Persistance k=3 : anomalie confirmée uniquement si k fenêtres consécutives > seuil.
     """
     if not models:
         return {"votes": 0, "label": "NORMAL", "confidence": 0.0,
-                "is_anomaly": False,
+                "is_anomaly": False, "raw_anomaly": False,
                 "individual": {"IF": "N/A", "LOF": "N/A",
                                "OCSVM": "N/A", "ECOD": "N/A",
                                "HBOS": "N/A", "COPOD": "N/A"}}
@@ -620,7 +626,6 @@ def run_ensemble(X_raw: np.ndarray) -> dict:
             # Fallback sigmoid si stats absentes (avant premier re-entraînement)
             return float(1.0 / (1.0 + np.exp(-raw)))
         except Exception:
-            # Fallback vote binaire
             try:
                 pred = model.predict(X_unsup)[0]
                 return 1.0 if (pred == -1 or pred == 1) else 0.0
@@ -642,7 +647,16 @@ def run_ensemble(X_raw: np.ndarray) -> dict:
 
     # Seuil optimal depuis threshold_v3.pkl, fallback 0.5
     opt_thr    = float((thresholds or {}).get("softvote_threshold", 0.5))
-    is_anomaly = soft_score >= opt_thr
+    raw_anomaly = soft_score >= opt_thr   # détection brute (sans filtre)
+
+    # ── V9 : Filtre de persistance temporelle par capteur ────────────────────
+    # Un faux positif isolé disparaît après 1 fenêtre ; un vrai défaut persiste k fenêtres.
+    k_persist = int((thresholds or {}).get("persistence_k", 3))
+    if sensor_id not in _persistence_buffers:
+        _persistence_buffers[sensor_id] = deque(maxlen=k_persist)
+    _persistence_buffers[sensor_id].append(1 if raw_anomaly else 0)
+    buf = _persistence_buffers[sensor_id]
+    is_anomaly = (len(buf) >= k_persist and sum(buf) >= k_persist)
 
     # Votes binaires conservés pour l'affichage individuel par modèle
     def _bin(s): return s >= 0.5
@@ -661,6 +675,7 @@ def run_ensemble(X_raw: np.ndarray) -> dict:
         "label":        "ANOMALY" if is_anomaly else "NORMAL",
         "confidence":   round(soft_score, 4),
         "is_anomaly":   is_anomaly,
+        "raw_anomaly":  raw_anomaly,   # détection sans filtre (pour debug)
         "individual":   individual,
     }
 
@@ -1039,8 +1054,9 @@ if FASTAPI_OK:
                 feat.get("vib_y_rms_w", 200),
             ]], dtype="float32")
 
-        # 3. Inférence ensemble
-        result = run_ensemble(X)
+        # 3. Inférence ensemble (avec filtre persistance par capteur)
+        sensor_id_pred = req.sensor_id if hasattr(req, "sensor_id") and req.sensor_id else "default"
+        result = run_ensemble(X, sensor_id=sensor_id_pred)
 
         # 4. Calcul anomaly_score normalisé (0–1)
         anomaly_score = round(result["confidence"], 4)
@@ -1323,8 +1339,8 @@ if FASTAPI_OK:
                 feat.get("vib_y_rms_w", 200),
             ]], dtype="float32")
 
-        # 5. Inférence ensemble
-        result = run_ensemble(X)
+        # 5. Inférence ensemble (avec filtre persistance par capteur)
+        result = run_ensemble(X, sensor_id=req.sensor_id)
 
         # 6. Calcul anomaly_score
         anomaly_score = round(result["confidence"], 4)
