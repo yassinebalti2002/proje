@@ -93,7 +93,7 @@ MYSQL_TABLE    = "full_data"
 MYSQL_SAMPLE_N = 25000   # sessions à extraire (1 session = 3 lignes full_data)
 
 # Paramètres des modèles
-CONTAMINATION   = 0.20   # V7 : 20% — aligné sur les seuils P85 dynamiques
+CONTAMINATION   = 0.10   # V8 : 10% — meilleur équilibre précision/rappel (F1 ↑)
 WINDOW_SIZE     = 20
 RANDOM_STATE    = 42
 AUGMENT_FACTOR  = 3
@@ -942,6 +942,17 @@ def evaluate_models(trained: dict, X_pca: np.ndarray, y_true: np.ndarray,
     metrics['_opt_preds']   = opt_soft
     metrics['_avg_score']   = avg_score
     metrics['_f1_softvote'] = f1_opt_soft
+    # Stats de normalisation par modèle (p1/p99) — utilisées par l'API pour le soft score continu
+    metrics['_score_stats'] = {
+        'if':    {'p1': float(np.percentile(scores_if,    1)), 'p99': float(np.percentile(scores_if,    99))},
+        'lof':   {'p1': float(np.percentile(scores_lof,   1)), 'p99': float(np.percentile(scores_lof,   99))},
+        'ocsvm': {'p1': float(np.percentile(scores_ocsvm, 1)), 'p99': float(np.percentile(scores_ocsvm, 99))},
+        'ecod':  {'p1': float(np.percentile(scores_ecod,  1)), 'p99': float(np.percentile(scores_ecod,  99))},
+    }
+    if scores_hbos  is not None:
+        metrics['_score_stats']['hbos']  = {'p1': float(np.percentile(scores_hbos,  1)), 'p99': float(np.percentile(scores_hbos,  99))}
+    if scores_copod is not None:
+        metrics['_score_stats']['copod'] = {'p1': float(np.percentile(scores_copod, 1)), 'p99': float(np.percentile(scores_copod, 99))}
     metrics['_opt_thresholds'] = {
         'if_threshold':    _get_thr(scores_if,    int(opt_if.sum())),
         'lof_threshold':   _get_thr(scores_lof,   int(opt_lof.sum())),
@@ -1037,8 +1048,9 @@ def save_models(trained: dict, scaler, pca, feature_names: list, metrics: dict, 
     head("ÉTAPE 6 — SAUVEGARDE")
 
     # Seuils optimaux (stockés par evaluate_models pour l'API)
-    avg_score     = metrics.pop('_avg_score', None)
+    avg_score      = metrics.pop('_avg_score', None)
     opt_thresholds = metrics.pop('_opt_thresholds', {})
+    score_stats    = metrics.pop('_score_stats', {})
     metrics.pop('_opt_preds', None)
     metrics.pop('_f1_softvote', None)
     if avg_score is not None:
@@ -1049,6 +1061,7 @@ def save_models(trained: dict, scaler, pca, feature_names: list, metrics: dict, 
     threshold_data = {
         'softvote_threshold': sv_thr,
         'contamination':      float(CONTAMINATION),
+        'score_stats':        score_stats,   # p1/p99 par modèle — pour normalisation API
         **opt_thresholds,
     }
 

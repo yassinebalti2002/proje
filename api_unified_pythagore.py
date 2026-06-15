@@ -590,57 +590,78 @@ def extract_features(history: List[MeasurePoint]) -> dict:
 
 def run_ensemble(X_raw: np.ndarray) -> dict:
     """
-    Applique scaler -> PCA -> SoftVote (IF+OCSVM+ECOD, seuil optimal).
-    Fallback sur Vote2/4 binaire si threshold_v3.pkl absent.
+    Applique scaler → X_scaled → SoftVote continu (6 modèles).
+    Score continu [0,1] calculé par score_samples/decision_function + normalisation p1/p99.
+    Seuil optimal chargé depuis threshold_v3.pkl (softvote_threshold).
     """
     if not models:
         return {"votes": 0, "label": "NORMAL", "confidence": 0.0,
                 "is_anomaly": False,
                 "individual": {"IF": "N/A", "LOF": "N/A",
-                               "OCSVM": "N/A", "ECOD": "N/A"}}
+                               "OCSVM": "N/A", "ECOD": "N/A",
+                               "HBOS": "N/A", "COPOD": "N/A"}}
 
     X_scaled = scaler.transform(X_raw)
-    # V8 : les modèles non-supervisés utilisent X_scaled (31 features, pas PCA)
     use_scaled = thresholds.get("unsupervised_input", "pca") == "scaled" if thresholds else False
     X_unsup = X_scaled if use_scaled else pca.transform(X_scaled)
-    X_pca   = pca.transform(X_scaled)   # conservé pour compatibilité
 
-    # ── Votes non-supervisés ──────────────────────────────────────────────────
-    def _vote_sklearn_anomaly(model, X):
-        try:    return 1 if model.predict(X)[0] == -1 else 0
-        except: return 0
-    def _vote_pyod_anomaly(model, X):
-        try:    return 1 if model.predict(X)[0] == 1 else 0
-        except: return 0
+    score_stats = (thresholds or {}).get("score_stats", {})
 
-    vote_if    = _vote_sklearn_anomaly(models["if"],    X_unsup)
-    vote_lof   = _vote_sklearn_anomaly(models["lof"],   X_unsup)
-    vote_ocsvm = _vote_sklearn_anomaly(models["ocsvm"], X_unsup)
-    vote_ecod  = _vote_pyod_anomaly(models["ecod"],     X_unsup)
-    vote_hbos  = _vote_pyod_anomaly(models["hbos"],  X_unsup) if "hbos"  in models else 0
-    vote_copod = _vote_pyod_anomaly(models["copod"], X_unsup) if "copod" in models else 0
+    def _soft(model, key, is_pyod=False):
+        """Score continu normalisé [0,1] : 1 = certain anomalie."""
+        try:
+            if is_pyod:
+                raw = float(model.decision_function(X_unsup)[0])
+            else:
+                raw = float(-model.score_samples(X_unsup)[0])
+            stats = score_stats.get(key)
+            if stats and stats["p99"] > stats["p1"]:
+                return float(np.clip((raw - stats["p1"]) / (stats["p99"] - stats["p1"]), 0.0, 1.0))
+            # Fallback sigmoid si stats absentes (avant premier re-entraînement)
+            return float(1.0 / (1.0 + np.exp(-raw)))
+        except Exception:
+            # Fallback vote binaire
+            try:
+                pred = model.predict(X_unsup)[0]
+                return 1.0 if (pred == -1 or pred == 1) else 0.0
+            except Exception:
+                return 0.5
 
-    # ── Résultat final : majorité des modèles non-supervisés ─────────────────
-    unsup_votes = vote_if + vote_lof + vote_ocsvm + vote_ecod + vote_hbos + vote_copod
-    n_unsup = sum(1 for k in ["if", "lof", "ocsvm", "ecod", "hbos", "copod"] if k in models)
-    threshold_votes = max(2, n_unsup // 2)   # majorité relative
-    is_anomaly = unsup_votes >= threshold_votes
-    confidence = round(unsup_votes / max(n_unsup, 1), 4)
+    s_if    = _soft(models["if"],    "if",    is_pyod=False)
+    s_lof   = _soft(models["lof"],   "lof",   is_pyod=False)
+    s_ocsvm = _soft(models["ocsvm"], "ocsvm", is_pyod=False)
+    s_ecod  = _soft(models["ecod"],  "ecod",  is_pyod=True)
+    s_hbos  = _soft(models["hbos"],  "hbos",  is_pyod=True) if "hbos"  in models else 0.5
+    s_copod = _soft(models["copod"], "copod", is_pyod=True) if "copod" in models else 0.5
 
+    active_scores = [s_if, s_lof, s_ocsvm, s_ecod]
+    if "hbos"  in models: active_scores.append(s_hbos)
+    if "copod" in models: active_scores.append(s_copod)
+
+    soft_score = float(np.mean(active_scores))
+
+    # Seuil optimal depuis threshold_v3.pkl, fallback 0.5
+    opt_thr    = float((thresholds or {}).get("softvote_threshold", 0.5))
+    is_anomaly = soft_score >= opt_thr
+
+    # Votes binaires conservés pour l'affichage individuel par modèle
+    def _bin(s): return s >= 0.5
     individual = {
-        "IF":    "ANOMALY" if vote_if    else "NORMAL",
-        "LOF":   "ANOMALY" if vote_lof   else "NORMAL",
-        "OCSVM": "ANOMALY" if vote_ocsvm else "NORMAL",
-        "ECOD":  "ANOMALY" if vote_ecod  else "NORMAL",
-        "HBOS":  "ANOMALY" if vote_hbos  else "NORMAL",
-        "COPOD": "ANOMALY" if vote_copod else "NORMAL",
+        "IF":    "ANOMALY" if _bin(s_if)    else "NORMAL",
+        "LOF":   "ANOMALY" if _bin(s_lof)   else "NORMAL",
+        "OCSVM": "ANOMALY" if _bin(s_ocsvm) else "NORMAL",
+        "ECOD":  "ANOMALY" if _bin(s_ecod)  else "NORMAL",
+        "HBOS":  "ANOMALY" if _bin(s_hbos)  else "NORMAL",
+        "COPOD": "ANOMALY" if _bin(s_copod) else "NORMAL",
     }
+    votes = sum(1 for v in individual.values() if v == "ANOMALY")
     return {
-        "votes":      unsup_votes,
-        "label":      "ANOMALY" if is_anomaly else "NORMAL",
-        "confidence": confidence,
-        "is_anomaly": is_anomaly,
-        "individual": individual,
+        "votes":        votes,
+        "soft_score":   round(soft_score, 4),
+        "label":        "ANOMALY" if is_anomaly else "NORMAL",
+        "confidence":   round(soft_score, 4),
+        "is_anomaly":   is_anomaly,
+        "individual":   individual,
     }
 
 
@@ -1475,11 +1496,17 @@ if FASTAPI_OK:
                 m = df_m.set_index("metric")["value"].to_dict()
             else:
                 m = df_m.iloc[0].to_dict()
+            n_models = sum(1 for k in ["if","lof","ocsvm","ecod","hbos","copod"] if k in models)
+            ens_names = " + ".join(k.upper() for k in ["if","lof","ocsvm","ecod","hbos","copod"] if k in models) or m.get("ensemble","IF + LOF + OCSVM + ECOD + HBOS + COPOD")
             return {
-                "model_version": "V3",
-                "ensemble":      "IF + LOF + OCSVM + ECOD",
-                "voting":        "2/4 (majoritaire)",
-                "dataset":       "ai_cp full_data — 79940 sessions, 20 capteurs IFM, nov2025-mar2026",
+                "model_version": m.get("model_version", "V7"),
+                "ensemble":      ens_names,
+                "voting":        m.get("voting", "SoftVote seuil optimal"),
+                "dataset":       m.get("dataset", "ai_cp full_data — 20 capteurs IFM"),
+                "window_size":   int(float(m.get("window_size", 20))),
+                "n_features":    int(float(m.get("n_features",  31))),
+                "augmentation":  m.get("augmentation", "x3"),
+                "pca_variance":  float(m.get("pca_variance", 0.95)),
                 "f1_score":      round(float(m.get("f1_score",  0)), 4),
                 "accuracy":      round(float(m.get("accuracy",  0)), 4),
                 "precision":     round(float(m.get("precision", 0)), 4),
@@ -1488,11 +1515,7 @@ if FASTAPI_OK:
                 "n_anomalies":   int(float(m.get("n_anomalies", 0))),
                 "n_total":       int(float(m.get("n_total",     0))),
                 "contamination": round(float(m.get("contamination", 0)), 4),
-                "weights": {
-                    "IF":    round(float(m.get("weights_if",    0.2)), 2),
-                    "LOF":   round(float(m.get("weights_lof",   0.3)), 2),
-                    "OCSVM": round(float(m.get("weights_ocsvm", 0.5)), 2),
-                },
+                "weights": {k.upper(): round(1/max(n_models,1), 2) for k in ["if","lof","ocsvm","ecod","hbos","copod"] if k in models},
                 "source_file": str(path.name),
             }
         except Exception as e:
