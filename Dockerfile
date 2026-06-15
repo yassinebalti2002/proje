@@ -54,8 +54,6 @@ COPY signal_processing.py .
 COPY alert_manager.py .
 COPY reporting_module.py .
 COPY train_rul_model.py .
-COPY realtime_mariadb.py .
-COPY realtime_ifm_direct.py .
 COPY gateway_ifm_simulator.py .
 
 # Modèles ML pré-entraînés (inclus dans l'image pour déploiement cloud)
