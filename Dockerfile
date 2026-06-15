@@ -67,18 +67,21 @@ RUN pip install --no-cache-dir --upgrade pip \
     && pip install --no-cache-dir -r requirements.txt \
     && pip install --no-cache-dir scipy pyod
 
-# Copie du code source (sans venv, sans sql, sans données volumineuses)
+# Copie du code source
 COPY api_unified_pythagore.py .
 COPY alert_manager.py .
+COPY signal_processing.py .
+COPY train_rul_model.py .
+COPY reporting_module.py .
 COPY gateway_ifm_simulator.py .
-COPY realtime_ifm_direct.py .
+COPY alert_config.json .
 
 # Copie des modèles pré-entraînés
 # Le dossier models/ DOIT exister avec les .pkl avant le build
 COPY models/ ./models/
 
 # Création des dossiers de données persistants
-RUN mkdir -p /app/data /app/logs
+RUN mkdir -p /app/data /app/logs /app/reports
 
 # Port exposé
 EXPOSE 8000
