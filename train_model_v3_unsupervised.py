@@ -93,21 +93,20 @@ MYSQL_TABLE    = "full_data"
 MYSQL_SAMPLE_N = 25000   # sessions à extraire (1 session = 3 lignes full_data)
 
 # Paramètres des modèles
-CONTAMINATION   = 0.10   # V6 : abaissé à 10% (industriellement ~10% de pannes) — recalibré dynamiquement
-WINDOW_SIZE     = 20     # V6 : fenêtre doublée (40s de données) pour capturer les tendances lentes
+CONTAMINATION   = 0.20   # V7 : 20% — aligné sur les seuils P85 dynamiques
+WINDOW_SIZE     = 20
 RANDOM_STATE    = 42
-AUGMENT_FACTOR  = 3      # V6 : tripler le dataset par augmentation gaussienne
-VOTE_THRESHOLD  = 2      # Vote majoritaire 2/4 — cohérent avec l'API (meilleur rappel)
+AUGMENT_FACTOR  = 3
+VOTE_THRESHOLD  = 2      # Vote majoritaire 2/4
 
-# Seuils industriels IFM pour étiqueter les anomalies
-# V6 : recalibrés sur données production IFM réelles (realtime_results.json)
-# Echelle production : VibZ P50=322 P95=783 P99=1039 mg (vs SQL training: max=149 mg)
-SEUIL_TEMP_MAX   = 50.4   # °C   → P95 production = 50.43°C (coherent)
-SEUIL_VIB_MAX    = 783.0  # mg   → P95 production vib_z (au lieu de 7.3 qui etait le P95 SQL)
-SEUIL_COURANT    = 97.0   # A    → P99 réel de la base (pas de données prod courante)
-SEUIL_KURT_VIB   = 5.0    # kurtosis > 5 = impulsion anormale (bearing damage)
-SEUIL_CREST_VIB  = 3.5    # crest factor > 3.5 = choc (normal < 2.5)
-SEUIL_HEALTH_LOW = 45.0   # health_score < 45 = dégradation composite
+# Seuils — calculés dynamiquement sur les données réelles dans build_feature_matrix
+# Ces valeurs sont des fallbacks uniquement
+SEUIL_TEMP_MAX   = 50.4
+SEUIL_VIB_MAX    = 783.0
+SEUIL_COURANT    = 97.0
+SEUIL_KURT_VIB   = 5.0
+SEUIL_CREST_VIB  = 3.5
+SEUIL_HEALTH_LOW = 45.0
 
 # Chemin des données production (realtime_results.json)
 REALTIME_RESULTS = "realtime_results.json"
@@ -505,7 +504,18 @@ def build_feature_matrix(df: pd.DataFrame) -> tuple:
     ]
 
     all_features = []
-    heuristic_labels = []   # 1 = anomalie heuristique, 0 = normal
+    heuristic_labels = []
+
+    # ── V7 : Seuils dynamiques basés sur les percentiles réels des données ────
+    # Résout le problème des seuils production (783 mg) vs données SQL (max 149 mg)
+    p85_vib  = float(np.percentile(df['vibration_z'].dropna(), 85))
+    p90_temp = float(np.percentile(df['temperature'].dropna(),  90))
+    p90_cur  = float(np.percentile(df['current'].dropna(),      90))
+    p80_vib  = float(np.percentile(df['vibration_z'].dropna(), 80))
+    dyn_SEUIL_VIB    = max(p85_vib,  1.0)
+    dyn_SEUIL_TEMP   = max(p90_temp, 30.0)
+    dyn_SEUIL_COURANT = max(p90_cur, 1.0)
+    info(f"Seuils dynamiques — Vib P85={dyn_SEUIL_VIB:.2f}mg  Temp P90={dyn_SEUIL_TEMP:.2f}°C  Courant P90={dyn_SEUIL_COURANT:.2f}A")
 
     sensors = df['sensor_id'].unique()
     info(f"Traitement de {len(sensors)} capteurs avec fenêtre de {WINDOW_SIZE} mesures")
@@ -526,15 +536,17 @@ def build_feature_matrix(df: pd.DataFrame) -> tuple:
                 row = [feats[f] for f in FEATURES_ORDER]
                 all_features.append(row)
 
-                # Étiquette heuristique — 6 conditions (seuils industriels IFM)
-                is_anomaly = (
-                    feats['temp_mean']    > SEUIL_TEMP_MAX    # surchauffe
-                    or feats['vib_z_rms_w']  > SEUIL_VIB_MAX  # vibration RMS
-                    or feats['current_mean'] > SEUIL_COURANT   # surcourant
-                    or feats['health_score'] < SEUIL_HEALTH_LOW  # dégradation composite
-                    or feats['vib_z_kurt']   > SEUIL_KURT_VIB   # choc impulsif bearing
-                    or feats['vib_z_crest']  > SEUIL_CREST_VIB  # facteur de crête
+                # Étiquette heuristique — scoring composite (≥2 conditions)
+                # Réduit les faux positifs : une seule condition légère ne suffit plus
+                anom_score_h = (
+                    int(feats['temp_mean']    > dyn_SEUIL_TEMP)
+                    + int(feats['vib_z_rms_w']  > dyn_SEUIL_VIB)
+                    + int(feats['current_mean'] > dyn_SEUIL_COURANT)
+                    + int(feats['health_score'] < SEUIL_HEALTH_LOW)
+                    + int(feats['vib_z_kurt']   > SEUIL_KURT_VIB)
+                    + int(feats['vib_z_crest']  > SEUIL_CREST_VIB)
                 )
+                is_anomaly = anom_score_h >= 2   # anomalie confirmée = au moins 2 signaux
                 heuristic_labels.append(1 if is_anomaly else 0)
             except Exception as e:
                 continue
@@ -629,14 +641,19 @@ def preprocess(X: np.ndarray) -> tuple:
     for i, ev in enumerate(pca.explained_variance_ratio_):
         info(f"  PC{i+1} : {ev*100:.2f}%")
 
-    return scaler, pca, X_pca
+    return scaler, pca, X_pca, X_scaled
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # ÉTAPE 4 — ENTRAÎNEMENT DES 4 MODÈLES
 # ═══════════════════════════════════════════════════════════════════════════════
 
-def train_models(X_pca: np.ndarray) -> dict:
+def train_models(X_pca: np.ndarray, y_heuristic: np.ndarray = None, X_scaled: np.ndarray = None) -> dict:
+    # V8 : tous les modèles non-supervisés utilisent X_scaled (31 features)
+    # X_pca (2D) conservé uniquement pour compatibilité ascendante
+    X_unsup = X_scaled if X_scaled is not None else X_pca
+    n_feat = X_unsup.shape[1]
+    info(f"Espace d'entraînement : {n_feat} features {'(X_scaled 31D)' if X_scaled is not None else '(X_pca 2D)'}")
     """
     Entraîne les 4 modèles de détection d'anomalies non supervisés.
 
@@ -669,11 +686,10 @@ def train_models(X_pca: np.ndarray) -> dict:
         contamination = CONTAMINATION,
         max_samples   = 'auto',
         random_state  = RANDOM_STATE,
-        n_jobs        = -1,   # utilise tous les CPU
+        n_jobs        = -1,
     )
-    model_if.fit(X_pca)
-    preds_if = model_if.predict(X_pca)
-    # IF retourne -1 pour anomalie, +1 pour normal
+    model_if.fit(X_unsup)
+    preds_if = model_if.predict(X_unsup)
     n_anom = int((preds_if == -1).sum())
     ok(f"IF entraîné en {time.time()-t0:.2f}s | {n_anom} anomalies ({n_anom/len(preds_if)*100:.1f}%)")
     trained['if'] = model_if
@@ -681,16 +697,14 @@ def train_models(X_pca: np.ndarray) -> dict:
     # ── Modèle 2 : Local Outlier Factor ───────────────────────────────────────
     print(f"\n  {C}[2/4] Local Outlier Factor...{RS}")
     t0 = time.time()
-    # novelty=True : permet d'utiliser .predict() sur de nouvelles données
-    # n_neighbors=20 : compare chaque point à ses 20 voisins les plus proches
     model_lof = LocalOutlierFactor(
-        n_neighbors   = 20,  # sqrt(~588) ≈ 24, recommandation standard
+        n_neighbors   = 20,
         contamination = CONTAMINATION,
-        novelty       = True,   # IMPORTANT : sinon pas de .predict()
+        novelty       = True,
         n_jobs        = -1,
     )
-    model_lof.fit(X_pca)
-    preds_lof = model_lof.predict(X_pca)
+    model_lof.fit(X_unsup)
+    preds_lof = model_lof.predict(X_unsup)
     n_anom = int((preds_lof == -1).sum())
     ok(f"LOF entraîné en {time.time()-t0:.2f}s | {n_anom} anomalies ({n_anom/len(preds_lof)*100:.1f}%)")
     trained['lof'] = model_lof
@@ -698,46 +712,77 @@ def train_models(X_pca: np.ndarray) -> dict:
     # ── Modèle 3 : One-Class SVM ──────────────────────────────────────────────
     print(f"\n  {C}[3/4] One-Class SVM...{RS}")
     t0 = time.time()
-    # V6 : nu aligné sur CONTAMINATION (cohérent avec IF et LOF)
     model_ocsvm = OneClassSVM(
         kernel = 'rbf',
-        nu     = CONTAMINATION,   # V6 : aligné sur contamination globale
+        nu     = CONTAMINATION,
         gamma  = 'scale',
     )
-    model_ocsvm.fit(X_pca)
-    preds_ocsvm = model_ocsvm.predict(X_pca)
+    model_ocsvm.fit(X_unsup)
+    preds_ocsvm = model_ocsvm.predict(X_unsup)
     n_anom = int((preds_ocsvm == -1).sum())
     ok(f"OCSVM entraîné en {time.time()-t0:.2f}s | {n_anom} anomalies ({n_anom/len(preds_ocsvm)*100:.1f}%)")
     trained['ocsvm'] = model_ocsvm
 
-    # ── Modèle 4 : ECOD ou IsolationForest clone ──────────────────────────────
+    # ── Modèle 4 : ECOD ───────────────────────────────────────────────────────
     print(f"\n  {C}[4/4] ECOD...{RS}")
     t0 = time.time()
     try:
         from pyod.models.ecod import ECOD
         model_ecod = ECOD(contamination=CONTAMINATION)
-        model_ecod.fit(X_pca)
-        preds_ecod = model_ecod.predict(X_pca)
-        n_anom = int((preds_ecod == 1).sum())   # ECOD retourne 1 pour anomalie
+        model_ecod.fit(X_unsup)
+        preds_ecod = model_ecod.predict(X_unsup)
+        n_anom = int((preds_ecod == 1).sum())
         ok(f"ECOD (pyod) entraîné en {time.time()-t0:.2f}s | {n_anom} anomalies")
         trained['ecod'] = model_ecod
         trained['ecod_type'] = 'pyod'
     except ImportError:
-        warn("pyod non disponible → ECOD remplacé par IsolationForest (paramètres différents)")
-        # Clone IF avec paramètres légèrement différents pour apporter de la diversité
+        warn("pyod non disponible → ECOD remplacé par IsolationForest clone")
         model_ecod = IsolationForest(
-            n_estimators  = 150,
-            contamination = CONTAMINATION,
-            max_features  = 0.8,     # sous-espace aléatoire
-            random_state  = RANDOM_STATE + 1,
-            n_jobs        = -1,
+            n_estimators=150, contamination=CONTAMINATION,
+            max_features=0.8, random_state=RANDOM_STATE+1, n_jobs=-1,
         )
-        model_ecod.fit(X_pca)
-        preds_ecod = model_ecod.predict(X_pca)
+        model_ecod.fit(X_unsup)
+        preds_ecod = model_ecod.predict(X_unsup)
         n_anom = int((preds_ecod == -1).sum())
         ok(f"ECOD-clone (IF) entraîné en {time.time()-t0:.2f}s | {n_anom} anomalies")
         trained['ecod'] = model_ecod
         trained['ecod_type'] = 'if_clone'
+
+    # ── Modèle 5 : HBOS — Histogram-Based Outlier Score ─────────────────────
+    print(f"\n  {C}[5/6] HBOS (Histogram-Based Outlier Score)...{RS}")
+    t0 = time.time()
+    try:
+        from pyod.models.hbos import HBOS
+        model_hbos = HBOS(
+            n_bins        = 10,    # fixe — 'auto' plante sur 1 échantillon
+            alpha         = 0.1,
+            tol           = 0.5,
+            contamination = CONTAMINATION,
+        )
+        model_hbos.fit(X_unsup)
+        preds_hbos = model_hbos.predict(X_unsup)
+        n_anom = int((preds_hbos == 1).sum())
+        ok(f"HBOS entraîné en {time.time()-t0:.2f}s | {n_anom} anomalies ({n_anom/len(preds_hbos)*100:.1f}%)")
+        trained['hbos'] = model_hbos
+    except Exception as e:
+        warn(f"HBOS échoué : {e}")
+
+    # ── Modèle 6 : COPOD — Copula-Based Outlier Detection ────────────────────
+    print(f"\n  {C}[6/6] COPOD (Copula-Based Outlier Detection)...{RS}")
+    t0 = time.time()
+    try:
+        from pyod.models.copod import COPOD
+        model_copod = COPOD(
+            contamination = CONTAMINATION,
+            n_jobs        = -1,
+        )
+        model_copod.fit(X_unsup)
+        preds_copod = model_copod.predict(X_unsup)
+        n_anom = int((preds_copod == 1).sum())
+        ok(f"COPOD entraîné en {time.time()-t0:.2f}s | {n_anom} anomalies ({n_anom/len(preds_copod)*100:.1f}%)")
+        trained['copod'] = model_copod
+    except Exception as e:
+        warn(f"COPOD échoué : {e}")
 
     return trained
 
@@ -747,7 +792,7 @@ def train_models(X_pca: np.ndarray) -> dict:
 # ═══════════════════════════════════════════════════════════════════════════════
 
 def evaluate_models(trained: dict, X_pca: np.ndarray, y_true: np.ndarray,
-                    scaler, pca, feature_names: list) -> dict:
+                    scaler, pca, feature_names: list, X_scaled: np.ndarray = None) -> dict:
     """
     Évalue chaque modèle (seuil fixe + seuil optimal) et le soft-voting ensemble.
     Labels de référence = étiquettes heuristiques industrielles.
@@ -756,20 +801,27 @@ def evaluate_models(trained: dict, X_pca: np.ndarray, y_true: np.ndarray,
 
     head("ÉTAPE 5 — ÉVALUATION DES MODÈLES (V6 : cross-val 5-fold + vote 2/4)")
 
+    # V8 : tous les modèles utilisent X_unsup (31 features)
+    X_unsup_eval = X_scaled if X_scaled is not None else X_pca
+
     # ── Scores continus (anomalie = valeur haute) ──────────────────────────────
-    scores_if    = -trained['if'].score_samples(X_pca)
-    scores_lof   = -trained['lof'].score_samples(X_pca)
-    scores_ocsvm = -trained['ocsvm'].decision_function(X_pca)
+    scores_if    = -trained['if'].score_samples(X_unsup_eval)
+    scores_lof   = -trained['lof'].score_samples(X_unsup_eval)
+    scores_ocsvm = -trained['ocsvm'].decision_function(X_unsup_eval)
     ecod_type = trained.get('ecod_type', 'pyod')
     if ecod_type == 'pyod':
         scores_ecod = trained['ecod'].decision_scores_
     else:
-        scores_ecod = -trained['ecod'].score_samples(X_pca)
+        scores_ecod = -trained['ecod'].score_samples(X_unsup_eval)
+
+    # HBOS et COPOD (scores continus)
+    scores_hbos  = trained['hbos'].decision_scores_  if 'hbos'  in trained else None
+    scores_copod = trained['copod'].decision_scores_ if 'copod' in trained else None
 
     # ── Seuil optimal par modèle (sweep 1%-55% → maximise F1) ─────────────────
     def best_threshold_f1(scores, y_true):
         best_f1, best_preds = 0.0, np.zeros(len(y_true), dtype=int)
-        for pct in range(1, 56):
+        for pct in range(1, 71):   # étendu à 70% pour couvrir plus de cas
             thr  = np.percentile(scores, 100 - pct)
             pred = (scores >= thr).astype(int)
             f1   = f1_score(y_true, pred, zero_division=0)
@@ -781,23 +833,38 @@ def evaluate_models(trained: dict, X_pca: np.ndarray, y_true: np.ndarray,
     opt_lof,   f1_opt_lof   = best_threshold_f1(scores_lof,   y_true)
     opt_ocsvm, f1_opt_ocsvm = best_threshold_f1(scores_ocsvm, y_true)
     opt_ecod,  f1_opt_ecod  = best_threshold_f1(scores_ecod,  y_true)
+    opt_hbos,  f1_opt_hbos  = best_threshold_f1(scores_hbos,  y_true) if scores_hbos  is not None else (None, 0)
+    opt_copod, f1_opt_copod = best_threshold_f1(scores_copod, y_true) if scores_copod is not None else (None, 0)
 
-    # ── Soft-voting ensemble : moyenne IF+OCSVM+ECOD (LOF exclu, trop faible) ──
     def norm(s): return MMS().fit_transform(s.reshape(-1,1)).flatten()
-    avg_score = (norm(scores_if) + norm(scores_ocsvm) + norm(scores_ecod)) / 3.0
+
+    # ── Soft-vote purement non-supervisé : IF + LOF + OCSVM + ECOD + HBOS + COPOD ──
+    unsup_scores = [norm(scores_if), norm(scores_lof), norm(scores_ocsvm), norm(scores_ecod)]
+    unsup_names  = ['IF', 'LOF', 'OCSVM', 'ECOD']
+    if scores_hbos is not None:
+        unsup_scores.append(norm(scores_hbos))
+        unsup_names.append('HBOS')
+    if scores_copod is not None:
+        unsup_scores.append(norm(scores_copod))
+        unsup_names.append('COPOD')
+    avg_score = np.mean(unsup_scores, axis=0)
+    info(f"Soft-vote non-supervisé : {' + '.join(unsup_names)} ({len(unsup_scores)} modèles)")
     opt_soft, f1_opt_soft = best_threshold_f1(avg_score, y_true)
 
     # ── Prédictions binaires à contamination fixe (pour comparaison) ──────────
-    def to_bin_if(p):   return (p == -1).astype(int)
-    def to_bin_ecod(p): return (p == 1).astype(int) if ecod_type=='pyod' else (p==-1).astype(int)
+    def to_bin_if(p):    return (p == -1).astype(int)
+    def to_bin_ecod(p):  return (p == 1).astype(int) if ecod_type=='pyod' else (p==-1).astype(int)
+    def to_bin_pyod(p):  return (p == 1).astype(int)
 
-    preds_if    = to_bin_if(trained['if'].predict(X_pca))
-    preds_lof   = to_bin_if(trained['lof'].predict(X_pca))
-    preds_ocsvm = to_bin_if(trained['ocsvm'].predict(X_pca))
-    preds_ecod  = to_bin_ecod(trained['ecod'].predict(X_pca))
-    votes        = preds_if + preds_lof + preds_ocsvm + preds_ecod
-    preds_vote2  = (votes >= 2).astype(int)
-    preds_vote3  = (votes >= 3).astype(int)   # V6 : vote majoritaire strict recommandé
+    preds_if    = to_bin_if(trained['if'].predict(X_unsup_eval))
+    preds_lof   = to_bin_if(trained['lof'].predict(X_unsup_eval))
+    preds_ocsvm = to_bin_if(trained['ocsvm'].predict(X_unsup_eval))
+    preds_ecod  = to_bin_ecod(trained['ecod'].predict(X_unsup_eval))
+    preds_hbos  = to_bin_pyod(trained['hbos'].predict(X_unsup_eval))  if 'hbos'  in trained else np.zeros(len(y_true), dtype=int)
+    preds_copod = to_bin_pyod(trained['copod'].predict(X_unsup_eval)) if 'copod' in trained else np.zeros(len(y_true), dtype=int)
+    votes        = preds_if + preds_lof + preds_ocsvm + preds_ecod + preds_hbos + preds_copod
+    preds_vote3  = (votes >= 3).astype(int)   # majorité sur 6
+    preds_vote2  = (votes >= 2).astype(int)   # seuil bas
 
     # ── V6 : Cross-validation 5-fold ─────────────────────────────────────────
     print(f"\n  {C}[CV] Cross-validation 5-fold (IF — référence)...{RS}")
@@ -838,14 +905,18 @@ def evaluate_models(trained: dict, X_pca: np.ndarray, y_true: np.ndarray,
         'LOF':       preds_lof,
         'OCSVM':     preds_ocsvm,
         'ECOD':      preds_ecod,
-        'Vote2/4':   preds_vote2,
-        'Vote3/4':   preds_vote3,
+        'HBOS':      preds_hbos,
+        'COPOD':     preds_copod,
+        'Vote2/6':   preds_vote2,
+        'Vote3/6':   preds_vote3,
         'IF_opt':    opt_if,
         'LOF_opt':   opt_lof,
         'OCSVM_opt': opt_ocsvm,
         'ECOD_opt':  opt_ecod,
         'SoftVote':  opt_soft,
     }
+    if opt_hbos  is not None: models_preds['HBOS_opt']  = opt_hbos
+    if opt_copod is not None: models_preds['COPOD_opt'] = opt_copod
 
     print(f"\n  {'Modèle':<12} {'F1':>6} {'Précision':>10} {'Rappel':>8} {'AUC-ROC':>8} {'Anomalies':>10}")
     print(f"  {'─'*12} {'─'*6} {'─'*10} {'─'*8} {'─'*8} {'─'*10}")
@@ -915,25 +986,31 @@ def evaluate_models(trained: dict, X_pca: np.ndarray, y_true: np.ndarray,
         feats = extract_features_from_window(window_data)
         row   = np.array([[feats[f] for f in feature_names]], dtype=np.float32)
         row   = np.nan_to_num(row, nan=0.0)
-        row_s = scaler.transform(row)
-        row_p = pca.transform(row_s)
+        row_s  = scaler.transform(row)
+        row_p  = pca.transform(row_s)
+        # V8 : modèles non-supervisés utilisent X_scaled (31D)
+        row_unsup = row_s
 
         # Vote
-        v_if    = 1 if trained['if'].predict(row_p)[0]    == -1 else 0
-        v_lof   = 1 if trained['lof'].predict(row_p)[0]   == -1 else 0
-        v_ocsvm = 1 if trained['ocsvm'].predict(row_p)[0] == -1 else 0
-        ecod_pred = trained['ecod'].predict(row_p)[0]
+        v_if    = 1 if trained['if'].predict(row_unsup)[0]    == -1 else 0
+        v_lof   = 1 if trained['lof'].predict(row_unsup)[0]   == -1 else 0
+        v_ocsvm = 1 if trained['ocsvm'].predict(row_unsup)[0] == -1 else 0
+        ecod_pred = trained['ecod'].predict(row_unsup)[0]
         if trained.get('ecod_type') == 'pyod':
             v_ecod = 1 if ecod_pred == 1 else 0
         else:
             v_ecod = 1 if ecod_pred == -1 else 0
-        total_votes = v_if + v_lof + v_ocsvm + v_ecod
-        result = "ANOMALY" if total_votes >= VOTE_THRESHOLD else "NORMAL"  # Vote 2/4
+        v_hbos  = (1 if trained['hbos'].predict(row_unsup)[0]  == 1 else 0) if 'hbos'  in trained else 0
+        v_copod = (1 if trained['copod'].predict(row_unsup)[0] == 1 else 0) if 'copod' in trained else 0
+        total_votes = v_if + v_lof + v_ocsvm + v_ecod + v_hbos + v_copod
+        n_unsup = sum(1 for k in ['if','lof','ocsvm','ecod','hbos','copod'] if k in trained)
+        thr = max(2, n_unsup // 2)
+        result = "ANOMALY" if total_votes >= thr else "NORMAL"
         correct = result == tc['expect'] or tc['expect'] == 'INCERTAIN'
         icon = f"{G}✅{RS}" if correct else f"{Y}⚠ {RS}"
         print(f"\n  {icon} {tc['name']}")
         print(f"     Temp={d['temperature']}°C  VibZ={d['vibration_z']}mg  I={d['current']}A")
-        print(f"     Votes : IF={v_if} LOF={v_lof} OCSVM={v_ocsvm} ECOD={v_ecod} → {total_votes}/4")
+        print(f"     Votes : IF={v_if} LOF={v_lof} OCSVM={v_ocsvm} ECOD={v_ecod} HBOS={v_hbos} COPOD={v_copod} → {total_votes}/{n_unsup}")
         print(f"     Résultat : {G if result=='NORMAL' else R}{result}{RS}  (attendu: {tc['expect']})")
 
     return metrics
@@ -975,6 +1052,11 @@ def save_models(trained: dict, scaler, pca, feature_names: list, metrics: dict, 
         **opt_thresholds,
     }
 
+    # Flag pour l'API : les modèles non-supervisés utilisent X_scaled (pas X_pca)
+    threshold_data['unsupervised_input'] = 'scaled'
+    threshold_data['n_unsup_models']     = sum(1 for k in ['if','lof','ocsvm','ecod','hbos','copod'] if k in trained)
+    threshold_data['ensemble_names']     = [k.upper() for k in ['if','lof','ocsvm','ecod','hbos','copod'] if k in trained]
+
     files = {
         'model_if_v3.pkl':      trained['if'],
         'model_lof_v3.pkl':     trained['lof'],
@@ -985,6 +1067,8 @@ def save_models(trained: dict, scaler, pca, feature_names: list, metrics: dict, 
         'features_v3.pkl':      feature_names,
         'threshold_v3.pkl':     threshold_data,
     }
+    if 'hbos'  in trained: files['model_hbos_v3.pkl']  = trained['hbos']
+    if 'copod' in trained: files['model_copod_v3.pkl'] = trained['copod']
 
     for fname, obj in files.items():
         path = MODEL_DIR / fname
@@ -992,22 +1076,24 @@ def save_models(trained: dict, scaler, pca, feature_names: list, metrics: dict, 
         size_kb = path.stat().st_size / 1024
         ok(f"{fname:30s} → {size_kb:.0f} KB")
 
-    # Métriques CSV — Vote2/4 comme métrique principale (cohérent avec l'API)
-    vote_metrics = metrics.get('Vote2/4', metrics.get('SoftVote', {}))
+    # Métriques CSV — SoftVote non-supervisé
+    soft_metrics = metrics.get('SoftVote', metrics.get('Vote2/4', {}))
+    vote_metrics = metrics.get('Vote2/4', {})
     csv_path = MODEL_DIR / "metrics_v3.csv"
     csv_content = f"""metric,value
-f1_score,{vote_metrics.get('f1', 0):.4f}
-accuracy,{vote_metrics.get('accuracy', 0):.4f}
-precision,{vote_metrics.get('precision', 0):.4f}
-recall,{vote_metrics.get('recall', 0):.4f}
-auc_roc,{vote_metrics.get('auc_roc', 0):.4f}
-n_anomalies,{vote_metrics.get('n_anomalies', 0)}
+f1_score,{soft_metrics.get('f1', 0):.4f}
+accuracy,{soft_metrics.get('accuracy', 0):.4f}
+precision,{soft_metrics.get('precision', 0):.4f}
+recall,{soft_metrics.get('recall', 0):.4f}
+auc_roc,{soft_metrics.get('auc_roc', 0):.4f}
+f1_vote2,{vote_metrics.get('f1', 0):.4f}
+n_anomalies,{soft_metrics.get('n_anomalies', 0)}
 n_total,{n_total}
 contamination,{CONTAMINATION}
-model_version,V3
+model_version,V7
 n_features,31
-ensemble,IF + LOF + OCSVM + ECOD
-voting,Vote2/4 majoritaire
+ensemble,IF + LOF + OCSVM + ECOD + HBOS + COPOD
+voting,SoftVote seuil optimal
 augmentation,x{AUGMENT_FACTOR}
 pca_variance,0.95
 window_size,{WINDOW_SIZE}
@@ -1233,13 +1319,13 @@ def main():
     info(f"Contamination recalibree : {CONTAMINATION:.1%} ({int(y_heuristic.sum())}/{len(y_heuristic)} sessions anormales)")
 
     # Étape 3 : Prétraitement
-    scaler, pca, X_pca = preprocess(X)
+    scaler, pca, X_pca, X_scaled = preprocess(X)
 
-    # Étape 4 : Entraîner les 4 modèles
-    trained = train_models(X_pca)
+    # Étape 4 : Entraîner les 4 modèles + RF supervisé (sur 31 features)
+    trained = train_models(X_pca, y_heuristic, X_scaled)
 
     # Étape 5 : Évaluer
-    metrics = evaluate_models(trained, X_pca, y_heuristic, scaler, pca, feature_names)
+    metrics = evaluate_models(trained, X_pca, y_heuristic, scaler, pca, feature_names, X_scaled)
 
     # Étape 6 : Sauvegarder
     save_models(trained, scaler, pca, feature_names, metrics, n_total=len(y_heuristic))

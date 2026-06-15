@@ -19,6 +19,7 @@
 ╚══════════════════════════════════════════════════════════════════════════════╝
 """
 
+import os
 import logging
 import json
 import warnings
@@ -80,6 +81,7 @@ API_VERSION = "3.1.0"
 
 try:
     from fastapi import FastAPI, HTTPException
+    from fastapi.encoders import jsonable_encoder
     from fastapi.middleware.cors import CORSMiddleware
     from contextlib import asynccontextmanager
     from pydantic import BaseModel, Field
@@ -109,6 +111,8 @@ MODEL_IF        = MODEL_DIR / "model_if_v3.pkl"
 MODEL_LOF       = MODEL_DIR / "model_lof_v3.pkl"
 MODEL_OCSVM     = MODEL_DIR / "model_ocsvm_v3.pkl"
 MODEL_ECOD      = MODEL_DIR / "model_ecod_v3.pkl"
+MODEL_HBOS      = MODEL_DIR / "model_hbos_v3.pkl"
+MODEL_COPOD     = MODEL_DIR / "model_copod_v3.pkl"
 SCALER_PATH     = MODEL_DIR / "scaler_v3.pkl"
 PCA_PATH        = MODEL_DIR / "pca_v3.pkl"
 FEATURES_PATH   = MODEL_DIR / "features_v3.pkl"
@@ -227,10 +231,17 @@ def load_all_models():
         scaler          = joblib.load(SCALER_PATH)
         pca             = joblib.load(PCA_PATH)
         features_list   = joblib.load(FEATURES_PATH)
+        if MODEL_HBOS.exists():
+            models["hbos"]  = joblib.load(MODEL_HBOS)
+            log.info("✅ HBOS chargé")
+        if MODEL_COPOD.exists():
+            models["copod"] = joblib.load(MODEL_COPOD)
+            log.info("✅ COPOD chargé")
         if THRESHOLD_PATH.exists():
             thresholds = joblib.load(THRESHOLD_PATH)
-            log.info(f"✅ Seuils optimaux chargés : softvote_thr={thresholds.get('softvote_threshold', 0.5):.4f}")
-        log.info(f"✅ 4 modèles chargés | Features: {len(features_list)} | PCA: {pca.n_components_}")
+            log.info(f"✅ Seuils optimaux chargés | input={thresholds.get('unsupervised_input','pca')} | ensemble={thresholds.get('ensemble_names',['IF','LOF','OCSVM','ECOD'])}")
+        n_models = sum(1 for k in ["if","lof","ocsvm","ecod","hbos","copod"] if k in models)
+        log.info(f"✅ {n_models} modèles chargés | Features: {len(features_list)} | PCA: {pca.n_components_}")
 
     if RESULTS_PATH.exists():
         df_results = pd.read_csv(RESULTS_PATH)
@@ -589,51 +600,47 @@ def run_ensemble(X_raw: np.ndarray) -> dict:
                                "OCSVM": "N/A", "ECOD": "N/A"}}
 
     X_scaled = scaler.transform(X_raw)
-    X_pca    = pca.transform(X_scaled)
+    # V8 : les modèles non-supervisés utilisent X_scaled (31 features, pas PCA)
+    use_scaled = thresholds.get("unsupervised_input", "pca") == "scaled" if thresholds else False
+    X_unsup = X_scaled if use_scaled else pca.transform(X_scaled)
+    X_pca   = pca.transform(X_scaled)   # conservé pour compatibilité
 
-    # Scores continus (anomalie = valeur haute)
-    score_if    = float(-models["if"].score_samples(X_pca)[0])
-    score_ocsvm = float(-models["ocsvm"].decision_function(X_pca)[0])
-    try:
-        score_ecod = float(models["ecod"].decision_function(X_pca)[0])
-    except Exception:
-        score_ecod = 0.0
+    # ── Votes non-supervisés ──────────────────────────────────────────────────
+    def _vote_sklearn_anomaly(model, X):
+        try:    return 1 if model.predict(X)[0] == -1 else 0
+        except: return 0
+    def _vote_pyod_anomaly(model, X):
+        try:    return 1 if model.predict(X)[0] == 1 else 0
+        except: return 0
 
-    # Seuils optimaux (depuis threshold_v3.pkl) ou fallback predict()
-    if thresholds:
-        thr_if    = thresholds.get("if_threshold",    score_if)
-        thr_ocsvm = thresholds.get("ocsvm_threshold", score_ocsvm)
-        thr_ecod  = thresholds.get("ecod_threshold",  score_ecod)
-        vote_if    = 1 if score_if    >= thr_if    else 0
-        vote_ocsvm = 1 if score_ocsvm >= thr_ocsvm else 0
-        vote_ecod  = 1 if score_ecod  >= thr_ecod  else 0
-    else:
-        vote_if    = 1 if models["if"].predict(X_pca)[0]    == -1 else 0
-        vote_ocsvm = 1 if models["ocsvm"].predict(X_pca)[0] == -1 else 0
-        vote_ecod  = 1 if models["ecod"].predict(X_pca)[0]  ==  1 else 0
+    vote_if    = _vote_sklearn_anomaly(models["if"],    X_unsup)
+    vote_lof   = _vote_sklearn_anomaly(models["lof"],   X_unsup)
+    vote_ocsvm = _vote_sklearn_anomaly(models["ocsvm"], X_unsup)
+    vote_ecod  = _vote_pyod_anomaly(models["ecod"],     X_unsup)
+    vote_hbos  = _vote_pyod_anomaly(models["hbos"],  X_unsup) if "hbos"  in models else 0
+    vote_copod = _vote_pyod_anomaly(models["copod"], X_unsup) if "copod" in models else 0
 
-    # LOF toujours en binaire (non inclus dans le score continu)
-    try:
-        vote_lof = 1 if models["lof"].predict(X_pca)[0] == -1 else 0
-    except Exception:
-        vote_lof = 0
+    # ── Résultat final : majorité des modèles non-supervisés ─────────────────
+    unsup_votes = vote_if + vote_lof + vote_ocsvm + vote_ecod + vote_hbos + vote_copod
+    n_unsup = sum(1 for k in ["if", "lof", "ocsvm", "ecod", "hbos", "copod"] if k in models)
+    threshold_votes = max(2, n_unsup // 2)   # majorité relative
+    is_anomaly = unsup_votes >= threshold_votes
+    confidence = round(unsup_votes / max(n_unsup, 1), 4)
 
-    # Vote majoritaire 2/4 — 2 modèles sur 4 suffisent (meilleur rappel anomalies)
-    total      = vote_if + vote_lof + vote_ocsvm + vote_ecod
-    is_anomaly = total >= 2           # 2 modeles sur 4 doivent voter ANOMALY
-    confidence = round(total / 4.0, 4)  # 0.0 | 0.25 | 0.50 | 0.75 | 1.0
-
+    individual = {
+        "IF":    "ANOMALY" if vote_if    else "NORMAL",
+        "LOF":   "ANOMALY" if vote_lof   else "NORMAL",
+        "OCSVM": "ANOMALY" if vote_ocsvm else "NORMAL",
+        "ECOD":  "ANOMALY" if vote_ecod  else "NORMAL",
+        "HBOS":  "ANOMALY" if vote_hbos  else "NORMAL",
+        "COPOD": "ANOMALY" if vote_copod else "NORMAL",
+    }
     return {
-        "votes":           total,
-        "label":           "ANOMALY" if is_anomaly else "NORMAL",
-        "confidence":      confidence,
-        "is_anomaly":      is_anomaly,
-        "individual": {
-            "IF":    "ANOMALY" if vote_if    else "NORMAL",
-            "LOF":   "ANOMALY" if vote_lof   else "NORMAL",
-            "OCSVM": "ANOMALY" if vote_ocsvm else "NORMAL",
-            "ECOD":  "ANOMALY" if vote_ecod  else "NORMAL",
-        }
+        "votes":      unsup_votes,
+        "label":      "ANOMALY" if is_anomaly else "NORMAL",
+        "confidence": confidence,
+        "is_anomaly": is_anomaly,
+        "individual": individual,
     }
 
 
@@ -937,6 +944,9 @@ if FASTAPI_OK:
         allow_headers=["*"],
     )
 
+    # Cache des derniers résultats par capteur (pour /v1/results)
+    _latest_results: dict = {}
+
     # ── Accueil ────────────────────────────────────────────────────────────
     @app.get("/", tags=["Système"])
     def root():
@@ -1054,10 +1064,27 @@ if FASTAPI_OK:
             for k, v in feat.items()
         }
 
+        _ts = datetime.now().isoformat()
+        _latest_results.setdefault(req.sensor_id, {}).update({
+            "sensor_id":    req.sensor_id,
+            "motor_id":     req.motor_id,
+            "timestamp":    _ts,
+            "predict": {
+                "prediction":        result["label"],
+                "is_anomaly":        result["is_anomaly"],
+                "confidence":        result["confidence"],
+                "anomaly_score":     anomaly_score,
+                "risk_level":        risk,
+                "votes":             result["votes"],
+                "individual_models": result["individual"],
+                "features":          feat_summary,
+            }
+        })
+
         return PredictResponse(
             sensor_id         = req.sensor_id,
             motor_id          = req.motor_id,
-            timestamp         = datetime.now().isoformat(),
+            timestamp         = _ts,
             prediction        = result["label"],
             is_anomaly        = result["is_anomaly"],
             confidence        = result["confidence"],
@@ -1128,31 +1155,38 @@ if FASTAPI_OK:
         }
         rul_heuristic = compute_rul(req.history, feat, req.sensor_id, predict_result_data)
 
-        # 5. Sélection du résultat final : ML si disponible et cohérent, heuristique sinon
-        # Règle de cohérence : si ML dit "OK"/"ATTENTION" mais anomalie est CRITIQUE/ÉLEVÉ
-        # → le modèle ML synthétique n'est pas fiable dans ce cas, on garde l'heuristique
+        # 5. Sélection du résultat final
+        # Stratégie : heuristique pour les heures RUL (calibrée sur les plages CDC),
+        # ML pour détecter une dégradation plus précoce → peut élever le niveau d'alerte.
+        # Le ML seul ne fixe plus les heures car son dataset synthétique n'a pas de
+        # défaillances réelles → ses valeurs absolues restent surestimées.
+        _LEVEL_ORDER = ["OK", "ATTENTION", "URGENT", "CRITIQUE"]
         _predict_risk = (req.risk_level or "OK").upper()
         _ml_alert     = (ml_rul_result or {}).get("alert_level", "OK")
-        _ml_incoherent = (
-            _predict_risk in ("CRITIQUE", "ÉLEVÉ") and
-            _ml_alert in ("OK", "ATTENTION")
-        )
-        if ml_rul_result and ml_rul_result.get("model_type") != "heuristic_fallback" and not _ml_incoherent:
-            rul_hours    = ml_rul_result["rul_hours"]
-            rul_days     = ml_rul_result["rul_days"]
-            confidence   = ml_rul_result["confidence"]
-            alert_level  = ml_rul_result["alert_level"]
-            recommendation = ml_rul_result["recommendation"]
-            trend_detail = rul_heuristic["trend"]
-            trend_detail["rul_model"] = ml_rul_result["model_type"]
+        _heur_alert   = rul_heuristic["alert_level"]
+
+        # Choisir le niveau d'alerte le plus sévère parmi heuristique et ML
+        _ml_idx   = _LEVEL_ORDER.index(_ml_alert)   if _ml_alert   in _LEVEL_ORDER else 0
+        _heur_idx = _LEVEL_ORDER.index(_heur_alert) if _heur_alert in _LEVEL_ORDER else 0
+        alert_level = _LEVEL_ORDER[max(_ml_idx, _heur_idx)]
+
+        # Heures RUL : toujours issues de l'heuristique (plages CDC garanties)
+        # On réinterpolele dans la plage du niveau d'alerte final si celui-ci a été
+        # aggravé par le ML (le RUL doit alors être dans la plage du nouveau niveau)
+        if alert_level != _heur_alert and alert_level in RUL_TABLE:
+            _rmin, _rmax = RUL_TABLE[alert_level]
+            _deg = rul_heuristic["degradation_rate"] / 100.0
+            _ratio = min(1.0, max(0.0, _deg))
+            rul_hours = round(max(0.0, _rmax - _ratio * (_rmax - _rmin)), 1)
         else:
-            rul_hours    = rul_heuristic["rul_hours"]
-            rul_days     = rul_heuristic["rul_days"]
-            confidence   = rul_heuristic["confidence"]
-            alert_level  = rul_heuristic["alert_level"]
-            recommendation = rul_heuristic["recommendation"]
-            trend_detail = rul_heuristic["trend"]
-            trend_detail["rul_model"] = "heuristic_v6"
+            rul_hours = rul_heuristic["rul_hours"]
+        rul_days      = round(rul_hours / 24.0, 2)
+
+        _ml_model_used = (ml_rul_result or {}).get("model_type", "none")
+        confidence     = "HAUTE" if len(req.history) >= 10 else ("MOYENNE" if len(req.history) >= 5 else "FAIBLE")
+        recommendation = rul_heuristic["recommendation"]
+        trend_detail   = rul_heuristic["trend"]
+        trend_detail["rul_model"] = f"heuristic_CDC + ML_{_ml_model_used}"
 
         # 6. Mise à jour historique
         deg_score = rul_heuristic["degradation_rate"] / 100.0
@@ -1170,10 +1204,25 @@ if FASTAPI_OK:
                 votes       = 0
             )
 
+        _ts_rul = datetime.now().isoformat()
+        _latest_results.setdefault(req.sensor_id, {}).update({
+            "sensor_id": req.sensor_id,
+            "timestamp": _ts_rul,
+            "rul": {
+                "rul_hours":        rul_hours,
+                "rul_days":         rul_days,
+                "health_score":     rul_heuristic["health_score"],
+                "degradation_rate": rul_heuristic["degradation_rate"],
+                "alert_level":      alert_level,
+                "recommendation":   recommendation,
+                "confidence":       confidence,
+            }
+        })
+
         return RULResponse(
             sensor_id        = req.sensor_id,
             motor_id         = req.motor_id,
-            timestamp        = datetime.now().isoformat(),
+            timestamp        = _ts_rul,
             rul_hours        = rul_hours,
             rul_days         = rul_days,
             degradation_rate = rul_heuristic["degradation_rate"],
@@ -1548,6 +1597,46 @@ if FASTAPI_OK:
             log.error(f"Erreur génération rapport : {e}")
             raise HTTPException(status_code=500, detail=f"Erreur rapport : {str(e)}")
 
+    # ── Résultats JSON temps réel (pour encadrant / export) ───────────────
+    @app.get(
+        "/v1/results",
+        tags=["IA / Prédiction"],
+        summary="Derniers résultats de tous les capteurs (GET — navigateur)",
+        description=(
+            "Retourne en JSON les dernières prédictions (anomalie + RUL) "
+            "pour chaque capteur actif. Endpoint GET accessible directement "
+            "depuis un navigateur ou curl. Mis à jour à chaque appel /v1/predict."
+        )
+    )
+    def get_results(sensor_id: str = None):
+        """
+        GET /v1/results          → tous les capteurs actifs
+        GET /v1/results?sensor_id=8f7f2f7e  → un capteur précis
+        """
+        if not _latest_results:
+            return {
+                "status":  "en_attente",
+                "message": "Aucune prédiction reçue pour l'instant. Démarrez le moteur temps réel.",
+                "results": []
+            }
+        if sensor_id:
+            entry = _latest_results.get(sensor_id)
+            if not entry:
+                raise HTTPException(status_code=404, detail=f"Capteur '{sensor_id}' non trouvé dans les résultats actifs.")
+            return jsonable_encoder({
+                "status":    "ok",
+                "n_sensors": 1,
+                "results":   [entry]
+            })
+        return jsonable_encoder({
+            "status":    "ok",
+            "timestamp": datetime.now().isoformat(),
+            "api":       "Maintenance Prédictive — ISG Bizerte",
+            "version":   API_VERSION,
+            "n_sensors": len(_latest_results),
+            "results":   list(_latest_results.values())
+        })
+
     # ── Liste capteurs ────────────────────────────────────────────────────
     @app.get("/sensors", tags=["Données"])
     def get_sensors():
@@ -1888,4 +1977,5 @@ if __name__ == "__main__":
     if not FASTAPI_OK:
         print("Installe les dépendances : pip install fastapi uvicorn pydantic scipy")
     else:
-        uvicorn.run(app, host="0.0.0.0", port=8000, reload=False)
+        port = int(os.environ.get("PORT", 8000))
+        uvicorn.run(app, host="0.0.0.0", port=port, reload=False)

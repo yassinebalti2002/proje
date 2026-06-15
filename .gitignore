@@ -34,6 +34,9 @@ TEMPS REEL*
 api_client.py
 fix_mariadb.py
 
+# Configuration sensible (credentials MariaDB — NE PAS versionner)
+config.py
+
 # IDE
 .vscode/
 .idea/

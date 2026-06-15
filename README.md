@@ -1,159 +1,225 @@
-# Système Maintenance Prédictive — v3.1.0
+# Système de Maintenance Prédictive des Roulements Industriels
 
-![Python](https://img.shields.io/badge/Python-3.11-blue?logo=python)
-![FastAPI](https://img.shields.io/badge/FastAPI-0.115-green?logo=fastapi)
-![Docker](https://img.shields.io/badge/Docker-ready-2496ED?logo=docker)
-![Render](https://img.shields.io/badge/Deployed-Render-46E3B7?logo=render)
-![Scikit-learn](https://img.shields.io/badge/scikit--learn-1.5.0-orange?logo=scikitlearn)
+**API FastAPI v3.1.0 · 6 modèles ML · IoT IFM · RUL GradientBoosting**
 
-> Détection d'anomalies en temps réel et estimation RUL pour 20 roulements industriels IFM — PFE ISG BIZERTE / Novation City
+Projet de Fin d'Études — Mohamed Yassine Balti  
+ISG Bizerte × Novation City (Sousse, Tunisie) — 2025/2026
 
 ---
 
-## Architecture complète
+## Vue d'ensemble
+
+Système complet de **détection d'anomalies et de prédiction de durée de vie résiduelle (RUL)** pour 20 capteurs IFM industriels déployés sur les moteurs asynchrones de Novation City.
+
+### Architecture
 
 ```
-Capteurs IFM (19x) — IO-Link
-        |
-        v
-  Gateway IFM (HTTP)
-        |
-        v
-+----------------------------------------------+
-|         API FastAPI v3.1.0                   |
-|                                              |
-|  +------------------+  +------------------+ |
-|  | Ensemble 4 ML    |  | Traitement       | |
-|  |                  |  | Signal           | |
-|  | IF · LOF         |  |                  | |
-|  | OCSVM · ECOD     |  | FFT · Spectral   | |
-|  |                  |  | Bearing Fault    | |
-|  | Vote 2/4         |  | Detection        | |
-|  +------------------+  +------------------+ |
-|                                              |
-|  +------------------+  +------------------+ |
-|  | Estimation RUL   |  | Alert Manager    | |
-|  | GradientBoost    |  | Email/Webhook    | |
-|  | + Heuristique    |  | SMS (Twilio)     | |
-|  +------------------+  +------------------+ |
-+----------------------------------------------+
-        |
-        v
-  Dashboard HTML · JSON · Reporting
+Capteurs IFM (×20)
+    │  IO-Link
+    ▼
+Gateway IoT → MariaDB (ai_cp.full_data)
+    │  polling SELECT WHERE id > last_id  (toutes les 2 s)
+    ▼
+realtime_mariadb.py
+    │  POST /v1/predict + /v1/predict-rul
+    ▼
+API FastAPI v3.1.0  (port 8000 / $PORT)
+    │  Ensemble 6 modèles · SoftVote seuil dynamique
+    │  GradientBoostingRegressor (RUL · 46 features)
+    ▼
+Dashboard HTML5  (rafraîchissement 3 s)
 ```
 
 ---
 
-## Endpoints
+## Performances ML réelles
 
-| Methode | Endpoint | Description |
-|---------|----------|-------------|
-| `GET` | `/` | Accueil API |
-| `GET` | `/health` | Statut + modeles charges |
-| `GET` | `/metrics` | Metriques ML (F1, AUC, Accuracy) |
-| `GET` | `/sensors` | Liste des 20 capteurs IFM |
-| `GET` | `/anomalies` | Anomalies filtrees |
-| `POST` | `/v1/predict` | Detection anomalie (4 modeles) |
-| `POST` | `/v1/predict-rul` | Estimation RUL en heures |
-| `POST` | `/v1/iot-predict` | Predict + RUL direct IoT sans BDD |
-| `GET` | `/v1/health-score/{id}` | Score sante 0-100 par capteur |
-| `GET` | `/v1/history/{id}` | Historique predictions capteur |
-| `GET` | `/v1/alert-level/{id}` | Niveau d'alerte capteur |
-| `POST` | `/v1/spectral-analysis` | Analyse FFT + defauts roulements |
-| `GET` | `/v1/report` | Rapport HTML/JSON |
-| `GET` | `/docs` | Swagger UI interactif |
+| Métrique | Valeur | Note |
+|----------|--------|------|
+| AUC-ROC | **0,836** | Ensemble SoftVote |
+| Recall | **0,877** | Priorité industrielle |
+| Accuracy | 0,800 | 73 917 sessions |
+| F1-Score | 0,367 | Contamination 20 % |
+| Precision | 0,232 | |
+| MAE RUL | **317 h** | GradientBoostingRegressor |
+| R² RUL | **0,56** | 46 features spectrales |
 
 ---
 
-## Modeles ML
+## Modèles de détection (6)
 
-### Detection d'anomalies (ensemble 4 modeles)
+| Modèle | Type | Rôle |
+|--------|------|------|
+| Isolation Forest | sklearn | Anomalies globales (arbres) |
+| LOF | sklearn | Déviations locales (densité) |
+| One-Class SVM | sklearn | Frontière hyperplan RBF |
+| ECOD | pyod | Distribution empirique |
+| HBOS | pyod | Histogramme par feature |
+| COPOD | pyod | Copule multivariée |
 
-| Modele | Fichier | Role |
-|--------|---------|------|
-| Isolation Forest | `model_if_v3.pkl` | Points isoles |
-| Local Outlier Factor | `model_lof_v3.pkl` | Densite locale |
-| One-Class SVM | `model_ocsvm_v3.pkl` | Frontiere decision |
-| ECOD | `model_ecod_v3.pkl` | Distribution empirique |
-
-**Vote : 2/4 modeles -> anomalie detectee**
-
-### Metriques
-
-| Metrique | Valeur |
-|----------|--------|
-| F1 Score | 0.40 |
-| AUC-ROC | 0.68 |
-| Accuracy | 0.92 |
-
-### Estimation RUL
-
-| Propriete | Valeur |
-|-----------|--------|
-| Algorithme | GradientBoostingRegressor |
-| Fichier | `model_rul_v1.pkl` |
-| Features | 46 (spectrales + temporelles) |
+Vote : **SoftVote à seuil dynamique optimal** (stocké dans `models/threshold_v3.pkl`)
 
 ---
 
-## Installation locale
+## Démarrage rapide
+
+### Pré-requis
+
+- Python 3.11+
+- pip
+
+### Installation locale
 
 ```bash
 git clone https://github.com/yassinebalti2002/proje.git
 cd proje
+
+python -m venv venv
+source venv/bin/activate        # Linux/macOS
+.\venv\Scripts\Activate.ps1     # Windows PowerShell
+
 pip install -r requirements.txt
+```
+
+### Lancer l'API
+
+```bash
 python api_unified_pythagore.py
 ```
 
-API disponible sur `http://localhost:8000`
+Swagger interactif : http://localhost:8000/docs
 
-### Avec Docker
+### Mode replay (sans capteurs IFM)
 
 ```bash
-docker build -t maintenance-predictive .
-docker run -p 8000:8000 maintenance-predictive
+python realtime_mariadb.py --replay 50
 ```
 
 ---
 
-## Exemple d'utilisation
+## Docker
 
-### POST /v1/iot-predict
+### Build & Run
 
 ```bash
-curl -X POST http://localhost:8000/v1/iot-predict \
-  -H "Content-Type: application/json" \
-  -d '{
-    "sensor_id": "capteur_01",
-    "rms_x": 74.0,
-    "rms_y": 70.0,
-    "rms_z": 98.0,
-    "temperature": 90.0,
-    "current": 8.5
-  }'
+docker build -t maintenance-predictive .
+
+# Run local
+docker run -p 8000:8000 maintenance-predictive
+
+# Run avec MariaDB local
+docker run -p 8000:8000 \
+  -e MARIADB_HOST=192.168.120.58 \
+  -e MARIADB_PASSWORD=xxx \
+  maintenance-predictive
 ```
 
-### Reponse type
+### Docker Compose (API + Dashboard Nginx)
+
+```bash
+docker compose up
+```
+
+| Service | URL |
+|---------|-----|
+| API FastAPI | http://localhost:8000 |
+| Swagger | http://localhost:8000/docs |
+| Dashboard | http://localhost:3000/dashboard_realtime.html |
+
+### Build ARM64 (Raspberry Pi 4)
+
+```bash
+docker buildx build --platform linux/arm64 -t maintenance-predictive:arm64 .
+docker save maintenance-predictive:arm64 | ssh pi@<IP_RPI> docker load
+```
+
+---
+
+## Déploiement Render
+
+Ce dépôt inclut un fichier `render.yaml` prêt à l'emploi.
+
+### Étapes
+
+1. Se connecter sur [render.com](https://render.com) avec GitHub
+2. **New → Web Service → Connect repository** → sélectionner `proje`
+3. Render détecte automatiquement `render.yaml` et `Dockerfile`
+4. Cliquer **Apply** — le build démarre (~3 min)
+5. URL publique disponible : `https://maintenance-predictive-api.onrender.com`
+
+> **Note :** Sur Render (plan gratuit), le service fonctionne en mode démo (replay)
+> car MariaDB tourne sur le réseau local de Novation City.
+> Pour connecter MariaDB, ajouter `MARIADB_HOST` et `MARIADB_PASSWORD`
+> dans les variables d'environnement du dashboard Render.
+
+### Variables d'environnement Render
+
+| Variable | Valeur | Description |
+|----------|--------|-------------|
+| `PORT` | auto | Injecté automatiquement par Render |
+| `DEMO_MODE` | `true` | Mode replay sans MariaDB |
+| `MARIADB_HOST` | optionnel | IP/hostname MariaDB public |
+| `MARIADB_PASSWORD` | optionnel | Mot de passe MariaDB |
+
+---
+
+## API — Endpoints
+
+| Méthode | Endpoint | Description |
+|---------|----------|-------------|
+| GET | `/health` | Statut API + modèles chargés |
+| GET | `/metrics` | Métriques ML officielles |
+| GET | `/sensors` | Liste des 20 capteurs IFM |
+| GET | `/v1/dashboard/overview` | Résumé global tous capteurs |
+| GET | `/v1/sensors/{id}/summary` | Résumé complet 1 capteur |
+| GET | `/v1/alert-level/{id}` | Niveau d'alerte (FAIBLE/MODÉRÉ/ÉLEVÉ/CRITIQUE) |
+| GET | `/v1/health-score/{id}` | Health Score 0–100 |
+| GET | `/v1/history/{id}` | Historique 200 prédictions |
+| GET | `/v1/live/{id}` | Fenêtre brute 20 mesures |
+| POST | `/v1/predict` | Inférence 6 modèles SoftVote |
+| POST | `/v1/predict-rul` | Estimation RUL (GBR) |
+
+Documentation interactive : `GET /docs`
+
+### Exemple `/v1/predict`
 
 ```json
+POST /v1/predict
 {
-  "sensor_id": "capteur_01",
-  "anomaly": true,
-  "health_score": 25.0,
-  "alert_level": "CRITICAL",
-  "rul": {
-    "hours": 48.0,
-    "days": 2.0,
-    "status": "ATTENTION — maintenance dans la semaine"
-  },
-  "votes": {
-    "isolation_forest": "ANOMALIE",
-    "lof": "ANOMALIE",
-    "ocsvm": "ANOMALIE",
-    "ecod": "normal"
-  }
+  "sensor_id": "68c11f06",
+  "history": [
+    { "temperature": 22.6, "vibration_x": 4.1, "vibration_y": 3.9,
+      "vibration_z": 7.4, "current": 18.5, "acc_p2p": 0.12 }
+  ]
+}
+
+// Réponse :
+{
+  "prediction": "NORMAL",
+  "anomaly_score": 0.37,
+  "risk_level": "MODÉRÉ",
+  "votes": { "IF": 0, "LOF": 0, "OCSVM": 0, "ECOD": 1, "HBOS": 0, "COPOD": 0 },
+  "health_score": 68.8
 }
 ```
+
+---
+
+## Features ML (31)
+
+| Groupe | Features | N |
+|--------|----------|---|
+| Température | mean, std, trend, cur | 4 |
+| Vibration Z (axe critique) | mean, std, rms, kurtosis, crest, cur | 6 |
+| Vibration X | mean, std, rms, kurtosis | 4 |
+| Vibration Y | mean, std, rms, kurtosis | 4 |
+| Globales | vib_total (Pythagore 3D), health_score | 2 |
+| Accélération IFM | acc_p2p, acc_z2p, acc_crest, acc_rms | 4 |
+| Courant | current_mean | 1 |
+| **V6 spectrales** | delta_vib, delta_temp, vib_entropy, fft_ratio, vib_asym_xy, vib_asym_xz | **6** |
+| **Total** | | **31** |
+
+Fenêtre glissante : **w = 20**, pas **s = 3** — normalisées par `RobustScaler` + PCA 95 %
 
 ---
 
@@ -161,61 +227,72 @@ curl -X POST http://localhost:8000/v1/iot-predict \
 
 ```
 proje/
-├── api_unified_pythagore.py    # API FastAPI principale (91 KB)
-├── signal_processing.py        # FFT, spectral, defauts roulements
-├── alert_manager.py            # Alertes email/webhook/SMS
-├── train_rul_model.py          # Modele RUL GradientBoosting
-├── reporting_module.py         # Generation rapports HTML/JSON
-├── gateway_ifm_simulator.py    # Simulateur gateway IFM
-├── requirements.txt
-├── Dockerfile
-├── render.yaml
+├── api_unified_pythagore.py        # API FastAPI v3.1.0 — point d'entrée principal
+├── signal_processing.py            # FFT, enveloppe, BPFO/BPFI/BSF, wavelet
+├── train_rul_model.py              # GradientBoostingRegressor RUL (46 features)
+├── train_model_v3_unsupervised.py  # Entraînement 6 modèles (contamination 20 %)
+├── realtime_mariadb.py             # Moteur temps réel — polling MariaDB 2 s
+├── alert_manager.py                # Alertes email / webhook Slack
+├── reporting_module.py             # Génération rapports HTML/JSON
+├── dashboard_realtime.html         # Dashboard SCADA HTML5
+├── requirements.txt                # Dépendances Python
+├── Dockerfile                      # Image Docker multi-arch
+├── docker-compose.yml              # API + Dashboard Nginx
+├── render.yaml                     # Déploiement Render.com
 └── models/
-    ├── model_if_v3.pkl
-    ├── model_lof_v3.pkl
-    ├── model_ocsvm_v3.pkl
-    ├── model_ecod_v3.pkl
-    ├── model_rul_v1.pkl
-    ├── scaler_v3.pkl
-    └── pca_v3.pkl
+    ├── model_if_v3.pkl             # Isolation Forest
+    ├── model_lof_v3.pkl            # Local Outlier Factor
+    ├── model_ocsvm_v3.pkl          # One-Class SVM
+    ├── model_ecod_v3.pkl           # ECOD (pyod)
+    ├── model_hbos_v3.pkl           # HBOS (pyod)
+    ├── model_copod_v3.pkl          # COPOD (pyod)
+    ├── model_rul_v1.pkl            # GradientBoostingRegressor RUL
+    ├── threshold_v3.pkl            # Seuil SoftVote optimal
+    ├── metrics_v3.csv              # Métriques officielles
+    └── metrics_rul_v1.json         # Métriques RUL
 ```
 
 ---
 
-## Modules optionnels
+## Niveaux de risque
 
-| Module | Requis | Si absent |
-|--------|--------|-----------|
-| MariaDB | Non | Endpoints IoT fonctionnent sans BDD |
-| AlertManager | Non | Alertes externes desactivees |
-| SignalProcessing | Non | Analyse spectrale desactivee |
-| ReportingModule | Non | Rapports desactives |
+| Score anomalie | Niveau | Couleur | Action |
+|----------------|--------|---------|--------|
+| ≥ 0,75 | CRITIQUE | Rouge | Arrêt immédiat |
+| 0,50–0,75 | ÉLEVÉ | Orange | Maintenance urgente |
+| 0,25–0,50 | MODÉRÉ | Jaune | Surveillance renforcée |
+| < 0,25 | FAIBLE | Vert | Normal |
 
----
-
-## Niveaux d'alerte
-
-| Score | Niveau | Action |
-|-------|--------|--------|
-| < 0.5 (0-1/4) | `OK` | Surveillance normale |
-| >= 0.5 (2/4) | `WARNING` | Inspection preventive |
-| >= 0.75 (3-4/4) | `CRITICAL` | Intervention urgente |
+Health Score : `H = 100 × (1 − 0,35·Tn − 0,35·Vn − 0,30·κn)` — conforme ISO 10816-3
 
 ---
 
-## Technologies
+## Entraînement des modèles
 
-- **API** : FastAPI 0.115 + Uvicorn
-- **ML** : scikit-learn 1.5.0, PyOD 2.0, SciPy
-- **Signal** : FFT, analyse spectrale, detection defauts roulements (BPFO, BPFI, BSF)
-- **Alertes** : Email SMTP, Webhook HTTP, SMS Twilio
-- **Base de donnees** : MariaDB (optionnel)
-- **Conteneurisation** : Docker
-- **Deploiement** : Render.com
+```bash
+# 6 modèles de détection (contamination 20 %, w=20)
+python train_model_v3_unsupervised.py
+
+# Modèle RUL (GradientBoostingRegressor, Weibull synthétique)
+python train_rul_model.py
+```
 
 ---
 
-## Auteur
+## Configuration MariaDB
 
-**Yassine Balti** — ISG BIZERTE
-PFE Maintenance Predictive IoT — Novation City — 2025/2026
+```bash
+export MARIADB_HOST=192.168.120.58
+export MARIADB_USER=root
+export MARIADB_PASSWORD=<mot_de_passe>
+export MARIADB_DATABASE=ai_cp
+```
+
+---
+
+## Contact
+
+**Mohamed Yassine Balti**  
+PFE Licence Informatique de Gestion — ISG Bizerte / Université de Carthage  
+Encadrant entreprise : M. Mohamed Chrifa (Novation City, Sousse)  
+Email : balti.medyassine@gmail.com

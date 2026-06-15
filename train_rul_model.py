@@ -39,11 +39,10 @@ from pathlib import Path
 import joblib
 import numpy as np
 import pandas as pd
-from sklearn.ensemble import GradientBoostingRegressor, RandomForestRegressor
+from sklearn.ensemble import GradientBoostingRegressor
 from sklearn.model_selection import train_test_split, cross_val_score
 from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
 from sklearn.preprocessing import RobustScaler
-from sklearn.pipeline import Pipeline
 
 warnings.filterwarnings("ignore")
 
@@ -114,16 +113,18 @@ def generate_degradation_curve(
     rul = total_life_hours - t
 
     # ── Features temporelles simulées ────────────────────────────────────────
-    # Température : 35°C nominal → 65°C en fin de vie
-    temp_mean = 35 + 30 * deg + rng.normal(0, 1.5, n_points)
-    temp_mean = np.clip(temp_mean, 20, 80)
-    temp_std  = 1.0 + 2.0 * deg + rng.exponential(0.3, n_points)
+    # Température : 23°C nominal (IFM VVB001 réels) → 60°C en fin de vie
+    temp_mean = 23 + 37 * deg + rng.normal(0, 1.5, n_points)
+    temp_mean = np.clip(temp_mean, 18, 65)
+    temp_std  = 0.5 + 3.0 * deg + rng.exponential(0.2, n_points)
 
-    # Vibration Z : 150 mg nominal → 1500 mg en fin de vie
-    vib_z_base = 150 + 1350 * deg**1.5
-    vib_z_mean = vib_z_base + rng.normal(0, 50, n_points)
-    vib_z_mean = np.clip(vib_z_mean, 50, 2500)
-    vib_z_std  = 20 + 100 * deg + rng.exponential(10, n_points)
+    # Vibration Z : 3 mg nominal (IFM VVB001 réels P50=4mg) → 2000 mg en fin de vie
+    # Calibré sur dataset_2026 : P25=3mg, P75=217mg, P99=850mg, max=2000mg
+    vib_z_base = 3 + 1997 * deg**2
+    noise_vib  = 0.3 + 100 * deg          # bruit faible quand sain, fort quand dégradé
+    vib_z_mean = vib_z_base + rng.normal(0, noise_vib, n_points)
+    vib_z_mean = np.clip(vib_z_mean, 1, 2500)
+    vib_z_std  = 0.3 + 3 * deg + 100 * deg**2 + rng.exponential(0.2, n_points)
     vib_z_rms  = vib_z_mean * (1 + 0.05 * rng.standard_normal(n_points))
     vib_z_crest = 2.5 + 6 * deg + rng.exponential(0.5, n_points)  # Facteur de crête
     vib_z_kurt  = 3.0 + 15 * deg**2 + rng.exponential(1, n_points)  # Kurtosis
@@ -149,9 +150,8 @@ def generate_degradation_curve(
     # Health score (composite)
     health_score = np.clip(100 - 65 * deg - 15 * deg**2 + rng.normal(0, 3, n_points), 5, 100)
 
-    # Tendances (dérivée locale approximée)
+    # Tendance température (dérivée locale approximée)
     temp_trend = np.gradient(temp_mean)
-    vib_trend  = np.gradient(vib_z_mean)
 
     # ── Features spectrales simulées ─────────────────────────────────────────
     # Plus le moteur se dégrade, plus :
@@ -176,7 +176,7 @@ def generate_degradation_curve(
     spec_skewness    = 0.5 + 2.0 * deg + rng.normal(0, 0.1, n_points)
     spec_kurtosis_feat = 3.0 + 5.0 * deg + rng.normal(0, 0.2, n_points)
     bearing_severity = np.clip(np.round(3 * deg).astype(int), 0, 3)
-    env_rms          = 20 + 200 * deg + rng.normal(0, 10, n_points)
+    env_rms          = 0.5 + 200 * deg + rng.normal(0, 0.3 + 10 * deg, n_points)
     spec_total_energy = 1e4 + 1e6 * deg**1.5 + rng.exponential(1e3, n_points)
 
     # Accélération IFM (acc_p2p, acc_z2p, acc_crest, acc_rms)
@@ -407,20 +407,6 @@ def train_rul_model(dataset: pd.DataFrame, test_size: float = 0.2) -> dict:
     cv_std = float(np.std(cv_scores))
     log.info(f"  CV MAE : {cv_mae:.1f} ± {cv_std:.1f} h")
 
-    # Modèle de secours : RandomForest (plus léger pour l'Edge)
-    log.info("Entraînement RandomForestRegressor (modèle Edge léger)...")
-    rfr = RandomForestRegressor(
-        n_estimators=100,
-        max_depth=8,
-        min_samples_leaf=5,
-        random_state=42,
-        n_jobs=-1
-    )
-    rfr.fit(X_train_s, y_train)
-    mae_rf = mean_absolute_error(y_test, rfr.predict(X_test_s))
-    r2_rf  = r2_score(y_test, rfr.predict(X_test_s))
-    log.info(f"  RF MAE test : {mae_rf:.1f} h | R² : {r2_rf:.4f}")
-
     # Feature importances top 10
     importances = dict(zip(available_features, gbr.feature_importances_))
     top10 = sorted(importances.items(), key=lambda x: -x[1])[:10]
@@ -432,16 +418,11 @@ def train_rul_model(dataset: pd.DataFrame, test_size: float = 0.2) -> dict:
     joblib.dump(gbr,    MODEL_OUT,  compress=3)
     joblib.dump(scaler, SCALER_OUT, compress=3)
 
-    # Sauvegarder aussi le RF pour l'edge
-    rf_path = MODEL_DIR / "model_rul_rf_edge_v1.pkl"
-    joblib.dump(rfr, rf_path, compress=3)
-
     # Sauvegarder la liste des features
     feat_path = MODEL_DIR / "features_rul_v1.pkl"
     joblib.dump(available_features, feat_path)
 
     log.info(f"Modèle GBR sauvegardé → {MODEL_OUT} ({MODEL_OUT.stat().st_size / 1024:.0f} KB)")
-    log.info(f"Modèle RF  sauvegardé → {rf_path} ({rf_path.stat().st_size / 1024:.0f} KB)")
 
     metrics = {
         "model":          "GradientBoostingRegressor",
@@ -455,8 +436,6 @@ def train_rul_model(dataset: pd.DataFrame, test_size: float = 0.2) -> dict:
         "r2_test":        round(r2_test, 4),
         "cv_mae_h":       round(cv_mae, 2),
         "cv_std_h":       round(cv_std, 2),
-        "rf_mae_test_h":  round(mae_rf, 2),
-        "rf_r2_test":     round(r2_rf, 4),
         "top10_features": [{"feature": n, "importance": round(v, 4)} for n, v in top10],
         "trained_at":     pd.Timestamp.now().isoformat(),
         "feature_cols":   available_features,

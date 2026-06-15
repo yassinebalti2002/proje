@@ -71,13 +71,20 @@ RISK_COLOR = {
 # ══════════════════════════════════════════════════════════════════════════════
 #  CONFIGURATION — modifie ces valeurs ou utilise les arguments CLI
 # ══════════════════════════════════════════════════════════════════════════════
+try:
+    from config import (MARIADB_HOST, MARIADB_PORT, MARIADB_USER,
+                        MARIADB_PASSWORD, MARIADB_DATABASE, MARIADB_TABLE)
+except ImportError:
+    MARIADB_HOST, MARIADB_PORT, MARIADB_USER = "192.168.1.50", 3306, "root"
+    MARIADB_PASSWORD, MARIADB_DATABASE, MARIADB_TABLE = "yassine2019", "ai_cp", "full_data"
+
 DEFAULT_CONFIG = {
-    "host":     os.environ.get("MARIADB_HOST",     "192.168.1.50"),
-    "port":     int(os.environ.get("MARIADB_PORT", "3306")),
-    "user":     os.environ.get("MARIADB_USER",     "root"),
-    "password": os.environ.get("MARIADB_PASSWORD", "ton_mot_de_passe"),
-    "database": os.environ.get("MARIADB_DATABASE", "ai_cp"),
-    "table":    os.environ.get("MARIADB_TABLE",    "full_data"),
+    "host":     os.environ.get("MARIADB_HOST",     MARIADB_HOST),
+    "port":     int(os.environ.get("MARIADB_PORT", str(MARIADB_PORT))),
+    "user":     os.environ.get("MARIADB_USER",     MARIADB_USER),
+    "password": os.environ.get("MARIADB_PASSWORD", MARIADB_PASSWORD),
+    "database": os.environ.get("MARIADB_DATABASE", MARIADB_DATABASE),
+    "table":    os.environ.get("MARIADB_TABLE",    MARIADB_TABLE),
 }
 
 

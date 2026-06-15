@@ -1,60 +1,60 @@
 {
   "model": "GradientBoostingRegressor",
   "n_features": 46,
-  "n_train": 6000,
-  "n_test": 1500,
-  "mae_train_h": 267.91,
-  "mae_test_h": 300.04,
-  "mae_test_pct": 35.05,
-  "rmse_test_h": 408.58,
-  "r2_test": 0.5907,
-  "cv_mae_h": 310.49,
-  "cv_std_h": 8.19,
-  "rf_mae_test_h": 297.43,
-  "rf_r2_test": 0.593,
+  "n_train": 9600,
+  "n_test": 2400,
+  "mae_train_h": 286.08,
+  "mae_test_h": 317.09,
+  "mae_test_pct": 37.5,
+  "rmse_test_h": 427.73,
+  "r2_test": 0.5594,
+  "cv_mae_h": 320.86,
+  "cv_std_h": 9.14,
+  "rf_mae_test_h": 315.0,
+  "rf_r2_test": 0.5656,
   "top10_features": [
     {
       "feature": "spec_total_energy",
-      "importance": 0.4049
+      "importance": 0.4024
+    },
+    {
+      "feature": "vib_z_std",
+      "importance": 0.108
     },
     {
       "feature": "health_score",
-      "importance": 0.1016
+      "importance": 0.0708
     },
     {
-      "feature": "spectral_kurtosis",
-      "importance": 0.089
-    },
-    {
-      "feature": "acc_p2p",
-      "importance": 0.0841
+      "feature": "vib_total",
+      "importance": 0.0665
     },
     {
       "feature": "env_rms",
-      "importance": 0.044
+      "importance": 0.0487
     },
     {
-      "feature": "spec_entropy",
-      "importance": 0.0163
+      "feature": "wavelet_entropy",
+      "importance": 0.0284
     },
     {
-      "feature": "temp_cur",
-      "importance": 0.0132
-    },
-    {
-      "feature": "env_kurtosis",
-      "importance": 0.0132
+      "feature": "vib_z_rms_w",
+      "importance": 0.0227
     },
     {
       "feature": "vib_x_rms_w",
-      "importance": 0.0127
+      "importance": 0.0193
     },
     {
-      "feature": "current_std",
-      "importance": 0.0113
+      "feature": "vib_z_cur",
+      "importance": 0.0187
+    },
+    {
+      "feature": "temp_mean",
+      "importance": 0.0172
     }
   ],
-  "trained_at": "2026-06-04T18:12:30.835104",
+  "trained_at": "2026-06-10T10:43:49.616520",
   "feature_cols": [
     "temp_mean",
     "temp_std",

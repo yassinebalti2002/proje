@@ -69,9 +69,14 @@ RISK_COLOR = {
 # ══════════════════════════════════════════════════════════════════════════════
 #  CONFIGURATION — modifie ces valeurs ou utilise les arguments CLI
 # ══════════════════════════════════════════════════════════════════════════════
+try:
+    from config import IFM_GATEWAY_HOST, IFM_GATEWAY_PORT
+except ImportError:
+    IFM_GATEWAY_HOST, IFM_GATEWAY_PORT = "192.168.1.50", 80
+
 DEFAULT_CONFIG = {
-    "gateway_host": os.environ.get("IFM_GATEWAY_HOST", "192.168.1.50"),
-    "gateway_port": int(os.environ.get("IFM_GATEWAY_PORT", "80")),
+    "gateway_host": os.environ.get("IFM_GATEWAY_HOST", IFM_GATEWAY_HOST),
+    "gateway_port": int(os.environ.get("IFM_GATEWAY_PORT", str(IFM_GATEWAY_PORT))),
     # Liste des ports IO-Link à surveiller (1 à 8 selon le modèle de gateway)
     "ports":        [int(p) for p in os.environ.get("IFM_PORTS", "1 2 3 4").split()],
     # Timeout HTTP vers la gateway

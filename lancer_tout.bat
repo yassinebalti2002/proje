@@ -30,6 +30,14 @@ set MODE=%1
 set REPLAY_N=%2
 if "%MODE%"=="" set MODE=realtime
 
+REM ── Lecture config.py (IP IoT, ports) ────────────────────────────────
+for /f "tokens=*" %%i in ('python -c "from config import MARIADB_HOST; print(MARIADB_HOST)" 2^>nul') do set IOT_IP=%%i
+for /f "tokens=*" %%i in ('python -c "from config import API_PORT; print(API_PORT)" 2^>nul') do set API_PORT=%%i
+for /f "tokens=*" %%i in ('python -c "from config import DASHBOARD_PORT; print(DASHBOARD_PORT)" 2^>nul') do set DASH_PORT=%%i
+if "!IOT_IP!"==""  set IOT_IP=192.168.1.50
+if "!API_PORT!"=="" set API_PORT=8000
+if "!DASH_PORT!"=="" set DASH_PORT=3000
+
 REM ── Étape 1 : Python ───────────────────────────────────────────────────
 echo [1/5] Vérification Python...
 python --version >nul 2>&1
@@ -84,7 +92,7 @@ echo [5/5] Lancement des 3 processus...
 echo.
 
 REM --- Processus 1 : API FastAPI (fenêtre minimisée en arrière-plan) ---
-echo   [1/3] API FastAPI sur http://localhost:8000
+echo   [1/3] API FastAPI sur http://localhost:!API_PORT!
 start "API FastAPI" /min cmd /c "call venv\Scripts\activate.bat && python api_unified_pythagore.py > logs_api.txt 2>&1"
 echo         Logs : logs_api.txt
 
@@ -100,14 +108,14 @@ if "%MODE%"=="simulateur" (
     echo   [2/3] Moteur MariaDB REPLAY %REPLAY_N% mesures
     start "Moteur Replay" /min cmd /c "call venv\Scripts\activate.bat && python realtime_mariadb.py --replay %REPLAY_N% > logs_moteur.txt 2>&1"
 ) else (
-    echo   [2/3] Moteur MariaDB TEMPS REEL ^(192.168.1.50^)
+    echo   [2/3] Moteur MariaDB TEMPS REEL ^(!IOT_IP!^)
     start "Moteur Realtime" /min cmd /c "call venv\Scripts\activate.bat && python realtime_mariadb.py > logs_moteur.txt 2>&1"
 )
 echo         Logs : logs_moteur.txt
 
 REM --- Processus 3 : Serveur HTTP Dashboard (fenêtre minimisée) ---
-echo   [3/3] Dashboard HTTP sur http://localhost:3000
-start "Dashboard HTTP" /min cmd /c "call venv\Scripts\activate.bat && python -m http.server 3000 > logs_http.txt 2>&1"
+echo   [3/3] Dashboard HTTP sur http://localhost:!DASH_PORT!
+start "Dashboard HTTP" /min cmd /c "call venv\Scripts\activate.bat && python -m http.server !DASH_PORT! > logs_http.txt 2>&1"
 echo         Logs : logs_http.txt
 
 REM ── Résumé final ───────────────────────────────────────────────────────
@@ -115,9 +123,9 @@ echo.
 echo ╔══════════════════════════════════════════════════════════════╗
 echo ║   OK SYSTEME DEMARRE COMPLETEMENT                           ║
 echo ╠══════════════════════════════════════════════════════════════╣
-echo ║  API FastAPI   --^> http://localhost:8000                    ║
-echo ║  Swagger Docs  --^> http://localhost:8000/docs               ║
-echo ║  Dashboard     --^> http://localhost:3000/dashboard_realtime.html
+echo ║  API FastAPI   --^> http://localhost:!API_PORT!                    ║
+echo ║  Swagger Docs  --^> http://localhost:!API_PORT!/docs               ║
+echo ║  Dashboard     --^> http://localhost:!DASH_PORT!/dashboard_realtime.html
 echo ║                                                              ║
 echo ║  Logs en direct (dans un autre terminal) :                  ║
 echo ║    type logs_api.txt                                        ║
@@ -129,7 +137,7 @@ echo.
 
 REM Ouvrir le dashboard dans le navigateur automatiquement
 timeout /t 3 /nobreak >nul
-start "" "http://localhost:3000/dashboard_realtime.html"
+start "" "http://localhost:!DASH_PORT!/dashboard_realtime.html"
 
 REM ── Surveillance : afficher les logs en temps réel ────────────────────
 echo Surveillance active. Appuyez sur Ctrl+C pour tout arreter.

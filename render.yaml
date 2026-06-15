@@ -1,13 +1,32 @@
+# ══════════════════════════════════════════════════════════════════════════════
+#  render.yaml — Déploiement Render.com
+#  Service : API FastAPI Maintenance Prédictive v3.1.0
+#
+#  Déploiement :
+#    1. Connecter ce dépôt GitHub à Render
+#    2. Render détecte ce fichier automatiquement
+#    3. Cliquer "Apply" → le service démarre (~3 min)
+# ══════════════════════════════════════════════════════════════════════════════
+
 services:
   - type: web
-    name: maintenance-predictive
-    runtime: docker
+    name: maintenance-predictive-api
+    env: docker
     dockerfilePath: ./Dockerfile
-    plan: starter
+    plan: free
     region: frankfurt
+    branch: main
+    healthCheckPath: /health
+
     envVars:
-      - key: PORT
-        value: 8000
       - key: PYTHONUNBUFFERED
         value: "1"
-    healthCheckPath: /health
+      - key: PYTHONIOENCODING
+        value: "utf-8"
+      - key: DEMO_MODE
+        value: "true"
+      # ── MariaDB (optionnel — décommentez si vous exposez MariaDB publiquement) ──
+      # - key: MARIADB_HOST
+      #   sync: false
+      # - key: MARIADB_PASSWORD
+      #   sync: false
