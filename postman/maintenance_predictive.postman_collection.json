@@ -1,0 +1,280 @@
+{
+  "info": {
+    "name": "Maintenance Prédictive — API v3.1.0",
+    "_postman_id": "pfe-isg-bizerte-novation-city-2026",
+    "description": "Collection complète pour tester l'API FastAPI de maintenance prédictive des roulements industriels IFM.\n\nPFE — Mohamed Yassine Balti — ISG Bizerte / Novation City\n\n**Avant de commencer :**\n1. Définir la variable `base_url` selon votre environnement\n2. Lancer l'API : `python api_unified_pythagore.py`\n3. Ou utiliser l'URL Render publique",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    {
+      "key": "base_url",
+      "value": "http://localhost:8000",
+      "description": "Changer pour l'URL Render en production : https://maintenance-predictive-api.onrender.com"
+    },
+    {
+      "key": "sensor_id",
+      "value": "68c11f06",
+      "description": "ID capteur IFM par défaut (Moteur 1600)"
+    }
+  ],
+  "item": [
+    {
+      "name": "01 — Système",
+      "item": [
+        {
+          "name": "Health Check",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/health",
+              "host": ["{{base_url}}"],
+              "path": ["health"]
+            },
+            "description": "Vérifie que l'API est opérationnelle et que les 6 modèles ML sont chargés."
+          },
+          "response": []
+        },
+        {
+          "name": "Métriques ML officielles",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/metrics",
+              "host": ["{{base_url}}"],
+              "path": ["metrics"]
+            },
+            "description": "Retourne les métriques officielles du pipeline : AUC-ROC=0.836, Recall=0.877, F1=0.367, 6 modèles, contamination 20%, 73917 sessions."
+          },
+          "response": []
+        },
+        {
+          "name": "Liste des capteurs IFM",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/sensors",
+              "host": ["{{base_url}}"],
+              "path": ["sensors"]
+            },
+            "description": "Retourne la liste des 20 capteurs IFM avec leur niveau de risque actuel."
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "02 — Prédictions",
+      "item": [
+        {
+          "name": "Prédiction anomalie — SoftVote 6 modèles",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"sensor_id\": \"68c11f06\",\n  \"history\": [\n    {\"temperature\": 22.5, \"vibration_x\": 4.1, \"vibration_y\": 3.9, \"vibration_z\": 7.4, \"current\": 18.5, \"acc_p2p\": 0.12},\n    {\"temperature\": 22.6, \"vibration_x\": 4.2, \"vibration_y\": 4.0, \"vibration_z\": 7.5, \"current\": 18.4, \"acc_p2p\": 0.11},\n    {\"temperature\": 22.4, \"vibration_x\": 4.0, \"vibration_y\": 3.8, \"vibration_z\": 7.3, \"current\": 18.6, \"acc_p2p\": 0.13},\n    {\"temperature\": 22.7, \"vibration_x\": 4.3, \"vibration_y\": 4.1, \"vibration_z\": 7.6, \"current\": 18.3, \"acc_p2p\": 0.10},\n    {\"temperature\": 22.5, \"vibration_x\": 4.1, \"vibration_y\": 3.9, \"vibration_z\": 7.4, \"current\": 18.5, \"acc_p2p\": 0.12},\n    {\"temperature\": 22.6, \"vibration_x\": 4.2, \"vibration_y\": 4.0, \"vibration_z\": 7.5, \"current\": 18.4, \"acc_p2p\": 0.11},\n    {\"temperature\": 22.4, \"vibration_x\": 4.0, \"vibration_y\": 3.8, \"vibration_z\": 7.3, \"current\": 18.6, \"acc_p2p\": 0.13},\n    {\"temperature\": 22.7, \"vibration_x\": 4.3, \"vibration_y\": 4.1, \"vibration_z\": 7.6, \"current\": 18.3, \"acc_p2p\": 0.10},\n    {\"temperature\": 22.5, \"vibration_x\": 4.1, \"vibration_y\": 3.9, \"vibration_z\": 7.4, \"current\": 18.5, \"acc_p2p\": 0.12},\n    {\"temperature\": 22.6, \"vibration_x\": 4.2, \"vibration_y\": 4.0, \"vibration_z\": 7.5, \"current\": 18.4, \"acc_p2p\": 0.11},\n    {\"temperature\": 22.4, \"vibration_x\": 4.0, \"vibration_y\": 3.8, \"vibration_z\": 7.3, \"current\": 18.6, \"acc_p2p\": 0.13},\n    {\"temperature\": 22.7, \"vibration_x\": 4.3, \"vibration_y\": 4.1, \"vibration_z\": 7.6, \"current\": 18.3, \"acc_p2p\": 0.10},\n    {\"temperature\": 22.5, \"vibration_x\": 4.1, \"vibration_y\": 3.9, \"vibration_z\": 7.4, \"current\": 18.5, \"acc_p2p\": 0.12},\n    {\"temperature\": 22.6, \"vibration_x\": 4.2, \"vibration_y\": 4.0, \"vibration_z\": 7.5, \"current\": 18.4, \"acc_p2p\": 0.11},\n    {\"temperature\": 22.4, \"vibration_x\": 4.0, \"vibration_y\": 3.8, \"vibration_z\": 7.3, \"current\": 18.6, \"acc_p2p\": 0.13},\n    {\"temperature\": 22.7, \"vibration_x\": 4.3, \"vibration_y\": 4.1, \"vibration_z\": 7.6, \"current\": 18.3, \"acc_p2p\": 0.10},\n    {\"temperature\": 22.5, \"vibration_x\": 4.1, \"vibration_y\": 3.9, \"vibration_z\": 7.4, \"current\": 18.5, \"acc_p2p\": 0.12},\n    {\"temperature\": 22.6, \"vibration_x\": 4.2, \"vibration_y\": 4.0, \"vibration_z\": 7.5, \"current\": 18.4, \"acc_p2p\": 0.11},\n    {\"temperature\": 22.4, \"vibration_x\": 4.0, \"vibration_y\": 3.8, \"vibration_z\": 7.3, \"current\": 18.6, \"acc_p2p\": 0.13},\n    {\"temperature\": 22.7, \"vibration_x\": 4.3, \"vibration_y\": 4.1, \"vibration_z\": 7.6, \"current\": 18.3, \"acc_p2p\": 0.10}\n  ]\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{base_url}}/v1/predict",
+              "host": ["{{base_url}}"],
+              "path": ["v1", "predict"]
+            },
+            "description": "Envoie 20 mesures d'un capteur et obtient le vote des 6 modèles (IF, LOF, OCSVM, ECOD, HBOS, COPOD) via SoftVote à seuil dynamique.\n\nRéponse attendue : prediction, anomaly_score, risk_level, votes par modèle, health_score."
+          },
+          "response": []
+        },
+        {
+          "name": "Prédiction anomalie — Moteur CRITIQUE (vibrations élevées)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"sensor_id\": \"91d92804\",\n  \"history\": [\n    {\"temperature\": 75.0, \"vibration_x\": 850.0, \"vibration_y\": 920.0, \"vibration_z\": 1450.0, \"current\": 32.0, \"acc_p2p\": 4.5},\n    {\"temperature\": 76.5, \"vibration_x\": 870.0, \"vibration_y\": 940.0, \"vibration_z\": 1480.0, \"current\": 33.0, \"acc_p2p\": 4.8},\n    {\"temperature\": 78.0, \"vibration_x\": 890.0, \"vibration_y\": 960.0, \"vibration_z\": 1510.0, \"current\": 33.5, \"acc_p2p\": 5.1},\n    {\"temperature\": 79.5, \"vibration_x\": 910.0, \"vibration_y\": 980.0, \"vibration_z\": 1540.0, \"current\": 34.0, \"acc_p2p\": 5.3},\n    {\"temperature\": 81.0, \"vibration_x\": 930.0, \"vibration_y\": 1000.0, \"vibration_z\": 1570.0, \"current\": 34.5, \"acc_p2p\": 5.6},\n    {\"temperature\": 82.5, \"vibration_x\": 950.0, \"vibration_y\": 1020.0, \"vibration_z\": 1600.0, \"current\": 35.0, \"acc_p2p\": 5.9},\n    {\"temperature\": 84.0, \"vibration_x\": 970.0, \"vibration_y\": 1040.0, \"vibration_z\": 1630.0, \"current\": 35.5, \"acc_p2p\": 6.2},\n    {\"temperature\": 85.5, \"vibration_x\": 990.0, \"vibration_y\": 1060.0, \"vibration_z\": 1660.0, \"current\": 36.0, \"acc_p2p\": 6.5},\n    {\"temperature\": 87.0, \"vibration_x\": 1010.0, \"vibration_y\": 1080.0, \"vibration_z\": 1690.0, \"current\": 36.5, \"acc_p2p\": 6.8},\n    {\"temperature\": 88.5, \"vibration_x\": 1030.0, \"vibration_y\": 1100.0, \"vibration_z\": 1720.0, \"current\": 37.0, \"acc_p2p\": 7.1},\n    {\"temperature\": 90.0, \"vibration_x\": 1050.0, \"vibration_y\": 1120.0, \"vibration_z\": 1750.0, \"current\": 37.5, \"acc_p2p\": 7.4},\n    {\"temperature\": 91.5, \"vibration_x\": 1070.0, \"vibration_y\": 1140.0, \"vibration_z\": 1780.0, \"current\": 38.0, \"acc_p2p\": 7.7},\n    {\"temperature\": 93.0, \"vibration_x\": 1090.0, \"vibration_y\": 1160.0, \"vibration_z\": 1810.0, \"current\": 38.5, \"acc_p2p\": 8.0},\n    {\"temperature\": 94.5, \"vibration_x\": 1110.0, \"vibration_y\": 1180.0, \"vibration_z\": 1840.0, \"current\": 39.0, \"acc_p2p\": 8.3},\n    {\"temperature\": 96.0, \"vibration_x\": 1130.0, \"vibration_y\": 1200.0, \"vibration_z\": 1870.0, \"current\": 39.5, \"acc_p2p\": 8.6},\n    {\"temperature\": 97.5, \"vibration_x\": 1150.0, \"vibration_y\": 1220.0, \"vibration_z\": 1900.0, \"current\": 40.0, \"acc_p2p\": 8.9},\n    {\"temperature\": 99.0, \"vibration_x\": 1170.0, \"vibration_y\": 1240.0, \"vibration_z\": 1930.0, \"current\": 40.5, \"acc_p2p\": 9.2},\n    {\"temperature\": 100.5, \"vibration_x\": 1190.0, \"vibration_y\": 1260.0, \"vibration_z\": 1960.0, \"current\": 41.0, \"acc_p2p\": 9.5},\n    {\"temperature\": 102.0, \"vibration_x\": 1210.0, \"vibration_y\": 1280.0, \"vibration_z\": 1990.0, \"current\": 41.5, \"acc_p2p\": 9.8},\n    {\"temperature\": 103.5, \"vibration_x\": 1230.0, \"vibration_y\": 1300.0, \"vibration_z\": 2020.0, \"current\": 42.0, \"acc_p2p\": 10.1}\n  ]\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{base_url}}/v1/predict",
+              "host": ["{{base_url}}"],
+              "path": ["v1", "predict"]
+            },
+            "description": "Scénario CRITIQUE : vibrations > 1500 mg, température > 75°C — doit déclencher une anomalie avec risk_level CRITIQUE ou ÉLEVÉ."
+          },
+          "response": []
+        },
+        {
+          "name": "Prédiction RUL — GradientBoostingRegressor",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"sensor_id\": \"68c11f06\",\n  \"history\": [\n    {\"temperature\": 22.5, \"vibration_x\": 4.1, \"vibration_y\": 3.9, \"vibration_z\": 7.4, \"current\": 18.5, \"acc_p2p\": 0.12},\n    {\"temperature\": 22.6, \"vibration_x\": 4.2, \"vibration_y\": 4.0, \"vibration_z\": 7.5, \"current\": 18.4, \"acc_p2p\": 0.11},\n    {\"temperature\": 22.4, \"vibration_x\": 4.0, \"vibration_y\": 3.8, \"vibration_z\": 7.3, \"current\": 18.6, \"acc_p2p\": 0.13},\n    {\"temperature\": 22.7, \"vibration_x\": 4.3, \"vibration_y\": 4.1, \"vibration_z\": 7.6, \"current\": 18.3, \"acc_p2p\": 0.10},\n    {\"temperature\": 22.5, \"vibration_x\": 4.1, \"vibration_y\": 3.9, \"vibration_z\": 7.4, \"current\": 18.5, \"acc_p2p\": 0.12},\n    {\"temperature\": 22.6, \"vibration_x\": 4.2, \"vibration_y\": 4.0, \"vibration_z\": 7.5, \"current\": 18.4, \"acc_p2p\": 0.11},\n    {\"temperature\": 22.4, \"vibration_x\": 4.0, \"vibration_y\": 3.8, \"vibration_z\": 7.3, \"current\": 18.6, \"acc_p2p\": 0.13},\n    {\"temperature\": 22.7, \"vibration_x\": 4.3, \"vibration_y\": 4.1, \"vibration_z\": 7.6, \"current\": 18.3, \"acc_p2p\": 0.10},\n    {\"temperature\": 22.5, \"vibration_x\": 4.1, \"vibration_y\": 3.9, \"vibration_z\": 7.4, \"current\": 18.5, \"acc_p2p\": 0.12},\n    {\"temperature\": 22.6, \"vibration_x\": 4.2, \"vibration_y\": 4.0, \"vibration_z\": 7.5, \"current\": 18.4, \"acc_p2p\": 0.11},\n    {\"temperature\": 22.4, \"vibration_x\": 4.0, \"vibration_y\": 3.8, \"vibration_z\": 7.3, \"current\": 18.6, \"acc_p2p\": 0.13},\n    {\"temperature\": 22.7, \"vibration_x\": 4.3, \"vibration_y\": 4.1, \"vibration_z\": 7.6, \"current\": 18.3, \"acc_p2p\": 0.10},\n    {\"temperature\": 22.5, \"vibration_x\": 4.1, \"vibration_y\": 3.9, \"vibration_z\": 7.4, \"current\": 18.5, \"acc_p2p\": 0.12},\n    {\"temperature\": 22.6, \"vibration_x\": 4.2, \"vibration_y\": 4.0, \"vibration_z\": 7.5, \"current\": 18.4, \"acc_p2p\": 0.11},\n    {\"temperature\": 22.4, \"vibration_x\": 4.0, \"vibration_y\": 3.8, \"vibration_z\": 7.3, \"current\": 18.6, \"acc_p2p\": 0.13},\n    {\"temperature\": 22.7, \"vibration_x\": 4.3, \"vibration_y\": 4.1, \"vibration_z\": 7.6, \"current\": 18.3, \"acc_p2p\": 0.10},\n    {\"temperature\": 22.5, \"vibration_x\": 4.1, \"vibration_y\": 3.9, \"vibration_z\": 7.4, \"current\": 18.5, \"acc_p2p\": 0.12},\n    {\"temperature\": 22.6, \"vibration_x\": 4.2, \"vibration_y\": 4.0, \"vibration_z\": 7.5, \"current\": 18.4, \"acc_p2p\": 0.11},\n    {\"temperature\": 22.4, \"vibration_x\": 4.0, \"vibration_y\": 3.8, \"vibration_z\": 7.3, \"current\": 18.6, \"acc_p2p\": 0.13},\n    {\"temperature\": 22.7, \"vibration_x\": 4.3, \"vibration_y\": 4.1, \"vibration_z\": 7.6, \"current\": 18.3, \"acc_p2p\": 0.10}\n  ]\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{base_url}}/v1/predict-rul",
+              "host": ["{{base_url}}"],
+              "path": ["v1", "predict-rul"]
+            },
+            "description": "Estime la Durée de Vie Résiduelle (RUL) via GradientBoostingRegressor (46 features, MAE=317h, R²=0.56).\n\nRéponse : rul_hours, rul_days, health_score, alert_level, confidence_interval."
+          },
+          "response": []
+        },
+        {
+          "name": "Prédiction RUL — Moteur dégradé",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"sensor_id\": \"aa7b02a1\",\n  \"history\": [\n    {\"temperature\": 65.0, \"vibration_x\": 400.0, \"vibration_y\": 450.0, \"vibration_z\": 800.0, \"current\": 28.0, \"acc_p2p\": 2.5},\n    {\"temperature\": 66.0, \"vibration_x\": 410.0, \"vibration_y\": 460.0, \"vibration_z\": 820.0, \"current\": 28.5, \"acc_p2p\": 2.6},\n    {\"temperature\": 67.0, \"vibration_x\": 420.0, \"vibration_y\": 470.0, \"vibration_z\": 840.0, \"current\": 29.0, \"acc_p2p\": 2.7},\n    {\"temperature\": 68.0, \"vibration_x\": 430.0, \"vibration_y\": 480.0, \"vibration_z\": 860.0, \"current\": 29.5, \"acc_p2p\": 2.8},\n    {\"temperature\": 69.0, \"vibration_x\": 440.0, \"vibration_y\": 490.0, \"vibration_z\": 880.0, \"current\": 30.0, \"acc_p2p\": 2.9},\n    {\"temperature\": 70.0, \"vibration_x\": 450.0, \"vibration_y\": 500.0, \"vibration_z\": 900.0, \"current\": 30.5, \"acc_p2p\": 3.0},\n    {\"temperature\": 71.0, \"vibration_x\": 460.0, \"vibration_y\": 510.0, \"vibration_z\": 920.0, \"current\": 31.0, \"acc_p2p\": 3.1},\n    {\"temperature\": 72.0, \"vibration_x\": 470.0, \"vibration_y\": 520.0, \"vibration_z\": 940.0, \"current\": 31.5, \"acc_p2p\": 3.2},\n    {\"temperature\": 73.0, \"vibration_x\": 480.0, \"vibration_y\": 530.0, \"vibration_z\": 960.0, \"current\": 32.0, \"acc_p2p\": 3.3},\n    {\"temperature\": 74.0, \"vibration_x\": 490.0, \"vibration_y\": 540.0, \"vibration_z\": 980.0, \"current\": 32.5, \"acc_p2p\": 3.4},\n    {\"temperature\": 75.0, \"vibration_x\": 500.0, \"vibration_y\": 550.0, \"vibration_z\": 1000.0, \"current\": 33.0, \"acc_p2p\": 3.5},\n    {\"temperature\": 76.0, \"vibration_x\": 510.0, \"vibration_y\": 560.0, \"vibration_z\": 1020.0, \"current\": 33.5, \"acc_p2p\": 3.6},\n    {\"temperature\": 77.0, \"vibration_x\": 520.0, \"vibration_y\": 570.0, \"vibration_z\": 1040.0, \"current\": 34.0, \"acc_p2p\": 3.7},\n    {\"temperature\": 78.0, \"vibration_x\": 530.0, \"vibration_y\": 580.0, \"vibration_z\": 1060.0, \"current\": 34.5, \"acc_p2p\": 3.8},\n    {\"temperature\": 79.0, \"vibration_x\": 540.0, \"vibration_y\": 590.0, \"vibration_z\": 1080.0, \"current\": 35.0, \"acc_p2p\": 3.9},\n    {\"temperature\": 80.0, \"vibration_x\": 550.0, \"vibration_y\": 600.0, \"vibration_z\": 1100.0, \"current\": 35.5, \"acc_p2p\": 4.0},\n    {\"temperature\": 81.0, \"vibration_x\": 560.0, \"vibration_y\": 610.0, \"vibration_z\": 1120.0, \"current\": 36.0, \"acc_p2p\": 4.1},\n    {\"temperature\": 82.0, \"vibration_x\": 570.0, \"vibration_y\": 620.0, \"vibration_z\": 1140.0, \"current\": 36.5, \"acc_p2p\": 4.2},\n    {\"temperature\": 83.0, \"vibration_x\": 580.0, \"vibration_y\": 630.0, \"vibration_z\": 1160.0, \"current\": 37.0, \"acc_p2p\": 4.3},\n    {\"temperature\": 84.0, \"vibration_x\": 590.0, \"vibration_y\": 640.0, \"vibration_z\": 1180.0, \"current\": 37.5, \"acc_p2p\": 4.4}\n  ]\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{base_url}}/v1/predict-rul",
+              "host": ["{{base_url}}"],
+              "path": ["v1", "predict-rul"]
+            },
+            "description": "Scénario moteur en dégradation progressive (zone C ISO 10816-3) — RUL attendu < 200h."
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "03 — Capteurs",
+      "item": [
+        {
+          "name": "Health Score — capteur 68c11f06",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/v1/health-score/{{sensor_id}}",
+              "host": ["{{base_url}}"],
+              "path": ["v1", "health-score", "{{sensor_id}}"]
+            },
+            "description": "Retourne le Health Score (0-100) calculé via H = 100×(1 - 0.35×Tn - 0.35×Vn - 0.30×κn)."
+          },
+          "response": []
+        },
+        {
+          "name": "Niveau d'alerte — capteur",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/v1/alert-level/{{sensor_id}}",
+              "host": ["{{base_url}}"],
+              "path": ["v1", "alert-level", "{{sensor_id}}"]
+            },
+            "description": "Retourne le niveau d'alerte actuel : FAIBLE / MODÉRÉ / ÉLEVÉ / CRITIQUE."
+          },
+          "response": []
+        },
+        {
+          "name": "Historique prédictions — capteur",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/v1/history/{{sensor_id}}",
+              "host": ["{{base_url}}"],
+              "path": ["v1", "history", "{{sensor_id}}"]
+            },
+            "description": "Retourne les 200 dernières prédictions pour ce capteur avec horodatage."
+          },
+          "response": []
+        },
+        {
+          "name": "Résumé complet — capteur",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/v1/sensors/{{sensor_id}}/summary",
+              "host": ["{{base_url}}"],
+              "path": ["v1", "sensors", "{{sensor_id}}", "summary"]
+            },
+            "description": "Résumé complet d'un capteur : votes des 6 modèles, RUL, tendance, health score."
+          },
+          "response": []
+        },
+        {
+          "name": "Mesures brutes live — capteur",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/v1/live/{{sensor_id}}",
+              "host": ["{{base_url}}"],
+              "path": ["v1", "live", "{{sensor_id}}"]
+            },
+            "description": "Retourne la fenêtre brute actuelle (20 dernières mesures) pour ce capteur."
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "04 — Dashboard",
+      "item": [
+        {
+          "name": "Vue globale — tous capteurs",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/v1/dashboard/overview",
+              "host": ["{{base_url}}"],
+              "path": ["v1", "dashboard", "overview"]
+            },
+            "description": "Résumé global de tous les capteurs : nb FAIBLE/MODÉRÉ/ÉLEVÉ/CRITIQUE, capteur le plus dégradé, RUL moyen."
+          },
+          "response": []
+        }
+      ]
+    }
+  ]
+}

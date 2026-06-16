@@ -595,7 +595,7 @@ def extract_features(history: List[MeasurePoint]) -> dict:
 
 def run_ensemble(X_raw: np.ndarray, sensor_id: str = "default") -> dict:
     """
-    Applique scaler → X_scaled → SoftVote continu (6 modèles) + filtre de persistance V9.
+    Applique scaler → X_scaled → SoftVote continu (IF+ECOD+HBOS+COPOD) + filtre de persistance.
     Score continu [0,1] calculé par score_samples/decision_function + normalisation p1/p99.
     Seuil optimal chargé depuis threshold_v3.pkl (softvote_threshold).
     Persistance k=3 : anomalie confirmée uniquement si k fenêtres consécutives > seuil.
@@ -633,13 +633,14 @@ def run_ensemble(X_raw: np.ndarray, sensor_id: str = "default") -> dict:
                 return 0.5
 
     s_if    = _soft(models["if"],    "if",    is_pyod=False)
-    s_lof   = _soft(models["lof"],   "lof",   is_pyod=False)
+    s_lof   = _soft(models["lof"],   "lof",   is_pyod=True)
     s_ocsvm = _soft(models["ocsvm"], "ocsvm", is_pyod=False)
     s_ecod  = _soft(models["ecod"],  "ecod",  is_pyod=True)
     s_hbos  = _soft(models["hbos"],  "hbos",  is_pyod=True) if "hbos"  in models else 0.5
     s_copod = _soft(models["copod"], "copod", is_pyod=True) if "copod" in models else 0.5
 
-    active_scores = [s_if, s_lof, s_ocsvm, s_ecod]
+    # SoftVote RAPPORT : IF + ECOD + HBOS + COPOD uniquement (LOF/OCSVM exclus — AUC trop faible)
+    active_scores = [s_if, s_ecod]
     if "hbos"  in models: active_scores.append(s_hbos)
     if "copod" in models: active_scores.append(s_copod)
 
@@ -1512,8 +1513,10 @@ if FASTAPI_OK:
                 m = df_m.set_index("metric")["value"].to_dict()
             else:
                 m = df_m.iloc[0].to_dict()
-            n_models = sum(1 for k in ["if","lof","ocsvm","ecod","hbos","copod"] if k in models)
-            ens_names = " + ".join(k.upper() for k in ["if","lof","ocsvm","ecod","hbos","copod"] if k in models) or m.get("ensemble","IF + LOF + OCSVM + ECOD + HBOS + COPOD")
+            # SoftVote RAPPORT : IF + ECOD + HBOS + COPOD (LOF/OCSVM exclus)
+            softvote_models = [k for k in ["if","ecod","hbos","copod"] if k in models]
+            n_models = len(softvote_models)
+            ens_names = m.get("ensemble", " + ".join(k.upper() for k in softvote_models))
             return {
                 "model_version": m.get("model_version", "V7"),
                 "ensemble":      ens_names,
@@ -1531,7 +1534,7 @@ if FASTAPI_OK:
                 "n_anomalies":   int(float(m.get("n_anomalies", 0))),
                 "n_total":       int(float(m.get("n_total",     0))),
                 "contamination": round(float(m.get("contamination", 0)), 4),
-                "weights": {k.upper(): round(1/max(n_models,1), 2) for k in ["if","lof","ocsvm","ecod","hbos","copod"] if k in models},
+                "weights": {k.upper(): round(1/max(n_models,1), 2) for k in softvote_models},
                 "source_file": str(path.name),
             }
         except Exception as e:
