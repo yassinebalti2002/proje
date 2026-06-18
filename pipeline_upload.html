@@ -1,0 +1,730 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Pipeline IoT — Maintenance Prédictive</title>
+<style>
+:root {
+  --bg:       #0a0f1e;
+  --bg2:      #0f172a;
+  --surface:  #1e293b;
+  --surface2: #263350;
+  --border:   #2d3f5e;
+  --primary:  #06b6d4;
+  --prim2:    #0284c7;
+  --violet:   #7c3aed;
+  --success:  #10b981;
+  --warn:     #f59e0b;
+  --danger:   #ef4444;
+  --text:     #e2e8f0;
+  --muted:    #64748b;
+}
+*{margin:0;padding:0;box-sizing:border-box}
+html{scroll-behavior:smooth}
+body{background:var(--bg);color:var(--text);font-family:'Segoe UI',system-ui,sans-serif;min-height:100vh;overflow-x:hidden}
+
+/* ─── HEADER ─────────────────────────────────────────── */
+header{
+  background:linear-gradient(135deg,#070d1a 0%,#0f1e3a 50%,#070d1a 100%);
+  border-bottom:1px solid var(--border);
+  padding:18px 40px;
+  display:flex;align-items:center;gap:18px;
+  position:sticky;top:0;z-index:100;
+  backdrop-filter:blur(12px);
+}
+.logo{
+  width:48px;height:48px;border-radius:14px;
+  background:linear-gradient(135deg,var(--primary),var(--violet));
+  display:flex;align-items:center;justify-content:center;
+  font-size:22px;flex-shrink:0;
+  box-shadow:0 0 20px rgba(6,182,212,.35);
+}
+.hdr-info h1{font-size:20px;font-weight:700;color:#fff;letter-spacing:-.3px}
+.hdr-info p{font-size:12px;color:var(--muted);margin-top:2px}
+.hdr-right{margin-left:auto;display:flex;align-items:center;gap:16px}
+.api-badge{
+  background:var(--surface);border:1px solid var(--border);
+  border-radius:20px;padding:7px 16px;
+  font-size:12px;display:flex;align-items:center;gap:8px;
+  transition:border-color .3s;
+}
+.api-badge.ok{border-color:var(--success)}
+.api-badge.err{border-color:var(--danger)}
+.dot{width:8px;height:8px;border-radius:50%;background:var(--muted)}
+.dot.ok{background:var(--success);animation:blink 2s infinite}
+.dot.err{background:var(--danger)}
+@keyframes blink{0%,100%{opacity:1}50%{opacity:.3}}
+
+/* ─── MAIN ───────────────────────────────────────────── */
+main{max-width:1080px;margin:0 auto;padding:36px 20px 60px}
+
+/* ─── SECTION TITLE ──────────────────────────────────── */
+.sec-title{
+  font-size:13px;font-weight:700;text-transform:uppercase;
+  letter-spacing:1.5px;color:var(--primary);margin-bottom:16px;
+  display:flex;align-items:center;gap:8px;
+}
+.sec-title::after{content:'';flex:1;height:1px;background:var(--border)}
+
+/* ─── PIPELINE STEPS ─────────────────────────────────── */
+.steps-wrap{
+  background:var(--surface);border:1px solid var(--border);
+  border-radius:18px;padding:28px 32px;margin-bottom:28px;
+  position:relative;overflow:hidden;
+}
+.steps-wrap::before{
+  content:'';position:absolute;top:0;left:0;right:0;height:2px;
+  background:linear-gradient(90deg,var(--primary),var(--violet));
+}
+.steps{display:flex;align-items:flex-start;justify-content:space-between;position:relative}
+.steps::before{
+  content:'';position:absolute;top:22px;left:10%;right:10%;
+  height:2px;background:var(--border);z-index:0;
+}
+.step{flex:1;text-align:center;position:relative;z-index:1}
+.s-circle{
+  width:44px;height:44px;border-radius:50%;
+  background:var(--surface2);border:2px solid var(--border);
+  display:flex;align-items:center;justify-content:center;
+  margin:0 auto 10px;font-size:18px;
+  transition:all .4s ease;position:relative;
+}
+.step.active .s-circle{
+  background:linear-gradient(135deg,var(--primary),var(--prim2));
+  border-color:var(--primary);
+  box-shadow:0 0 0 6px rgba(6,182,212,.15),0 0 24px rgba(6,182,212,.4);
+}
+.step.active .s-circle::after{
+  content:'';position:absolute;inset:-6px;border-radius:50%;
+  border:2px solid rgba(6,182,212,.3);animation:ripple 1.8s infinite;
+}
+@keyframes ripple{0%{transform:scale(.9);opacity:1}100%{transform:scale(1.4);opacity:0}}
+.step.done .s-circle{
+  background:linear-gradient(135deg,var(--success),#059669);
+  border-color:var(--success);
+  box-shadow:0 0 16px rgba(16,185,129,.3);
+}
+.s-label{font-size:12px;color:var(--muted);font-weight:600;line-height:1.3}
+.step.active .s-label,.step.done .s-label{color:var(--text)}
+.s-sub{font-size:10px;color:var(--muted);margin-top:3px}
+
+/* ─── CARD ───────────────────────────────────────────── */
+.card{
+  background:var(--surface);border:1px solid var(--border);
+  border-radius:18px;padding:28px;margin-bottom:24px;
+  transition:border-color .3s;
+}
+.card:hover{border-color:var(--surface2)}
+
+/* ─── UPLOAD ZONE ────────────────────────────────────── */
+.drop-zone{
+  border:2px dashed var(--border);border-radius:14px;
+  padding:56px 40px;text-align:center;cursor:pointer;
+  position:relative;transition:all .3s;
+  background:linear-gradient(135deg,rgba(6,182,212,.02),rgba(124,58,237,.02));
+}
+.drop-zone input[type=file]{
+  position:absolute;inset:0;opacity:0;cursor:pointer;width:100%;height:100%;
+}
+.drop-zone:hover,.drop-zone.drag{
+  border-color:var(--primary);
+  background:linear-gradient(135deg,rgba(6,182,212,.06),rgba(124,58,237,.04));
+  box-shadow:inset 0 0 40px rgba(6,182,212,.05);
+}
+.drop-icon{font-size:52px;margin-bottom:16px;display:block;line-height:1}
+.drop-title{font-size:18px;font-weight:700;margin-bottom:8px;color:#fff}
+.drop-sub{font-size:13px;color:var(--muted)}
+.drop-sub span{
+  color:var(--primary);font-weight:600;cursor:pointer;
+  text-decoration:underline dotted;
+}
+
+/* ─── FILE PILL ──────────────────────────────────────── */
+.file-pill{
+  display:none;align-items:center;gap:12px;
+  background:var(--surface2);border:1px solid var(--border);
+  border-radius:10px;padding:12px 16px;margin-top:14px;
+}
+.file-pill.show{display:flex}
+.file-pill-name{font-weight:600;font-size:14px;flex:1}
+.file-pill-size{font-size:12px;color:var(--muted)}
+.btn-clear{
+  background:none;border:none;color:var(--muted);cursor:pointer;
+  font-size:18px;padding:2px 6px;border-radius:6px;
+  transition:color .2s;line-height:1;
+}
+.btn-clear:hover{color:var(--danger)}
+
+/* ─── CONFIG GRID ────────────────────────────────────── */
+.cfg-grid{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-top:20px}
+.cfg-item label{
+  display:block;font-size:11px;font-weight:700;
+  text-transform:uppercase;letter-spacing:.8px;
+  color:var(--muted);margin-bottom:7px;
+}
+.cfg-item input,.cfg-item select{
+  width:100%;background:var(--bg2);
+  border:1px solid var(--border);border-radius:9px;
+  padding:11px 14px;color:var(--text);font-size:14px;outline:none;
+  transition:border-color .2s;
+}
+.cfg-item input:focus,.cfg-item select:focus{border-color:var(--primary)}
+.cfg-item select option{background:var(--bg2)}
+
+/* ─── LAUNCH BUTTON ──────────────────────────────────── */
+.btn-launch{
+  width:100%;padding:15px;margin-top:20px;
+  background:linear-gradient(135deg,var(--primary),var(--violet));
+  border:none;border-radius:12px;color:#fff;
+  font-size:16px;font-weight:700;cursor:pointer;
+  display:flex;align-items:center;justify-content:center;gap:10px;
+  transition:all .3s;letter-spacing:.3px;
+  box-shadow:0 4px 20px rgba(6,182,212,.2);
+}
+.btn-launch:hover:not(:disabled){
+  transform:translateY(-2px);
+  box-shadow:0 8px 32px rgba(6,182,212,.4);
+}
+.btn-launch:disabled{opacity:.45;cursor:not-allowed;transform:none;box-shadow:none}
+.btn-launch .spin{animation:spin .8s linear infinite;display:inline-block}
+@keyframes spin{to{transform:rotate(360deg)}}
+
+/* ─── PROGRESS ───────────────────────────────────────── */
+.prog-card{display:none}
+.prog-card.show{display:block}
+.prog-hdr{display:flex;justify-content:space-between;align-items:baseline;margin-bottom:10px}
+.prog-label{font-weight:600;font-size:15px}
+.prog-pct{font-size:22px;font-weight:800;color:var(--primary)}
+.prog-track{height:10px;background:var(--surface2);border-radius:6px;overflow:hidden}
+.prog-fill{
+  height:100%;width:0%;border-radius:6px;
+  background:linear-gradient(90deg,var(--primary),var(--violet));
+  transition:width .6s ease;
+  box-shadow:0 0 12px rgba(6,182,212,.5);
+}
+.prog-time{font-size:12px;color:var(--muted);margin-top:8px}
+
+/* ─── LOGS ───────────────────────────────────────────── */
+.logs-card{display:none}
+.logs-card.show{display:block}
+.logs-hdr{
+  display:flex;align-items:center;justify-content:space-between;
+  margin-bottom:14px;
+}
+.logs-title{font-size:13px;font-weight:700;text-transform:uppercase;letter-spacing:1px;color:var(--muted)}
+.btn-clear-logs{
+  background:none;border:none;color:var(--muted);cursor:pointer;
+  font-size:12px;padding:4px 10px;border-radius:6px;
+  border:1px solid var(--border);transition:all .2s;
+}
+.btn-clear-logs:hover{color:var(--text);border-color:var(--text)}
+.logs-box{
+  background:#020617;border-radius:10px;padding:16px;
+  height:220px;overflow-y:auto;
+  font-family:'Courier New',monospace;font-size:12.5px;
+  border:1px solid #1a2540;
+  scroll-behavior:smooth;
+}
+.logs-box::-webkit-scrollbar{width:4px}
+.logs-box::-webkit-scrollbar-track{background:transparent}
+.logs-box::-webkit-scrollbar-thumb{background:var(--border);border-radius:4px}
+.log-line{padding:2px 0;color:#64748b;line-height:1.5}
+.log-line.s{color:#10b981}
+.log-line.e{color:#ef4444}
+.log-line.i{color:#06b6d4}
+.log-line.w{color:#f59e0b}
+
+/* ─── RESULTS ────────────────────────────────────────── */
+.results-card{display:none}
+.results-card.show{display:block}
+.res-title{
+  font-size:22px;font-weight:800;margin-bottom:6px;
+  display:flex;align-items:center;gap:10px;
+}
+.res-sub{font-size:14px;color:var(--muted);margin-bottom:24px}
+.metrics-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:16px;margin-bottom:24px}
+.m-card{
+  background:var(--bg2);border:1px solid var(--border);
+  border-radius:14px;padding:22px 18px;text-align:center;
+  transition:all .3s;position:relative;overflow:hidden;
+}
+.m-card::before{
+  content:'';position:absolute;top:0;left:0;right:0;height:2px;
+  background:linear-gradient(90deg,var(--primary),var(--violet));
+  transform:scaleX(0);transition:transform .4s;
+}
+.m-card:hover::before{transform:scaleX(1)}
+.m-card:hover{border-color:var(--primary);transform:translateY(-3px);
+  box-shadow:0 8px 24px rgba(6,182,212,.15)}
+.m-val{
+  font-size:30px;font-weight:800;
+  background:linear-gradient(135deg,var(--primary),var(--violet));
+  -webkit-background-clip:text;-webkit-text-fill-color:transparent;
+  margin-bottom:6px;line-height:1;
+}
+.m-lbl{font-size:12px;color:var(--muted);font-weight:600;text-transform:uppercase;letter-spacing:.5px}
+.m-icon{font-size:28px;margin-bottom:8px;display:block}
+
+/* anomalies table */
+.anom-table{width:100%;border-collapse:collapse;font-size:13px}
+.anom-table th{
+  text-align:left;padding:10px 14px;
+  font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.8px;
+  color:var(--muted);background:var(--bg2);
+  border-bottom:1px solid var(--border);
+}
+.anom-table td{padding:11px 14px;border-bottom:1px solid rgba(45,63,94,.5)}
+.anom-table tr:last-child td{border:none}
+.anom-table tr:hover td{background:rgba(6,182,212,.03)}
+.badge{display:inline-flex;align-items:center;padding:3px 10px;border-radius:20px;font-size:11px;font-weight:700}
+.badge.crit{background:rgba(239,68,68,.15);color:#ef4444}
+.badge.warn{background:rgba(245,158,11,.15);color:#f59e0b}
+.badge.ok{background:rgba(16,185,129,.15);color:#10b981}
+
+.restart-btn{
+  background:var(--surface2);border:1px solid var(--border);
+  border-radius:10px;padding:12px 24px;color:var(--text);
+  font-size:14px;font-weight:600;cursor:pointer;
+  display:flex;align-items:center;gap:8px;
+  transition:all .2s;margin-top:20px;
+}
+.restart-btn:hover{border-color:var(--primary);color:var(--primary)}
+
+/* ─── TOAST ──────────────────────────────────────────── */
+#toast{
+  position:fixed;bottom:28px;right:28px;z-index:999;
+  background:var(--surface);border:1px solid var(--border);
+  border-radius:12px;padding:14px 20px;
+  font-size:14px;font-weight:500;
+  display:flex;align-items:center;gap:10px;
+  box-shadow:0 12px 40px rgba(0,0,0,.5);
+  transform:translateY(80px);opacity:0;
+  transition:all .35s cubic-bezier(.34,1.56,.64,1);
+  max-width:360px;
+}
+#toast.show{transform:translateY(0);opacity:1}
+#toast.s{border-color:var(--success)}
+#toast.e{border-color:var(--danger)}
+#toast.w{border-color:var(--warn)}
+
+/* ─── RESPONSIVE ─────────────────────────────────────── */
+@media(max-width:680px){
+  header{padding:14px 16px}
+  main{padding:20px 12px 40px}
+  .metrics-grid{grid-template-columns:repeat(2,1fr)}
+  .cfg-grid{grid-template-columns:1fr}
+  .steps::before{display:none}
+}
+</style>
+</head>
+<body>
+
+<header>
+  <div class="logo">⚙️</div>
+  <div class="hdr-info">
+    <h1>Pipeline Maintenance Prédictive</h1>
+    <p>PFE ISG Bizerte — Mohamed Yassine Balti — Novation City 2026</p>
+  </div>
+  <div class="hdr-right">
+    <div class="api-badge" id="apiBadge">
+      <span class="dot" id="apiDot"></span>
+      <span id="apiTxt">Vérification...</span>
+    </div>
+  </div>
+</header>
+
+<main>
+
+  <!-- ── PIPELINE STEPS ─────────────────────────── -->
+  <div class="steps-wrap">
+    <div class="steps">
+      <div class="step" id="st1">
+        <div class="s-circle">📁</div>
+        <div class="s-label">Upload SQL</div>
+        <div class="s-sub">Fichier IoT</div>
+      </div>
+      <div class="step" id="st2">
+        <div class="s-circle">🔍</div>
+        <div class="s-label">Parsing</div>
+        <div class="s-sub">Extraction JSON</div>
+      </div>
+      <div class="step" id="st3">
+        <div class="s-circle">📊</div>
+        <div class="s-label">Dataset CSV</div>
+        <div class="s-sub">Consolidation</div>
+      </div>
+      <div class="step" id="st4">
+        <div class="s-circle">🧠</div>
+        <div class="s-label">Entraînement</div>
+        <div class="s-sub">IF·LOF·OCSVM·ECOD</div>
+      </div>
+      <div class="step" id="st5">
+        <div class="s-circle">🎯</div>
+        <div class="s-label">Prédictions</div>
+        <div class="s-sub">Vote 2/4</div>
+      </div>
+      <div class="step" id="st6">
+        <div class="s-circle">✅</div>
+        <div class="s-label">Résultats</div>
+        <div class="s-sub">Métriques</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── UPLOAD CARD ────────────────────────────── -->
+  <div class="card" id="uploadCard">
+    <div class="sec-title">📤 Sélection du fichier SQL</div>
+
+    <div class="drop-zone" id="dropZone">
+      <input type="file" id="fileInput" accept=".sql">
+      <span class="drop-icon">🗄️</span>
+      <div class="drop-title">Glissez votre fichier SQL ici</div>
+      <div class="drop-sub">ou <span>cliquer pour parcourir</span> · Format .sql · Max 1 GB</div>
+    </div>
+
+    <div class="file-pill" id="filePill">
+      <span style="font-size:26px">📄</span>
+      <div style="flex:1;min-width:0">
+        <div class="file-pill-name" id="pillName"></div>
+        <div class="file-pill-size" id="pillSize"></div>
+      </div>
+      <button class="btn-clear" onclick="clearFile()">✕</button>
+    </div>
+
+    <div class="cfg-grid">
+      <div class="cfg-item">
+        <label>URL de l'API</label>
+        <input type="text" id="apiUrl"
+          value="https://api-predictive-maintenance.onrender.com"
+          placeholder="https://api-predictive-maintenance.onrender.com">
+      </div>
+      <div class="cfg-item">
+        <label>Mode d'entraînement</label>
+        <select id="trainMode">
+          <option value="full">Complet — IF + LOF + OCSVM + ECOD (recommandé)</option>
+          <option value="fast">Rapide — IF + LOF seulement</option>
+        </select>
+      </div>
+    </div>
+
+    <button class="btn-launch" id="btnLaunch" onclick="launchPipeline()" disabled>
+      🚀 &nbsp;Lancer le Pipeline complet
+    </button>
+  </div>
+
+  <!-- ── PROGRESS ───────────────────────────────── -->
+  <div class="card prog-card" id="progCard">
+    <div class="sec-title">⚡ Progression du pipeline</div>
+    <div class="prog-hdr">
+      <span class="prog-label" id="progLabel">Initialisation...</span>
+      <span class="prog-pct" id="progPct">0%</span>
+    </div>
+    <div class="prog-track">
+      <div class="prog-fill" id="progFill"></div>
+    </div>
+    <div class="prog-time" id="progTime"></div>
+  </div>
+
+  <!-- ── LOGS ──────────────────────────────────── -->
+  <div class="card logs-card" id="logsCard">
+    <div class="logs-hdr">
+      <span class="logs-title">📋 Logs en temps réel</span>
+      <button class="btn-clear-logs" onclick="clearLogs()">Effacer</button>
+    </div>
+    <div class="logs-box" id="logsBox"></div>
+  </div>
+
+  <!-- ── RESULTS ────────────────────────────────── -->
+  <div class="card results-card" id="resultsCard">
+    <div class="res-title">🎉 Pipeline terminé</div>
+    <div class="res-sub" id="resSubtitle"></div>
+
+    <div class="metrics-grid">
+      <div class="m-card">
+        <span class="m-icon">📈</span>
+        <div class="m-val" id="rAuc">—</div>
+        <div class="m-lbl">AUC-ROC</div>
+      </div>
+      <div class="m-card">
+        <span class="m-icon">🎯</span>
+        <div class="m-val" id="rF1">—</div>
+        <div class="m-lbl">F1-Score</div>
+      </div>
+      <div class="m-card">
+        <span class="m-icon">📊</span>
+        <div class="m-val" id="rMes">—</div>
+        <div class="m-lbl">Mesures traitées</div>
+      </div>
+      <div class="m-card">
+        <span class="m-icon">🚨</span>
+        <div class="m-val" id="rAnm">—</div>
+        <div class="m-lbl">Anomalies détectées</div>
+      </div>
+    </div>
+
+    <div id="anomTable" style="display:none">
+      <div class="sec-title" style="margin-bottom:14px">🔴 Top anomalies détectées</div>
+      <div style="overflow-x:auto;border-radius:10px;border:1px solid var(--border)">
+        <table class="anom-table">
+          <thead>
+            <tr>
+              <th>Capteur</th>
+              <th>Score</th>
+              <th>Risque</th>
+              <th>Temp.</th>
+              <th>Vib Z</th>
+            </tr>
+          </thead>
+          <tbody id="anomBody"></tbody>
+        </table>
+      </div>
+    </div>
+
+    <button class="restart-btn" onclick="restartPipeline()">
+      🔄 Nouveau pipeline
+    </button>
+  </div>
+
+</main>
+
+<div id="toast"></div>
+
+<script>
+// ─── CONFIG ──────────────────────────────────────────────────
+const apiUrl = () => document.getElementById('apiUrl').value.replace(/\/+$/, '');
+let jobId = null;
+let pollTimer = null;
+let logIndex = 0;
+let startTs = null;
+
+// ─── API STATUS ───────────────────────────────────────────────
+async function checkApi() {
+  try {
+    const r = await fetch(apiUrl() + '/health', { signal: AbortSignal.timeout(6000) });
+    if (r.ok) {
+      setApiBadge(true);
+    } else throw new Error();
+  } catch {
+    setApiBadge(false);
+  }
+}
+function setApiBadge(ok) {
+  const badge = document.getElementById('apiBadge');
+  const dot   = document.getElementById('apiDot');
+  const txt   = document.getElementById('apiTxt');
+  badge.className = 'api-badge ' + (ok ? 'ok' : 'err');
+  dot.className   = 'dot ' + (ok ? 'ok' : 'err');
+  txt.textContent = ok ? 'API connectée' : 'API hors ligne';
+}
+
+// ─── FILE HANDLING ────────────────────────────────────────────
+const dropZone  = document.getElementById('dropZone');
+const fileInput = document.getElementById('fileInput');
+
+fileInput.addEventListener('change', e => pickFile(e.target.files[0]));
+
+dropZone.addEventListener('dragover', e => { e.preventDefault(); dropZone.classList.add('drag'); });
+dropZone.addEventListener('dragleave', () => dropZone.classList.remove('drag'));
+dropZone.addEventListener('drop', e => {
+  e.preventDefault(); dropZone.classList.remove('drag');
+  pickFile(e.dataTransfer.files[0]);
+});
+
+function pickFile(f) {
+  if (!f) return;
+  if (!f.name.toLowerCase().endsWith('.sql')) {
+    toast('❌ Seuls les fichiers .sql sont acceptés', 'e'); return;
+  }
+  document.getElementById('pillName').textContent = f.name;
+  document.getElementById('pillSize').textContent = fmtBytes(f.size) + ' · ' + new Date().toLocaleString('fr-FR');
+  document.getElementById('filePill').classList.add('show');
+  document.getElementById('btnLaunch').disabled = false;
+}
+function clearFile() {
+  fileInput.value = '';
+  document.getElementById('filePill').classList.remove('show');
+  document.getElementById('btnLaunch').disabled = true;
+}
+function fmtBytes(b) {
+  if (b >= 1e9) return (b/1e9).toFixed(2) + ' GB';
+  if (b >= 1e6) return (b/1e6).toFixed(1) + ' MB';
+  return (b/1e3).toFixed(0) + ' KB';
+}
+
+// ─── LAUNCH ───────────────────────────────────────────────────
+async function launchPipeline() {
+  const file = fileInput.files[0];
+  if (!file) return;
+
+  setBtnState('uploading');
+  logIndex = 0;
+  startTs  = Date.now();
+
+  show('progCard'); show('logsCard');
+  setProgress(0, 'Envoi du fichier...');
+  addLog('📤 Envoi du fichier vers l\'API (' + fmtBytes(file.size) + ')...', 'i');
+
+  const fd = new FormData();
+  fd.append('file', file);
+  fd.append('train_mode', document.getElementById('trainMode').value);
+
+  try {
+    const r = await fetch(apiUrl() + '/v1/pipeline/upload', { method: 'POST', body: fd });
+    if (!r.ok) {
+      const err = await r.json().catch(() => ({ detail: 'Erreur serveur' }));
+      throw new Error(err.detail || 'Erreur ' + r.status);
+    }
+    const data = await r.json();
+    jobId = data.job_id;
+    addLog('✅ Fichier reçu — Job: ' + jobId, 's');
+    setStep(1, 'done');
+    setStep(2, 'active');
+    pollTimer = setInterval(poll, 2500);
+  } catch(e) {
+    addLog('❌ ' + e.message, 'e');
+    setBtnState('idle');
+    toast('❌ ' + e.message, 'e');
+  }
+}
+
+// ─── POLLING ──────────────────────────────────────────────────
+async function poll() {
+  if (!jobId) return;
+  try {
+    const r = await fetch(apiUrl() + '/v1/pipeline/status/' + jobId + '?since=' + logIndex);
+    if (!r.ok) return;
+    const d = await r.json();
+
+    if (d.new_logs) {
+      d.new_logs.forEach(l => { addLog(l.text, l.type); logIndex++; });
+    }
+
+    if (d.progress !== undefined) setProgress(d.progress, d.step_name || '');
+    if (d.step)      syncSteps(d.step, d.status);
+    if (d.elapsed)   document.getElementById('progTime').textContent = '⏱ Durée : ' + d.elapsed;
+
+    if (d.status === 'done') {
+      clearInterval(pollTimer);
+      showResults(d.results);
+      setBtnState('idle');
+      toast('🎉 Pipeline terminé avec succès !', 's');
+    } else if (d.status === 'error') {
+      clearInterval(pollTimer);
+      setBtnState('idle');
+      toast('❌ Erreur dans le pipeline — voir les logs', 'e');
+    }
+  } catch { /* réseau temporairement indisponible, on réessaie */ }
+}
+
+// ─── UI HELPERS ───────────────────────────────────────────────
+function setProgress(pct, label) {
+  document.getElementById('progFill').style.width  = pct + '%';
+  document.getElementById('progPct').textContent   = pct + '%';
+  document.getElementById('progLabel').textContent = label || '';
+}
+
+function syncSteps(n, status) {
+  for (let i = 1; i <= 6; i++) {
+    const el = document.getElementById('st' + i);
+    el.classList.remove('active', 'done');
+    if (status === 'done' && i <= n) el.classList.add('done');
+    else if (i < n)  el.classList.add('done');
+    else if (i === n) el.classList.add('active');
+  }
+}
+function setStep(n, cls) {
+  document.getElementById('st' + n).classList.remove('active', 'done');
+  document.getElementById('st' + n).classList.add(cls);
+}
+
+function addLog(text, type = '') {
+  const box = document.getElementById('logsBox');
+  const d   = document.createElement('div');
+  d.className = 'log-line ' + type;
+  const t = new Date().toLocaleTimeString('fr-FR', { hour12: false });
+  d.textContent = '[' + t + ']  ' + text;
+  box.appendChild(d);
+  box.scrollTop = box.scrollHeight;
+}
+function clearLogs() { document.getElementById('logsBox').innerHTML = ''; }
+
+function show(id)  { document.getElementById(id).classList.add('show'); }
+function hide(id)  { document.getElementById(id).classList.remove('show'); }
+
+function setBtnState(st) {
+  const btn = document.getElementById('btnLaunch');
+  if (st === 'uploading') {
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spin">⏳</span>&nbsp; Pipeline en cours...';
+  } else {
+    btn.disabled = false;
+    btn.innerHTML = '🚀 &nbsp;Lancer le Pipeline complet';
+  }
+}
+
+function showResults(res) {
+  if (!res) return;
+  show('resultsCard');
+
+  const elapsed = startTs ? Math.round((Date.now() - startTs) / 1000) : 0;
+  document.getElementById('resSubtitle').textContent =
+    'Traitement terminé en ' + elapsed + 's · ' + new Date().toLocaleString('fr-FR');
+
+  document.getElementById('rAuc').textContent = res.auc ? res.auc.toFixed(3) : '—';
+  document.getElementById('rF1').textContent  = res.f1  ? res.f1.toFixed(3)  : '—';
+  document.getElementById('rMes').textContent = res.n_measures ? res.n_measures.toLocaleString('fr-FR') : '—';
+  document.getElementById('rAnm').textContent = res.n_anomalies !== undefined ? res.n_anomalies.toLocaleString('fr-FR') : '—';
+
+  // Anomalies table
+  if (res.top_anomalies && res.top_anomalies.length > 0) {
+    document.getElementById('anomTable').style.display = 'block';
+    const tbody = document.getElementById('anomBody');
+    tbody.innerHTML = '';
+    res.top_anomalies.forEach(a => {
+      const riskCls = a.risk === 'CRITIQUE' ? 'crit' : a.risk === 'MODÉRÉ' ? 'warn' : 'ok';
+      const tr = document.createElement('tr');
+      tr.innerHTML = `
+        <td><strong>${a.sensor_id || '—'}</strong></td>
+        <td>${(a.score || 0).toFixed(3)}</td>
+        <td><span class="badge ${riskCls}">${a.risk || '—'}</span></td>
+        <td>${a.temp !== undefined ? a.temp.toFixed(1) + ' °C' : '—'}</td>
+        <td>${a.vib_z !== undefined ? a.vib_z.toFixed(1) + ' mg' : '—'}</td>
+      `;
+      tbody.appendChild(tr);
+    });
+  }
+
+  syncSteps(6, 'done');
+  setProgress(100, '✅ Pipeline terminé');
+}
+
+function restartPipeline() {
+  clearFile();
+  hide('progCard'); hide('logsCard'); hide('resultsCard');
+  clearLogs();
+  document.getElementById('progFill').style.width = '0%';
+  document.getElementById('progPct').textContent  = '0%';
+  for (let i = 1; i <= 6; i++) {
+    document.getElementById('st' + i).classList.remove('active', 'done');
+  }
+  jobId = null; logIndex = 0;
+  window.scrollTo({ top: 0, behavior: 'smooth' });
+}
+
+// ─── TOAST ───────────────────────────────────────────────────
+function toast(msg, type = '') {
+  const el = document.getElementById('toast');
+  el.textContent = msg;
+  el.className   = 'show ' + type;
+  clearTimeout(el._t);
+  el._t = setTimeout(() => el.className = '', 4000);
+}
+
+// ─── INIT ────────────────────────────────────────────────────
+checkApi();
+setInterval(checkApi, 30000);
+document.getElementById('apiUrl').addEventListener('change', checkApi);
+</script>
+</body>
+</html>
