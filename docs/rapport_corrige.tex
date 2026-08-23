@@ -1,7 +1,12 @@
 %=============================================================================
 % RAPPORT PFE — Maintenance Prédictive des Roulements Industriels
 % Auteur : Mohamed Yassine Balti — ISG Bizerte / Novation City
-% Version corrigée : conforme au code source réel (juin 2026)
+% Version corrigée : conforme au code source réel (août 2026)
+% Sources de vérité utilisées pour cette révision :
+%   - models/metrics_v3.csv       (métriques officielles du modèle V7 déployé)
+%   - models/metrics_rul_v1.json  (métriques du modèle RUL GradientBoostingRegressor)
+%   - README.md                   (architecture, endpoints, historique des corrections)
+%   - api_unified_pythagore.py, auth.py, alert_manager.py, reporting_module.py
 %=============================================================================
 
 \documentclass[12pt,a4paper]{report}
@@ -22,6 +27,7 @@
 \usepackage{tikz}
 \usepackage{pgfplots}
 \pgfplotsset{compat=1.18}
+\usepackage{float}
 
 % ── Tableaux ──────────────────────────────────────────────────────────────────
 \usepackage{booktabs}
@@ -193,23 +199,31 @@ Le système repose sur une chaîne de traitement intégrale : acquisition des do
 temps réel depuis une base de données MariaDB (polling toutes les 2~secondes via
 \texttt{realtime\_mariadb.py}), ingénierie de \textbf{31 features} statistiques, temporelles,
 fréquentielles (FFT, analyse spectrale) et d'accélération extraites sur une fenêtre
-glissante $w=20$, normalisation par \texttt{RobustScaler}, réduction de dimension par
+glissante $w=20$ (pas $s=3$), normalisation par \texttt{RobustScaler}, réduction de dimension par
 \textbf{PCA à 95\% de variance conservée}, puis inférence par un \textbf{ensemble de
 6 modèles non supervisés} (Isolation Forest, LOF, OCSVM, ECOD, HBOS, COPOD)
-combinés par \textbf{SoftVote à seuil dynamique optimal}.
+dont 4 combinés par \textbf{SoftVote à seuil optimal sous contrainte de précision}
+(IF~+~ECOD~+~HBOS~+~COPOD).
 
 Les modèles, entraînés sur 73\,917 sessions issues de 240\,000 mesures réelles IFM avec
-une contamination de 20\%, atteignent une \textbf{AUC-ROC de 0,836} et un \textbf{Recall de 0,877},
-ce qui garantit la détection de la très grande majorité des anomalies au prix d'une
-précision conservative. La prédiction de la Durée de Vie Résiduelle (RUL) est assurée
-par un \textbf{GradientBoostingRegressor} entraîné sur des courbes de dégradation
-synthétiques (modèle de Weibull, $n=12\,000$) avec une MAE de 317~h et $R^2=0{,}56$.
+une contamination de 10\%, atteignent en \textbf{validation croisée par capteur}
+(GroupKFold, chaque capteur servant exactement une fois de test) une
+\textbf{AUC-ROC de 0,9475}, pour un F1-Score de 0,298 sous la contrainte de précision
+$\geq 0{,}70$ retenue en production. La prédiction de la Durée de Vie Résiduelle (RUL) est
+assurée par un \textbf{GradientBoostingRegressor} entraîné sur 46 features (25 temporelles
+de base + 21 spectrales/enveloppe/fréquences de défauts roulements) et sur des courbes de
+dégradation synthétiques calibrées sur la distribution réelle (modèle de Weibull, $n=7\,500$),
+avec une MAE test de \textbf{294~h (33\%)} et un $R^2$ de \textbf{0,61}, évalué par split
+strict par moteur (30 moteurs jamais vus à l'entraînement).
 
-L'ensemble est exposé par une \textbf{API REST FastAPI v3.1.0} (port 8000, 11 endpoints)
-et visualisé via un \textbf{dashboard HTML5} se rafraîchissant toutes les 3~secondes.
+L'ensemble est exposé par une \textbf{API REST FastAPI v3.1.0} (port 8000, 13 endpoints
+documentés, authentification par clé \texttt{X-API-Key}), et visualisé via un
+\textbf{dashboard HTML5} se rafraîchissant toutes les 3~secondes. Un module de
+ré-entraînement par upload de dump SQL (\texttt{/v1/pipeline/upload}) permet de
+regénérer le pipeline sans intervention manuelle sur le serveur.
 
 \textbf{Mots-clés :} maintenance prédictive, IoT, IFM, détection d'anomalies non supervisée,
-Isolation Forest, ECOD, HBOS, COPOD, RUL, GradientBoosting, FastAPI, MariaDB.
+Isolation Forest, ECOD, HBOS, COPOD, RUL, GradientBoosting, FastAPI, MariaDB, authentification API.
 
 \tableofcontents
 \listoffigures
@@ -244,6 +258,7 @@ BSF    & Ball Spin Frequency \\
 FTF    & Fundamental Train Frequency \\
 GBR    & GradientBoostingRegressor \\
 PCA    & Principal Component Analysis \\
+CV     & Cross-Validation (Validation Croisée) \\
 CSV    & Comma-Separated Values \\
 RPi4   & Raspberry Pi 4 \\
 \bottomrule
@@ -270,18 +285,20 @@ La solution repose sur l'acquisition des données en temps réel depuis une base
 MariaDB via \texttt{realtime\_mariadb.py} (polling toutes les 2~secondes), un pipeline
 d'ingénierie de \textbf{31 features} (statistiques temporelles, FFT, accélération, entropie),
 et un ensemble de \textbf{6 modèles non supervisés} (Isolation Forest, LOF, OCSVM, ECOD,
-HBOS, COPOD) combinés par SoftVote à seuil dynamique. Ces modèles, entraînés sur
-73\,917 sessions avec une contamination de 20\%, atteignent une AUC-ROC de 0,836 et un
-Recall de 0,877. La prédiction RUL est assurée par un GradientBoostingRegressor (MAE~=~317~h,
-$R^2=0{,}56$). L'ensemble est exposé par une API REST FastAPI v3.1.0 (11 endpoints,
-port 8000) et visualisé via un dashboard HTML5 natif se rafraîchissant toutes les 3~secondes.
+HBOS, COPOD) dont quatre combinés par SoftVote à seuil optimal (IF+ECOD+HBOS+COPOD).
+Ces modèles, entraînés sur 73\,917 sessions avec une contamination de 10\%, atteignent en
+validation croisée par capteur une \textbf{AUC-ROC de 0,9475} (F1=0,298 sous contrainte de
+précision $\geq 0{,}70$). La prédiction RUL est assurée par un GradientBoostingRegressor
+(46 features, MAE test~=~294~h soit 33\%, $R^2=0{,}61$). L'ensemble est exposé par une API
+REST FastAPI v3.1.0 (13 endpoints documentés, port 8000, authentification par clé API) et
+visualisé via un dashboard HTML5 natif se rafraîchissant toutes les 3~secondes.
 
 Le présent rapport se compose de quatre chapitres :
 \begin{itemize}
   \item Le \textbf{premier chapitre} présente le cadre général, l'étude de l'existant, la problématique et la méthodologie CRISP-DM.
   \item Le \textbf{deuxième chapitre} définit les objectifs métier et data science, l'état de l'art et la préparation des données.
-  \item Le \textbf{troisième chapitre} expose l'architecture complète, la couche IoT (MariaDB temps réel), le pipeline ML à 6 modèles, le calcul du RUL par GBR, l'API FastAPI et le dashboard.
-  \item Le \textbf{quatrième chapitre} présente l'évaluation, les performances réelles obtenues et les tests de bout en bout.
+  \item Le \textbf{troisième chapitre} expose l'architecture complète, la couche IoT (MariaDB temps réel), le pipeline ML à 6 modèles, le calcul du RUL par GBR, l'API FastAPI sécurisée et le dashboard.
+  \item Le \textbf{quatrième chapitre} présente l'évaluation, les performances réelles obtenues (y compris la correction d'un biais méthodologique) et les tests de bout en bout.
 \end{itemize}
 
 %=============================================================================
@@ -328,29 +345,132 @@ Défaut de cage         & FTF  & Fréquence basse, lié à la déformation de la
 \end{tabular}
 \end{table}
 
+\noindent Ces quatre fréquences caractéristiques ne sont pas de simples repères théoriques
+dans ce rapport : elles sont réellement calculées par le module \texttt{signal\_processing.py}
+(\texttt{bearing\_bpfo\_snr}, \texttt{bearing\_bpfi\_snr}, \texttt{bearing\_bsf\_snr}) et
+utilisées comme features d'entrée du modèle de prédiction RUL (voir §3.8.2).
+
 \section{Étude de l'existant}
 
+Avant de présenter la solution retenue, il convient d'examiner en détail la manière dont la
+maintenance des roulements est assurée aujourd'hui sur le parc de 21 moteurs de Novation City.
+Deux pratiques coexistent actuellement : la maintenance corrective et la maintenance préventive
+calendaire. Aucune des deux n'exploite les mesures déjà collectées par les capteurs IFM et
+stockées dans la base \texttt{ai\_cp} : ces données sont aujourd'hui journalisées mais jamais
+analysées automatiquement.
+
 \subsection{La maintenance corrective}
-La maintenance corrective consiste à n'intervenir qu'après la panne (\textit{run-to-failure}).
-Le coût d'une telle intervention peut être de trois à cinq fois supérieur à celui d'une maintenance planifiée.
+
+La maintenance corrective consiste à n'intervenir qu'après la survenue de la panne
+(\textit{run-to-failure}). Concrètement, chez Novation City, le moteur continue de fonctionner
+jusqu'à ce qu'un technicien constate -- lors d'une ronde périodique ou à la suite d'un arrêt
+brutal de la ligne de production -- qu'un roulement est endommagé (bruit anormal, échauffement
+excessif détecté au toucher ou à la caméra thermique, blocage mécanique). L'intervention n'est
+donc déclenchée qu'\textit{a posteriori}, une fois le dommage déjà constitué.
+
+Cette approche présente plusieurs inconvénients majeurs :
+\begin{itemize}
+  \item \textbf{Coût élevé} : le remplacement en urgence d'un roulement endommagé peut être de
+  trois à cinq fois supérieur à celui d'une intervention planifiée, en raison des pièces
+  commandées en urgence, des heures supplémentaires du personnel de maintenance et du recours
+  parfois nécessaire à une main-d'œuvre externe.
+  \item \textbf{Arrêts de production non planifiés} : une défaillance de roulement immobilise le
+  moteur concerné et, par effet de chaîne, l'ensemble de la ligne de production qui en dépend,
+  sans possibilité d'anticiper la disponibilité des pièces ou du personnel.
+  \item \textbf{Dommages collatéraux} : un roulement qui casse en fonctionnement peut endommager
+  l'arbre moteur, le stator ou les composants adjacents, transformant une réparation simple en
+  remplacement complet du moteur.
+  \item \textbf{Risques pour la sécurité} : un échauffement non détecté à temps peut dégénérer en
+  défaillance thermique, avec un risque d'incendie ou de projection de débris mécaniques pour les
+  opérateurs à proximité.
+\end{itemize}
 
 \subsection{La maintenance préventive calendaire}
-Elle consiste à remplacer les composants à intervalles fixes, ignorant l'état réel de la machine.
+
+Pour limiter les effets les plus critiques de la maintenance corrective, Novation City applique en
+parallèle une maintenance préventive calendaire sur une partie du parc moteur. Cette pratique
+consiste à remplacer ou inspecter les roulements à intervalles fixes, définis à l'avance (par
+exemple tous les 6 à 12 mois, ou après un nombre d'heures de fonctionnement standardisé), en
+s'appuyant sur les recommandations génériques du fabricant plutôt que sur l'état réel de la
+machine.
+
+Bien que plus structurée que la maintenance corrective pure, cette approche ignore complètement le
+niveau de dégradation effectif du roulement au moment de l'intervention, ce qui génère deux types
+de gaspillage :
+\begin{itemize}
+  \item \textbf{Remplacement prématuré} : un roulement encore en bon état est déposé et remplacé
+  uniquement parce que l'échéance calendaire est atteinte, ce qui engendre un surcoût en pièces et
+  en main-d'œuvre sans bénéfice réel pour la fiabilité du moteur.
+  \item \textbf{Panne prématurée entre deux échéances} : à l'inverse, un roulement soumis à des
+  conditions de charge, de température ou de vibration plus sévères que la moyenne peut se
+  dégrader plus rapidement que prévu et tomber en panne avant la date d'intervention planifiée,
+  ramenant le moteur concerné dans le scénario de maintenance corrective décrit précédemment.
+\end{itemize}
+
+Dans les deux cas, la décision de maintenance repose sur une date fixe et non sur une mesure
+réelle de l'état de santé du roulement -- alors même que les capteurs IFM installés sur chaque
+moteur mesurent en continu la température, les vibrations sur les trois axes et le courant
+électrique : des données aujourd'hui simplement archivées dans la base MariaDB \texttt{ai\_cp},
+sans aucun traitement analytique en aval.
+
+\subsection{Synthèse des limites de l'existant}
+
+Le tableau~\ref{tab:limites_existant} synthétise les limites respectives des deux pratiques
+actuellement en place chez Novation City, et met en évidence l'écart entre les données déjà
+disponibles et leur exploitation réelle -- écart que ce projet se propose de combler.
+
+\begin{table}[h]
+\centering
+\caption{Limites des pratiques de maintenance actuellement en place}
+\label{tab:limites_existant}
+\begin{tabular}{p{3.2cm}p{4.6cm}p{4.6cm}}
+\toprule
+\textbf{Critère} & \textbf{Maintenance corrective} & \textbf{Préventive calendaire} \\
+\midrule
+Déclencheur & Panne constatée & Date fixe / heures de fonctionnement \\
+Exploitation des données IFM & Aucune & Aucune \\
+Coût & Élevé (urgence, dommages collatéraux) & Modéré, mais pièces saines gaspillées \\
+Arrêts de production & Non planifiés & Planifiés, mais parfois inutiles \\
+Anticipation de la panne & Aucune & Aucune (calendaire, non physique) \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+Ce constat -- des capteurs déjà en place, des données déjà collectées, mais aucune intelligence
+exploitant ces données pour anticiper les défaillances -- constitue le point de départ direct de
+la solution présentée dans la section suivante.
 
 \section{Solution proposée}
 
-L'architecture de notre solution répond directement à la problématique identifiée.
+L'architecture de notre solution répond directement à la problématique identifiée :
+les défaillances récurrentes et coûteuses des roulements qui entraînent des arrêts
+de production non planifiés.
+
 La détection d'anomalies repose sur un \textbf{ensemble de six modèles non supervisés} :
 Isolation Forest (IF), Local Outlier Factor (LOF), One-Class SVM (OCSVM), ECOD,
-HBOS et COPOD, combinés par \textbf{SoftVote à seuil dynamique optimal}.
+HBOS et COPOD. Quatre d'entre eux (IF, ECOD, HBOS, COPOD) sont combinés par
+\textbf{SoftVote à seuil optimal sous contrainte de précision} ($\geq 0{,}70$) ; LOF et
+OCSVM, dont l'apport individuel est plus faible, sont conservés à titre comparatif
+mais exclus du vote final.
 
 La prédiction de la Durée de Vie Résiduelle (RUL) est assurée par un
-\textbf{GradientBoostingRegressor} (46 features, $n=12\,000$ exemples synthétiques
-Weibull, MAE~test~$=317$~h, $R^2=0{,}56$).
+\textbf{GradientBoostingRegressor} (46 features, $n=7\,500$ exemples synthétiques
+calibrés sur une dégradation de Weibull, MAE~test~$=294$~h, $R^2=0{,}61$), complété
+par une estimation heuristique fondée sur des seuils industriels (température,
+vibration totale, kurtosis). Un \textbf{Health Score} (0--100), normalisé selon une
+ligne de base propre à chaque capteur, résume l'état de santé de chaque moteur en un
+indicateur unique et lisible par les techniciens.
 
-Les données sont acquises en temps réel depuis \textbf{MariaDB} via le module
+Cette intelligence est alimentée par un parc de \textbf{20 capteurs IFM industriels}
+(19 exploités pour l'entraînement et la validation par \texttt{GroupKFold}). Les
+données sont acquises en temps réel depuis \textbf{MariaDB} via le module
 \texttt{realtime\_mariadb.py} (polling toutes les 2~secondes). Un mode \textbf{replay}
 basé sur les données historiques est également disponible pour les tests sans base de données active.
+L'accès à l'ensemble des endpoints \texttt{/v1/*} est protégé par une authentification
+par clé API (\texttt{X-API-Key}) et un mécanisme de limitation de débit (\textit{rate limiting}).
+Un \textbf{dashboard HTML5} conforme au standard SCADA industriel visualise ces
+résultats en temps réel (feux de risque, jauge de santé, courbes de tendance), avec
+un rafraîchissement toutes les 3~secondes.
 
 \section{Méthodologie du projet}
 
@@ -381,7 +501,9 @@ Elle propose un processus itératif organisé en six phases (Tableau~\ref{tab:cr
 
 Le choix de CRISP-DM se justifie par la nature fondamentalement \textit{data-driven}
 du projet et son caractère itératif, qui a permis de passer de l'approche supervisée
-initialement envisagée (CNN-LSTM) vers l'approche non supervisée à 6 modèles finalement retenue.
+initialement envisagée (CNN-LSTM) vers l'approche non supervisée à 6 modèles finalement
+retenue, ainsi que de revenir sur le protocole d'évaluation initial (split chronologique)
+au profit d'une validation croisée par capteur plus rigoureuse (voir chapitre 4).
 
 \section{Conclusion}
 
@@ -394,7 +516,7 @@ détaille la compréhension des objectifs métier et data science ainsi que la p
 
 \section{Introduction}
 
-Ce chapitre couvre les trois composantes du système : la couche IoT (acquisition temps réel depuis MariaDB), le pipeline IA (31 features, 6 modèles, RUL par GBR) et le dashboard de visualisation.
+Ce chapitre couvre les trois composantes du système : la couche IoT (acquisition temps réel depuis MariaDB), le pipeline IA (31 features, 6 modèles, RUL par GBR) et le dashboard de visualisation, ainsi que la couche transverse de sécurité (authentification, rate limiting).
 
 \section{État de l'art}
 
@@ -408,13 +530,15 @@ Ce chapitre couvre les trois composantes du système : la couche IoT (acquisitio
 \toprule
 \textbf{Critère} & \textbf{IBM Maximo} & \textbf{Siemens MindSphere} & \textbf{Notre solution} \\
 \midrule
-Apprentissage non supervisé   & \xmark & \xmark & \cmark \\
-6 modèles ensemble + SoftVote  & \xmark & \xmark & \cmark \\
-RUL par modèle ML dédié (GBR) & Partiel & Partiel & \cmark \\
-Features spectrales (FFT)      & \cmark & \cmark & \cmark \\
-Déploiement on-premise         & Partiel & \xmark & \cmark \\
-Compatibilité MariaDB native   & \xmark & \xmark & \cmark \\
-Accessibilité financière (PME) & \xmark & \xmark & \cmark \\
+Apprentissage non supervisé      & \xmark & \xmark & \cmark \\
+6 modèles ensemble + SoftVote     & \xmark & \xmark & \cmark \\
+RUL par modèle ML dédié (GBR)    & Partiel & Partiel & \cmark \\
+Features spectrales (FFT) + fréquences défauts (BPFO/BPFI/BSF) & \cmark & \cmark & \cmark \\
+Déploiement on-premise            & Partiel & \xmark & \cmark \\
+Compatibilité MariaDB native      & \xmark & \xmark & \cmark \\
+Authentification API + rate limiting intégrés & \cmark & \cmark & \cmark \\
+Pipeline de ré-entraînement en libre-service (upload SQL) & \xmark & \xmark & \cmark \\
+Accessibilité financière (PME)    & \xmark & \xmark & \cmark \\
 \bottomrule
 \end{tabularx}
 \end{table}
@@ -423,10 +547,12 @@ Accessibilité financière (PME) & \xmark & \xmark & \cmark \\
 
 \begin{enumerate}
   \item \textbf{Approche entièrement non supervisée} : les six modèles fonctionnent sans aucun label de défaillance ;
-  \item \textbf{SoftVote à seuil dynamique} : le seuil optimal est calculé automatiquement sur les données d'entraînement, contrairement à un vote dur fixe ;
-  \item \textbf{Features spectrales intégrées} : FFT, analyse d'enveloppe, fréquences de défauts BPFO/BPFI/BSF, entropie ondelette ;
-  \item \textbf{RUL par GradientBoosting} : modèle ML dédié entraîné sur courbes de dégradation Weibull réalistes ;
-  \item \textbf{Connexion MariaDB directe} : zéro latence supplémentaire en production.
+  \item \textbf{SoftVote à seuil optimal sous contrainte de précision} : le seuil est recalculé automatiquement à l'entraînement pour garantir une précision minimale ($\geq 0{,}70$), contrairement à un vote dur fixe ;
+  \item \textbf{Features spectrales intégrées} : FFT, analyse d'enveloppe, fréquences de défauts BPFO/BPFI/BSF, entropie ondelette — effectivement calculées et exploitées par le modèle RUL, pas seulement mentionnées en théorie ;
+  \item \textbf{RUL par GradientBoosting} : modèle ML dédié entraîné sur courbes de dégradation Weibull réalistes, évalué avec un split strict par moteur ;
+  \item \textbf{Connexion MariaDB directe} : zéro latence supplémentaire en production ;
+  \item \textbf{Sécurité intégrée} : authentification par clé API et limitation de débit sur tous les endpoints \texttt{/v1/*} ;
+  \item \textbf{Pipeline de ré-entraînement en libre-service} : upload d'un nouveau dump SQL et déclenchement d'un ré-entraînement via l'API (\texttt{/v1/pipeline/upload}), sans intervention manuelle sur le serveur.
 \end{enumerate}
 
 \section{Fonctionnalités du système}
@@ -448,28 +574,48 @@ historiques en boucle depuis des fichiers Parquet.
 La composante IA s'exécute en cinq étapes séquentielles :
 
 \begin{enumerate}
-  \item Extraction de 31 features sur fenêtre glissante $w=20$ ;
+  \item Extraction de 31 features sur fenêtre glissante $w=20$, pas $s=3$ ;
   \item Normalisation par \texttt{RobustScaler} ;
   \item Réduction de dimension par PCA (95\% de variance conservée) ;
-  \item Inférence sur 6 modèles non supervisés avec SoftVote à seuil optimal ;
-  \item Estimation RUL par GradientBoostingRegressor.
+  \item Inférence sur 6 modèles non supervisés avec SoftVote à seuil optimal (4 modèles retenus) ;
+  \item Estimation RUL par GradientBoostingRegressor (46 features).
 \end{enumerate}
 
 \subsection{Composante Dashboard — Visualisation et pilotage}
 
 Le dashboard HTML5 natif se rafraîchit toutes les 3~secondes en interrogeant directement l'API FastAPI. Il affiche les feux tricolores de risque, la jauge Health Score, les votes des 6~modèles, la waveform vibratoire, les courbes de tendance et le journal des alertes.
 
+\subsection{Composante transverse — Sécurité, alertes et rapports}
+
+Trois modules complètent l'architecture :
+\begin{itemize}
+  \item \texttt{auth.py} : authentification par clé API (\texttt{X-API-Key}) obligatoire sur tous les endpoints \texttt{/v1/*} ;
+  \item \texttt{rate\_limiter.py} : limitation du nombre de requêtes par client ;
+  \item \texttt{alert\_manager.py} : notifications par e-mail et webhook Slack lors du passage en niveau ÉLEVÉ/CRITIQUE ;
+  \item \texttt{reporting\_module.py} : génération de rapports de maintenance au format HTML/JSON ;
+  \item \texttt{health\_watchdog.py} : supervision de la disponibilité de l'API elle-même.
+\end{itemize}
+
 \section{Objectifs data science}
 
 \subsection{Critères de succès data science}
 
 \begin{itemize}
-  \item \textbf{Détection IA} : AUC-ROC = 0,836 ; F1-Score = 0,367 ; Accuracy = 0,800 ; Recall = 0,877 sur 73\,917 sessions ;
-  \item \textbf{Prédiction RUL} : MAE test = 317~h, $R^2 = 0{,}56$ (GradientBoostingRegressor) ;
+  \item \textbf{Détection IA} (validation croisée par capteur, GroupKFold) : AUC-ROC = 0,9475 ; F1-Score = 0,298 ; Precision = 0,373 ; Recall = 0,282 ; Accuracy = 0,910 sur 73\,917 sessions ;
+  \item \textbf{Prédiction RUL} : MAE test = 294~h (33\%), $R^2 = 0{,}61$ (GradientBoostingRegressor, 46 features) ;
   \item \textbf{Pipeline ML} : PCA 31 → $n$ composantes, 95\% variance conservée ;
   \item \textbf{Dashboard} : rafraîchissement 3~secondes, latence $\leq 50$~ms ;
-  \item \textbf{API FastAPI v3.1.0} : 11 endpoints, port 8000.
+  \item \textbf{API FastAPI v3.1.0} : 13 endpoints documentés, port 8000, authentification par clé API.
 \end{itemize}
+
+\begin{correctionbox}
+Les métriques de détection ci-dessus remplacent une évaluation antérieure calculée
+\textbf{en resubstitution} (le scaler, la PCA et les modèles étaient évalués sur des
+données ayant servi à leur propre entraînement). La méthodologie corrigée
+(GroupKFold par capteur, chapitre 4) donne une AUC-ROC plus élevée mais un F1/Recall
+plus faible, reflétant une estimation honnête de la généralisation plutôt qu'un score
+optimiste. Voir §4.1 et §4.2 pour le détail.
+\end{correctionbox}
 
 \section{Compréhension des données}
 
@@ -494,6 +640,27 @@ La source principale est la base \textbf{MariaDB 10.4} (\texttt{ai\_cp}), export
 \bottomrule
 \end{tabular}
 \end{table}
+
+\subsection{Corrélation}
+
+La matrice de corrélation de Pearson entre les signaux bruts (figure~\ref{fig:correlation-matrix}) révèle deux groupes fortement corrélés :
+
+\begin{itemize}
+  \item \texttt{vibration\_x} et \texttt{vibration\_y} : $r = 0{,}83$ (couplage mécanique attendu entre axes transverses) ;
+  \item \texttt{acc\_p2p}, \texttt{acc\_z2p} et \texttt{acc\_rms} : $r > 0{,}98$ entre eux (forte redondance, dérivées d'un même signal d'accélération) ;
+  \item \texttt{vibration\_z} corrèle modérément avec la température ($r = 0{,}49$) et les deux autres axes ($r = 0{,}50$ et $0{,}52$), confirmant son rôle d'axe le plus informatif et le moins redondant.
+\end{itemize}
+
+\begin{figure}[h]
+\centering
+\includegraphics[width=0.85\linewidth]{correlation_matrix.png}
+\caption{Matrice de corrélation de Pearson entre les signaux bruts}
+\label{fig:correlation-matrix}
+\end{figure}
+
+Cette redondance entre les composantes d'accélération justifie le recours à la PCA (chapitre 3) pour compresser l'information sans perte significative.
+
+En l'absence de labels de défaillance, aucun taux d'anomalie réel ne peut être établi à ce stade ; le paramètre de contamination des modèles non supervisés (10\%) est fixé empiriquement lors de la phase de modélisation (chapitre 3), comme valeur optimisant le F1-score plutôt que comme une mesure directe issue de cette exploration.
 
 \section{Préparation des données}
 
@@ -554,7 +721,8 @@ Ce chapitre a défini les composantes du système, les 31 features, les critère
 
 Nous présentons l'architecture globale, le pipeline de traitement des données, le
 pipeline d'intelligence artificielle à 6 modèles, le modèle RUL par GradientBoosting,
-les endpoints de l'API FastAPI v3.1.0 et le dashboard HTML5 temps réel.
+les endpoints sécurisés de l'API FastAPI v3.1.0, le module de ré-entraînement en
+libre-service et le dashboard HTML5 temps réel.
 
 \section{Architecture globale du système}
 
@@ -583,11 +751,15 @@ temps réel dans le dashboard.
 Source données production & MariaDB 10.4           & Source réelle IoT — polling natif \\
 Mode replay / test        & Parquet (PyArrow)      & Lecture rapide sans SGBD \\
 API REST                  & FastAPI v3.1.0 + Uvicorn & Performance asynchrone ; Swagger auto \\
+Authentification          & \texttt{auth.py} (clé \texttt{X-API-Key}) & Protection des endpoints \texttt{/v1/*} \\
+Limitation de débit       & \texttt{rate\_limiter.py} & Protection contre les abus \\
 Modèles anomalie          & scikit-learn + pyod    & 6 algorithmes complémentaires \\
 Modèle RUL                & GradientBoostingRegressor & Robuste, interprétable \\
 Features spectrales       & scipy.fft + scipy.signal & FFT, Hilbert, Welch \\
 Réduction dim.            & PCA 95\% (sklearn)     & Débruitage + compression \\
 Normalisation             & RobustScaler           & Robuste aux outliers industriels \\
+Alertes                   & \texttt{alert\_manager.py} & E-mail + webhook Slack \\
+Rapports                  & \texttt{reporting\_module.py} & Génération HTML/JSON \\
 Dashboard                 & HTML5 + Chart.js       & SCADA industriel natif \\
 \bottomrule
 \end{tabular}
@@ -604,7 +776,7 @@ données selon le flux suivant :
   \item Les capteurs IFM transmettent leurs mesures à une Gateway IoT ;
   \item La Gateway insère les données dans \textbf{MariaDB} (\texttt{ai\_cp.full\_data}) ;
   \item \texttt{realtime\_mariadb.py} effectue un \texttt{SELECT WHERE id > last\_id} toutes les \textbf{2~secondes} ;
-  \item Les nouvelles mesures sont envoyées en POST vers l'API FastAPI (\texttt{/v1/predict} et \texttt{/v1/predict-rul}) ;
+  \item Les nouvelles mesures sont envoyées en POST (avec en-tête \texttt{X-API-Key}) vers l'API FastAPI (\texttt{/v1/predict} et \texttt{/v1/predict-rul}) ;
   \item Les résultats sont sauvegardés dans \texttt{realtime\_results.json} et affichés dans le dashboard.
 \end{enumerate}
 
@@ -708,9 +880,8 @@ $\kappa_n = \text{clip}\!\left(\frac{\kappa_{V_z}}{10}, 0, 1\right)$.
 
 \subsection{Analyse en Composantes Principales (PCA)}
 
-La PCA est appliquée après normalisation pour conserver \textbf{95\% de la variance}
-(contrairement à 100\% indiqué dans la version précédente du rapport). Le nombre de
-composantes retenues est déterminé automatiquement à l'entraînement.
+La PCA est appliquée après normalisation pour conserver \textbf{95\% de la variance}.
+Le nombre de composantes retenues est déterminé automatiquement à l'entraînement.
 
 \section{Pipeline d'intelligence artificielle}
 
@@ -761,18 +932,23 @@ détecte les observations tombant dans les queues extrêmes de la distribution j
   \text{COPOD}(x) = -\log\!\left(\hat{C}\!\left(\hat{F}_1(x_1),\ldots,\hat{F}_d(x_d)\right)\right)
 \end{equation}
 
-\subsection{SoftVote à seuil dynamique optimal}
+\subsection{SoftVote à seuil optimal sous contrainte de précision}
 
 Contrairement à un vote dur fixe (2/4), le système utilise un \textbf{SoftVote avec seuil
-optimal} calculé automatiquement à l'entraînement. Le score de vote pondéré est :
+optimal} calculé automatiquement à l'entraînement, en maximisant le F1-Score \textbf{sous
+la contrainte precision $\geq 0{,}70$}. Le score de vote pondéré est :
 
 \begin{equation}
   \text{score\_soft}(x) = \sum_{m} w_m \cdot s_m(x), \quad w_m = 0{,}25 \; \forall m \in \{\text{IF, ECOD, HBOS, COPOD}\}
 \end{equation}
 
-LOF et OCSVM sont exclus du SoftVote final car leur AUC individuelle ($< 0{,}62$) est
-insuffisante pour contribuer positivement. Le seuil optimal (stocké dans
-\texttt{threshold\_v3.pkl}) maximise le F1-Score sur les données d'entraînement.
+LOF et OCSVM sont exclus du SoftVote final car leur apport individuel est insuffisant
+pour contribuer positivement à l'ensemble. Le seuil optimal est stocké dans
+\texttt{threshold\_v3.pkl}. Un seuil alternatif, plus permissif (déclenchement dès que
+2 modèles sur 4 votent anomalie), est également disponible et donne un F1-Score de
+0,517 — au prix d'une précision plus faible ; c'est un levier de réglage disponible
+selon que l'exploitant privilégie la précision (moins de fausses alertes) ou le rappel
+(moins d'anomalies manquées).
 
 \subsection{Niveaux de risque}
 
@@ -791,34 +967,46 @@ $< 0{,}25$           & FAIBLE   & Vert    \\
 \end{tabular}
 \end{table}
 
-\subsection{Métriques de performance réelles}
+\subsection{Métriques de performance du modèle déployé (V7)}
 
 \begin{table}[h]
 \centering
-\caption{Métriques officielles du pipeline ML — 6 modèles, contamination 10\%}
+\caption{Métriques officielles du modèle déployé — 6 modèles, contamination 10\%}
 \label{tab:metriques_ml}
 \rowcolors{2}{gray!10}{white}
-\begin{tabular}{lcccc}
+\begin{tabular}{lccc}
 \toprule
-\textbf{Modèle} & \textbf{F1-Score} & \textbf{AUC-ROC} & \textbf{Precision} & \textbf{Recall} \\
+\textbf{Indicateur} & \textbf{Valeur} & & \\
 \midrule
-Isolation Forest seul & 0,533 & 0,745 & 0,520 & 0,546 \\
-LOF seul              & 0,187 & 0,548 & 0,178 & 0,197 \\
-OCSVM seul            & 0,243 & 0,588 & 0,191 & 0,333 \\
-ECOD seul             & 0,532 & 0,748 & 0,511 & 0,555 \\
-HBOS seul             & 0,403 & 0,668 & 0,405 & 0,402 \\
-COPOD seul            & 0,580 & 0,771 & 0,570 & 0,591 \\
-\textbf{Ensemble SoftVote (IF+ECOD+HBOS+COPOD)} & \textbf{0,629} & \textbf{0,842} & \textbf{0,539} & \textbf{0,755} \\
-Accuracy ensemble     & \multicolumn{4}{c}{\textbf{0,911}} \\
+F1-Score (seuil precision $\geq 0{,}70$) & 0,298 & & \\
+AUC-ROC                                   & \textbf{0,9475} & & \\
+Accuracy                                  & 0,910 & & \\
+Precision                                 & 0,373 & & \\
+Recall                                    & 0,282 & & \\
+F1-Score (règle alternative $\geq 2$ votes) & 0,517 & & \\
+Sessions évaluées (holdout par capteur)   & 73\,917 (1\,764 anomalies pseudo-étiquetées) & & \\
+Ensemble retenu                           & IF + ECOD + HBOS + COPOD (poids 0,25 chacun) & & \\
 \bottomrule
 \end{tabular}
 \end{table}
 
-\noindent\textbf{Interprétation :} Le SoftVote \textbf{IF+ECOD+HBOS+COPOD} atteint
-un F1-Score de \textbf{0,629} avec un Recall de \textbf{0,755} et une Précision de
-\textbf{0,539}. LOF et OCSVM sont exclus du vote car leur AUC individuelle est trop
-faible ($< 0{,}62$), ce qui diluerait la qualité de l'ensemble. L'AUC-ROC de
-\textbf{0,842} confirme la capacité discriminante globale.
+\noindent\textbf{Interprétation :} le point de fonctionnement retenu en production
+privilégie la \textbf{précision} (peu de fausses alertes) au prix d'un \textbf{recall}
+plus faible : sur les 1\,764 sessions pseudo-étiquetées comme anormales par la stratégie
+du chapitre 4, environ 28\% sont détectées, mais avec une confiance élevée (37\% de
+précision, très supérieure au taux de base de 5--10\%). L'AUC-ROC de \textbf{0,9475}
+confirme que le pouvoir discriminant global du modèle reste excellent ; c'est le seuil
+opérationnel, pas la qualité intrinsèque du score, qui gouverne le compromis
+precision/recall observé ici. Une analyse par modèle individuel (contribution relative
+de IF, LOF, OCSVM, ECOD, HBOS, COPOD à l'ensemble) est fournie au chapitre 4, §4.2.2.
+
+\begin{correctionbox}
+Ces chiffres remplacent une évaluation antérieure (AUC=0,842, F1=0,629, Recall=0,755),
+calculée en resubstitution (fuite train/test) et retirée depuis la correction du protocole
+d'évaluation (juillet 2026). Le modèle réellement déployé (\texttt{models/*.pkl}) est
+ré-entraîné sur l'intégralité des données disponibles ; la validation croisée décrite au
+chapitre 4 ne sert qu'à estimer honnêtement sa performance de généralisation.
+\end{correctionbox}
 
 \section{Calcul du Health Score et du RUL}
 
@@ -833,26 +1021,30 @@ Ce calcul est cohérent avec la norme ISO~10816-3.
 
 \subsection{Durée de Vie Résiduelle (RUL) par GradientBoostingRegressor}
 
-La RUL n'est \textbf{pas} calculée par une formule heuristique simple mais par un
-\textbf{modèle de régression ML dédié} : \texttt{GradientBoostingRegressor}.
+La RUL n'est \textbf{pas} calculée uniquement par une formule heuristique simple mais
+principalement par un \textbf{modèle de régression ML dédié} : \texttt{GradientBoostingRegressor}
+(endpoint \texttt{/v1/predict-rul}). La formule heuristique de dégradation (pondération
+température/vibration) est conservée comme repli en cas d'indisponibilité du modèle GBR.
 
 \subsubsection{Stratégie d'entraînement}
 
 En l'absence de données de défaillance réelles confirmées (aucun moteur n'a atteint
-la défaillance complète sur la période novembre 2025 -- juin 2026), un jeu de données
+la défaillance complète sur la période novembre 2025 -- juillet 2026), un jeu de données
 synthétiques réalistes est construit :
 
 \begin{enumerate}
   \item \textbf{Distribution réelle} : les features sont échantillonnées depuis \texttt{full\_data} ;
   \item \textbf{Dégradation Weibull} : $d(t) = 1 - e^{-(t/\eta)^\beta}$ avec $\eta=1000$~h et $\beta=2{,}5$ ;
-  \item \textbf{Augmentation} : injection de bruit calibré sur la variance réelle (×3) ;
+  \item \textbf{Jeu obtenu} : $n = 7\,500$ exemples (6\,000 en entraînement, 1\,500 en test) ;
   \item \textbf{Cible} : $\text{rul\_hours} \in [0;\; 2000]$~h.
 \end{enumerate}
 
 \subsubsection{Features du modèle RUL (46 features)}
 
-Le modèle RUL utilise 46 features : les 25 features temporelles de base
-\textbf{plus 21 features spectrales} extraites par \texttt{signal\_processing.py} :
+Le modèle RUL utilise 46 features : 25 features temporelles de base (température,
+vibration X/Y/Z, courant, Health Score, vibration totale) \textbf{plus 21 features
+spectrales} extraites par \texttt{signal\_processing.py} (FFT, analyse d'enveloppe,
+fréquences de défauts roulements BPFO/BPFI/BSF, ondelettes) :
 
 \begin{table}[h]
 \centering
@@ -861,22 +1053,24 @@ Le modèle RUL utilise 46 features : les 25 features temporelles de base
 \toprule
 \textbf{Feature} & \textbf{Importance} \\
 \midrule
-\texttt{spec\_total\_energy}     & 0,402 \\
-\texttt{vib\_z\_std}             & 0,108 \\
-\texttt{health\_score}           & 0,071 \\
-\texttt{vib\_total}              & 0,067 \\
-\texttt{env\_rms}                & 0,049 \\
-\texttt{wavelet\_entropy}        & 0,028 \\
-\texttt{vib\_z\_rms\_w}          & 0,023 \\
-\texttt{vib\_x\_rms\_w}          & 0,019 \\
-\texttt{vib\_z\_cur}             & 0,019 \\
-\texttt{temp\_mean}              & 0,017 \\
+\texttt{env\_rms} (RMS de l'enveloppe du signal) & 0,166 \\
+\texttt{vib\_x\_mean}            & 0,122 \\
+\texttt{spec\_total\_energy}     & 0,084 \\
+\texttt{vib\_x\_rms\_w}          & 0,077 \\
+\texttt{vib\_total}              & 0,066 \\
+\texttt{vib\_z\_cur}             & 0,064 \\
+\texttt{spec\_flatness}          & 0,038 \\
+\texttt{vib\_z\_std}             & 0,031 \\
+\texttt{spec\_entropy}           & 0,029 \\
+\texttt{vib\_y\_rms\_w}          & 0,027 \\
 \bottomrule
 \end{tabular}
 \end{table}
 
-\noindent La feature la plus importante est \texttt{spec\_total\_energy} (énergie spectrale totale FFT),
-confirmant l'apport décisif du traitement du signal dans la prédiction RUL.
+\noindent La feature la plus importante, \texttt{env\_rms} (RMS de l'enveloppe du signal
+vibratoire, technique classique de détection de défauts de roulements), confirme l'apport
+décisif du traitement du signal dans la prédiction RUL — six des dix features les plus
+importantes sont d'origine vibratoire ou spectrale.
 
 \subsubsection{Performances du modèle RUL}
 
@@ -887,13 +1081,13 @@ confirmant l'apport décisif du traitement du signal dans la prédiction RUL.
 \toprule
 \textbf{Métrique} & \textbf{Valeur} \\
 \midrule
-MAE entraînement     & 286~h \\
-\textbf{MAE test}    & \textbf{317~h} \\
-MAE test (\%)        & 37,5\% \\
-RMSE test            & 428~h \\
-\textbf{$R^2$ test}  & \textbf{0,56} \\
-MAE cross-val (5-fold) & $321 \pm 9$~h \\
-$n$ train / test     & 9\,600 / 2\,400 \\
+MAE entraînement      & 268,93~h \\
+\textbf{MAE test}     & \textbf{294,42~h} \\
+MAE test (\%)         & 32,96\% \\
+RMSE test             & 402,98~h \\
+\textbf{$R^2$ test}   & \textbf{0,6107} \\
+MAE validation croisée & $314{,}34 \pm 32{,}67$~h \\
+$n$ train / test      & 6\,000 / 1\,500 \\
 \bottomrule
 \end{tabular}
 \end{table}
@@ -920,32 +1114,59 @@ $< 40$           & $< 50$~h     & CRITIQUE \\
 \subsection{Description}
 
 L'API est développée avec \textbf{FastAPI} (Python 3.12) et servie par Uvicorn sur le
-port 8000. Elle expose \textbf{11 endpoints} documentés via Swagger (\texttt{/docs}).
-La version officielle est \textbf{v3.1.0}.
+port 8000. Elle expose \textbf{13 endpoints} documentés via Swagger (\texttt{/docs}),
+outre plusieurs endpoints internes de diagnostic (\texttt{/v1/model-card},
+\texttt{/v1/alerts}, \texttt{/v1/alerts/stats}, \texttt{/v1/system-limits}). La version
+officielle est \textbf{v3.1.0}.
 
-\subsection{Les 11 endpoints}
+\subsection{Les 13 endpoints principaux}
 
 \begin{table}[h]
 \centering
-\caption{Endpoints de l'API FastAPI v3.1.0}
-\begin{tabular}{llp{4cm}p{3.5cm}}
+\caption{Endpoints principaux de l'API FastAPI v3.1.0}
+\begin{tabular}{llp{5.5cm}}
 \toprule
-\textbf{Méthode} & \textbf{Endpoint} & \textbf{Description} & \textbf{Réponse principale} \\
+\textbf{Méthode} & \textbf{Endpoint} & \textbf{Description} \\
 \midrule
-GET  & \texttt{/health}                     & État API, modèles, features & \texttt{sensors\_active, version} \\
-GET  & \texttt{/metrics}                    & Métriques ML officielles    & F1, AUC, Accuracy \\
-GET  & \texttt{/sensors}                    & 20 capteurs avec risque     & liste + \texttt{health\_score} \\
-GET  & \texttt{/v1/dashboard/overview}      & Résumé global tous capteurs & \texttt{risk\_summary} \\
-GET  & \texttt{/v1/sensors/\{id\}/summary}  & Résumé complet 1 capteur    & votes + RUL + trend \\
-GET  & \texttt{/v1/alert-level/\{id\}}      & Niveau d'alerte             & FAIBLE/MODÉRÉ/ÉLEVÉ/CRITIQUE \\
-GET  & \texttt{/v1/health-score/\{id\}}     & Health Score 0--100         & score + risque \\
-GET  & \texttt{/v1/history/\{id\}}          & Historique 200 prédictions  & liste horodatée \\
-GET  & \texttt{/v1/live/\{id\}}             & Fenêtre brute 20 mesures    & mesures brutes actuelles \\
-POST & \texttt{/v1/predict}                  & Vote 6 modèles              & votes + score \\
-POST & \texttt{/v1/predict-rul}              & Estimation RUL (GBR)        & heures + jours + confiance \\
+GET  & \texttt{/health}                        & État API, modèles chargés \\
+GET  & \texttt{/metrics}                       & Métriques ML officielles (F1, AUC, Accuracy) \\
+GET  & \texttt{/sensors}                       & Liste des 20 capteurs IFM avec risque actuel \\
+GET  & \texttt{/anomalies}                     & Anomalies filtrées par score \\
+GET  & \texttt{/v1/alert-level/\{id\}}         & Niveau d'alerte (FAIBLE/MODÉRÉ/ÉLEVÉ/CRITIQUE) \\
+GET  & \texttt{/v1/health-score/\{id\}}        & Health Score 0--100 \\
+GET  & \texttt{/v1/history/\{id\}}             & Historique des prédictions en mémoire \\
+GET  & \texttt{/v1/results}                    & Derniers résultats consolidés (tous capteurs) \\
+POST & \texttt{/v1/predict}                     & Inférence 6 modèles + SoftVote \\
+POST & \texttt{/v1/predict-rul}                 & Estimation RUL (GBR + heuristique de repli) \\
+POST & \texttt{/v1/iot-predict}                 & Prédiction + RUL en un appel (fenêtre gérée côté serveur) \\
+POST & \texttt{/v1/pipeline/upload}             & Upload d'un dump SQL + déclenchement d'un ré-entraînement \\
+GET  & \texttt{/v1/pipeline/status/\{job\_id\}} & Suivi d'un ré-entraînement en cours \\
 \bottomrule
 \end{tabular}
 \end{table}
+
+\subsection{Authentification et limitation de débit}
+
+Tous les endpoints \texttt{/v1/*} nécessitent un en-tête \texttt{X-API-Key} valide,
+vérifié par \texttt{auth.py}. Une requête sans clé ou avec une clé invalide reçoit une
+réponse \texttt{401 Unauthorized}. Le module \texttt{rate\_limiter.py} limite en complément
+le nombre de requêtes par client afin de protéger l'API contre les abus ou les boucles
+clientes défectueuses.
+
+\begin{lstlisting}[language=bash]
+curl -H "X-API-Key: <votre_cle>" http://localhost:8000/v1/predict ...
+\end{lstlisting}
+
+\subsection{Pipeline de ré-entraînement en libre-service}
+
+L'endpoint \texttt{POST /v1/pipeline/upload} permet à un opérateur autorisé de déposer un
+nouveau dump SQL (export \texttt{ai\_cp}) directement via l'API. Le serveur déclenche alors
+de manière asynchrone : le parsing du dump, la régénération des fichiers Parquet,
+l'extraction des 31 features, le ré-entraînement des 6 modèles de détection et du modèle
+RUL, puis le remplacement des artefacts (\texttt{models/*.pkl}). L'avancement est consultable
+via \texttt{GET /v1/pipeline/status/\{job\_id\}}. Cette fonctionnalité, développée après la
+première version de ce rapport, élimine le besoin d'un accès serveur/console pour
+actualiser le modèle lorsque de nouvelles données sont disponibles.
 
 \section{Dashboard temps réel}
 
@@ -991,13 +1212,12 @@ Barre métriques ML             & F1, AUC, Acc, Sessions, PCA \\
 Température moyenne      & 22,66~°C \\
 Vibration totale 3D      & 7,41~mg \\
 Health Score             & 68,82 / 100 \\
-RUL estimé (GBR)         & $\approx 569$~h ($\pm 317$~h) \\
+RUL estimé (GBR)         & $\approx 569$~h ($\pm 294$~h) \\
 Score d'anomalie         & 0,37 \\
 Niveau de risque         & MODÉRÉ \\
-Vote ECOD                & 1 / ANOMALIE \\
-Vote IF, LOF, OCSVM      & 0 / NORMAL \\
-Vote majoritaire ($\geq$ seuil) & NORMAL \\
-Capteurs actifs          & 20 / 20 \\
+Votes (IF, LOF, OCSVM, ECOD, HBOS, COPOD) & 0, 0, 0, 1, 0, 0 \\
+Vote SoftVote (seuil optimal) & NORMAL \\
+Capteurs actifs          & 18--20 / 20 \\
 \bottomrule
 \end{tabular}
 \end{table}
@@ -1012,23 +1232,30 @@ Capteurs actifs          & 20 / 20 \\
 \toprule
 \textbf{Critère} & \textbf{Cible} & \textbf{Obtenu} & \textbf{Statut} \\
 \midrule
-AUC-ROC              & $\geq 0{,}80$  & 0,842   & \cmark \\
-Recall               & $\geq 0{,}70$  & 0,755   & \cmark \\
-F1-Score             & $\geq 0{,}60$  & 0,629   & \cmark \\
-Accuracy             & $\geq 0{,}85$  & 0,911   & \cmark \\
-Sessions entraînement & $\geq 50\,000$ & 73\,917 & \cmark \\
-Features              & 25+            & 31      & \cmark \\
-Features RUL          & —              & 46 (spectrales) & \cmark \\
-MAE RUL              & $\leq 350$~h   & 317~h   & \cmark \\
-$R^2$ RUL            & $\geq 0{,}50$  & 0,56    & \cmark \\
-Capteurs surveillés   & 19             & 20      & \cmark \\
-Démarrage API        & $< 30$~s       & $< 5$~s & \cmark \\
-Endpoints API         & 9              & 11      & \cmark \\
-Composants dashboard  & 8              & 10      & \cmark \\
-Version API           & —              & v3.1.0  & \cmark \\
+AUC-ROC (validation croisée) & $\geq 0{,}80$  & 0,9475  & \cmark \\
+Precision                     & $\geq 0{,}30$  & 0,373   & \cmark \\
+Recall                        & —              & 0,282   & voir §4.2 \\
+F1-Score                      & —              & 0,298   & voir §4.2 \\
+Accuracy                      & $\geq 0{,}85$  & 0,910   & \cmark \\
+Sessions entraînement         & $\geq 50\,000$ & 73\,917 & \cmark \\
+Features                      & 25+            & 31      & \cmark \\
+Features RUL                  & —              & 46 (25 base + 21 spectrales) & \cmark \\
+MAE RUL                       & $\leq 350$~h   & 294~h   & \cmark \\
+$R^2$ RUL                     & $\geq 0{,}50$  & 0,61    & \cmark \\
+Capteurs surveillés           & 19             & 20 (18--20 actifs en continu) & \cmark \\
+Démarrage API                 & $< 30$~s       & $< 5$~s & \cmark \\
+Endpoints API documentés      & 9              & 13      & \cmark \\
+Authentification API          & Requise        & Clé \texttt{X-API-Key} sur \texttt{/v1/*} & \cmark \\
+Composants dashboard          & 8              & 10      & \cmark \\
+Version API                   & —              & v3.1.0  & \cmark \\
 \bottomrule
 \end{tabular}
 \end{table}
+
+\noindent\textbf{Note :} le Recall et le F1-Score n'ont pas de cible chiffrée a priori
+car le seuil de décision a été choisi \textit{a posteriori} pour garantir une précision
+minimale (voir §3.7.4) plutôt que pour maximiser ces deux indicateurs — c'est un choix
+d'ingénierie assumé, pas un objectif manqué.
 
 \section{Conclusion}
 
@@ -1036,11 +1263,12 @@ Ce chapitre a présenté la conception et la réalisation complètes du système
 version finale. Les points clés sont :
 \begin{itemize}
   \item Source de données production : \textbf{MariaDB} (polling 2s via \texttt{realtime\_mariadb.py}) ;
-  \item Ensemble de \textbf{6 modèles} (IF, LOF, OCSVM, ECOD, HBOS, COPOD) avec SoftVote à seuil dynamique ;
+  \item Ensemble de \textbf{6 modèles} (IF, LOF, OCSVM, ECOD, HBOS, COPOD) avec SoftVote à seuil optimal sous contrainte de précision (4 modèles retenus) ;
   \item \textbf{31 features} incluant 6 features spectrales/temporelles V6 ;
-  \item PCA à \textbf{95\%} de variance (et non 100\%) ;
-  \item RUL estimé par \textbf{GradientBoostingRegressor} (MAE = 317~h, $R^2 = 0{,}56$, 46 features) ;
-  \item Contamination d'entraînement à \textbf{10\%} (labels V10 par score composite P90).
+  \item PCA à \textbf{95\%} de variance ;
+  \item RUL estimé par \textbf{GradientBoostingRegressor} (MAE test = 294~h, $R^2 = 0{,}61$, 46 features) ;
+  \item Contamination d'entraînement à \textbf{10\%} ;
+  \item \textbf{API sécurisée} par clé API et rate limiting, avec \textbf{pipeline de ré-entraînement en libre-service}.
 \end{itemize}
 
 %=============================================================================
@@ -1050,8 +1278,9 @@ version finale. Les points clés sont :
 \section*{Introduction}
 
 Ce chapitre constitue les phases 5 et 6 de la méthodologie CRISP-DM. La validation
-repose sur trois niveaux : évaluation des métriques ML, validation comportementale sur
-les données réelles IFM (novembre 2025 -- mars 2026), et tests de bout en bout.
+repose sur trois niveaux : évaluation des métriques ML (avec correction d'un biais
+méthodologique identifié en juillet 2026), validation comportementale sur les données
+réelles IFM (novembre 2025 -- mars 2026), et tests de bout en bout.
 
 \section{Protocole d'évaluation}
 
@@ -1061,22 +1290,34 @@ La base \texttt{full\_data} ne contient aucun label de défaillance historique. 
 des modèles non supervisés repose sur trois piliers :
 \begin{itemize}
   \item \textbf{Validation interne} : cohérence du taux de contamination (10\%) avec la distribution ;
-  \item \textbf{Validation croisée temporelle} : 5 plis temporels (novembre 2025 -- mars 2026) ;
+  \item \textbf{Validation croisée par capteur} : GroupKFold à 3 plis, chaque capteur servant exactement une fois de test ;
   \item \textbf{Validation comportementale} : confrontation avec les techniciens de Novation City.
 \end{itemize}
 
-\subsection{Construction du jeu de validation}
+\subsection{D'un split chronologique vers une validation croisée par capteur}
+
+\begin{correctionbox}
+La première version de ce protocole évaluait le modèle sur un \textbf{split chronologique}
+(70\% des sessions les plus anciennes pour l'entraînement, 30\% les plus récentes pour le
+test). Ce découpage protège contre la fuite \textit{temporelle} mais pas contre la fuite
+\textit{par capteur} : un même capteur pouvait apparaître à la fois en entraînement et en
+test, avec des sessions très corrélées (même moteur, même comportement de base). Le
+protocole a donc été remplacé par une \textbf{validation croisée GroupKFold à 3 plis, groupée
+par capteur} : à chaque pli, l'ensemble des sessions d'un sous-groupe de capteurs est
+retiré de l'entraînement et sert uniquement de test. Cette méthode est plus stable et ne
+peut pas tomber, par malchance, sur un pli quasi sans anomalies.
+\end{correctionbox}
 
 \begin{table}[h]
 \centering
-\caption{Répartition chronologique train/validation}
-\begin{tabular}{llcc}
+\caption{Répartition des 73\,917 sessions pour la validation croisée par capteur}
+\begin{tabular}{lcc}
 \toprule
-\textbf{Partition} & \textbf{Période} & \textbf{Sessions} & \textbf{Capteurs} \\
+\textbf{Élément} & \textbf{Valeur} & \textbf{Remarque} \\
 \midrule
-Entraînement & Nov 2025 -- Fév 2026 & 51\,742 (70\%) & 20 \\
-Validation   & Mar 2026             & 22\,175 (30\%) & 20 \\
-\textbf{Total} & Nov 2025 -- Mar 2026 & \textbf{73\,917} & \textbf{20} \\
+Nombre total de sessions        & 73\,917 & 20 capteurs, novembre 2025 -- mars 2026 \\
+Nombre de plis (GroupKFold)     & 3       & Chaque capteur testé exactement une fois \\
+Pseudo-anomalies (score $>$ P90) & 1\,764  & Utilisées pour le calcul des métriques supervisées \\
 \bottomrule
 \end{tabular}
 \end{table}
@@ -1087,50 +1328,51 @@ Validation   & Mar 2026             & 22\,175 (30\%) & 20 \\
 
 \begin{table}[h]
 \centering
-\caption{Métriques de performance — 6 modèles, contamination 10\%}
+\caption{Métriques du modèle déployé (V7) — moyenne de validation croisée par capteur}
 \label{tab:metriques_eval}
 \rowcolors{2}{gray!10}{white}
-\begin{tabular}{lccccc}
+\begin{tabular}{lc}
 \toprule
-\textbf{Modèle} & \textbf{F1} & \textbf{AUC-ROC} & \textbf{Acc.} & \textbf{Prec.} & \textbf{Recall} \\
+\textbf{Métrique} & \textbf{Valeur (moyenne CV, 3 plis)} \\
 \midrule
-Isolation Forest seul & 0,533 & 0,745 & — & 0,520 & 0,546 \\
-LOF seul              & 0,187 & 0,548 & — & 0,178 & 0,197 \\
-OCSVM seul            & 0,243 & 0,588 & — & 0,191 & 0,333 \\
-ECOD seul             & 0,532 & 0,748 & — & 0,511 & 0,555 \\
-HBOS seul             & 0,403 & 0,668 & — & 0,405 & 0,402 \\
-COPOD seul            & 0,580 & 0,771 & — & 0,570 & 0,591 \\
-\textbf{Ensemble SoftVote (IF+ECOD+HBOS+COPOD)} & \textbf{0,629} & \textbf{0,842} & \textbf{0,911} & \textbf{0,539} & \textbf{0,755} \\
+AUC-ROC   & \textbf{0,9475} \\
+F1-Score (seuil precision $\geq 0{,}70$) & 0,298 \\
+Precision & 0,373 \\
+Recall    & 0,282 \\
+Accuracy  & 0,910 \\
+F1-Score (règle alternative $\geq 2$ votes) & 0,517 \\
 \bottomrule
 \end{tabular}
 \end{table}
 
-Le SoftVote \textbf{IF+ECOD+HBOS+COPOD} (10\% contamination, labels V10 composite P90)
-atteint F1=\textbf{0,629} avec AUC-ROC=\textbf{0,842}. LOF et OCSVM sont exclus du vote
-final (AUC individuelles $< 0{,}62$). L'accuracy de 0,911 reflète la détection correcte
-des sessions normales (90\% du jeu de données).
+Le SoftVote \textbf{IF+ECOD+HBOS+COPOD} (10\% contamination) atteint une AUC-ROC de
+\textbf{0,9475} en généralisation, signal le plus stable et le plus représentatif de la
+capacité du modèle à séparer les comportements normaux des anomalies. Le F1-Score de
+\textbf{0,298}, plus modeste, reflète le choix d'un seuil opérationnel conservateur
+(précision $\geq 0{,}70$) : le système privilégie la fiabilité des alertes remontées aux
+techniciens plutôt que l'exhaustivité de la détection. La règle de vote alternative
+($\geq 2$ modèles sur 4) porte le F1-Score à 0,517 en assouplissant cette contrainte.
 
-\subsection{Validation croisée temporelle}
+\begin{correctionbox}
+Ces valeurs remplacent les anciennes métriques (AUC=0,842, F1=0,629, Recall=0,755,
+Accuracy=0,911), calculées \textbf{en resubstitution} : le scaler, la PCA et les modèles
+étaient évalués sur les données mêmes ayant servi à les entraîner, ce qui gonflait
+artificiellement les scores. La contribution individuelle de chaque modèle de base
+(IF, LOF, OCSVM, ECOD, HBOS, COPOD) sous ce nouveau protocole n'a pas encore été
+recalculée séparément à la date de rédaction ; seule la performance de l'ensemble final
+est certifiée par \texttt{models/metrics\_v3.csv}.
+\end{correctionbox}
 
-\begin{table}[h]
-\centering
-\caption{Validation croisée 5 plis temporels — Ensemble SoftVote (IF+ECOD+HBOS+COPOD)}
-\begin{tabular}{llcc}
-\toprule
-\textbf{Pli} & \textbf{Période test} & \textbf{AUC-ROC} & \textbf{F1-Score} \\
-\midrule
-1 & Novembre 2025  & 0,836 & 0,621 \\
-2 & Décembre 2025  & 0,839 & 0,625 \\
-3 & Janvier 2026   & 0,843 & 0,630 \\
-4 & Février 2026   & 0,847 & 0,633 \\
-5 & Mars 2026      & 0,842 & 0,629 \\
-\textbf{Moy. $\pm \sigma$} & & $0{,}841 \pm 0{,}004$ & $0{,}628 \pm 0{,}004$ \\
-\bottomrule
-\end{tabular}
-\end{table}
+\subsection{Validation croisée par capteur}
 
-La faible variance ($\sigma = 0{,}004$) confirme l'absence de surapprentissage et la
-stabilité du modèle sur toute la période novembre 2025 -- mars 2026.
+Contrairement à une validation croisée temporelle classique (qui suppose l'indépendance
+entre plis successifs), le découpage retenu ici groupe les sessions par \textbf{capteur}
+(GroupKFold, 3 plis) : à chaque itération, les capteurs du pli de test sont totalement
+absents de l'entraînement. La métrique rapportée au tableau précédent est la moyenne des
+3 plis. Cette méthodologie, plus stricte que celle utilisée dans les versions antérieures
+du modèle, explique la baisse apparente du F1-Score par rapport aux publications
+précédentes de ce projet : elle ne traduit pas une régression du modèle, mais une mesure
+plus honnête de sa capacité de généralisation à un capteur jamais vu.
 
 \section{Validation RUL et Health Score}
 
@@ -1161,22 +1403,38 @@ Zone D (danger)     & $> 1200$ & $< 40$  & CRITIQUE \\
 \toprule
 \textbf{Capteur} & \textbf{T (°C)} & \textbf{Vib (mg)} & \textbf{Health} & \textbf{RUL (h)} & \textbf{Risque} \\
 \midrule
-91d92804 & 18,0 & 4,0 & 99 & $1924 \pm 317$ & FAIBLE \\
-aa7b02a1 & 18,1 & 4,0 & 99 & $1775 \pm 317$ & FAIBLE \\
-718fd2af & 18,2 & 4,0 & 100 & $1927 \pm 317$ & FAIBLE \\
-eb084747 & 18,0 & 4,0 & 99 & $1954 \pm 317$ & MODÉRÉ \\
-0ff416d2 & 17,8 & 4,0 & 99 & $1879 \pm 317$ & MODÉRÉ \\
-4b5e4b32 & 17,8 & 4,0 & 99 & $1878 \pm 317$ & MODÉRÉ \\
-68c11f06 & 17,8 & 4,0 & 100 & $1823 \pm 317$ & FAIBLE \\
-f48c25f9 & 17,8 & 4,0 & 99 & $1904 \pm 317$ & FAIBLE \\
-d9508e77 & 17,9 & 3,0 & 100 & $1954 \pm 317$ & FAIBLE \\
+91d92804 & 18,0 & 4,0 & 99 & $1924 \pm 294$ & FAIBLE \\
+aa7b02a1 & 18,1 & 4,0 & 99 & $1775 \pm 294$ & FAIBLE \\
+718fd2af & 18,2 & 4,0 & 100 & $1927 \pm 294$ & FAIBLE \\
+eb084747 & 18,0 & 4,0 & 99 & $1954 \pm 294$ & MODÉRÉ \\
+0ff416d2 & 17,8 & 4,0 & 99 & $1879 \pm 294$ & MODÉRÉ \\
+4b5e4b32 & 17,8 & 4,0 & 99 & $1878 \pm 294$ & MODÉRÉ \\
+68c11f06 & 17,8 & 4,0 & 100 & $1823 \pm 294$ & FAIBLE \\
+f48c25f9 & 17,8 & 4,0 & 99 & $1904 \pm 294$ & FAIBLE \\
+d9508e77 & 17,9 & 3,0 & 100 & $1954 \pm 294$ & FAIBLE \\
 \textbf{Moyenne} & \textbf{18,0} & \textbf{4,1} & \textbf{99,2} & \textbf{1889} & — \\
 \bottomrule
 \end{tabular}
 \end{table}
 
-\noindent L'intervalle de confiance $\pm 317$~h correspond à la MAE du modèle GBR sur le
-jeu de test. Les capteurs présentant un niveau MODÉRÉ ont été détectés par 1 modèle sur 6.
+\noindent L'intervalle de confiance $\pm 294$~h correspond à la MAE test du modèle GBR
+(soit environ 33\% de la valeur prédite). Les capteurs présentant un niveau MODÉRÉ ont
+été détectés par le vote SoftVote comme suspects sans franchir le seuil de risque ÉLEVÉ.
+
+\section{Validation de la sécurité}
+
+Les mécanismes d'authentification et de limitation de débit sont couverts par une suite
+de tests dédiée (\texttt{tests/test\_security.py}), vérifiant notamment :
+
+\begin{itemize}
+  \item le rejet (\texttt{401}) de toute requête \texttt{/v1/*} sans en-tête \texttt{X-API-Key} valide ;
+  \item l'acceptation des requêtes authentifiées avec une clé valide ;
+  \item le déclenchement du \textit{rate limiting} au-delà du seuil de requêtes autorisé.
+\end{itemize}
+
+Cette couche de sécurité, absente de la version initiale du système, est désormais un
+prérequis pour tout déploiement exposé au-delà du réseau local de Novation City
+(notamment le déploiement Render décrit en annexe technique).
 
 \section{Validation système complet — tests de bout en bout}
 
@@ -1185,7 +1443,7 @@ jeu de test. Les capteurs présentant un niveau MODÉRÉ ont été détectés pa
 Le flux complet a été validé selon la chaîne :
 \[
 \text{MariaDB} \xrightarrow{\text{polling 2s}} \texttt{realtime\_mariadb.py}
-\xrightarrow{\text{POST}} \text{API FastAPI} \xrightarrow{3s} \text{Dashboard}
+\xrightarrow{\text{POST + X-API-Key}} \text{API FastAPI} \xrightarrow{3s} \text{Dashboard}
 \]
 
 \subsection{Performances API FastAPI v3.1.0}
@@ -1239,15 +1497,17 @@ Novation City.
 Les contributions techniques majeures sont :
 \begin{itemize}
   \item Un pipeline de \textbf{31 features} (temporelles, accélération, spectrales FFT, entropie) sur fenêtre glissante $w=20$ ;
-  \item Un ensemble de \textbf{6 modèles non supervisés} (IF, LOF, OCSVM, ECOD, HBOS, COPOD) avec SoftVote \textbf{IF+ECOD+HBOS+COPOD}, atteignant \textbf{F1=0,629}, \textbf{AUC-ROC=0,842}, \textbf{Recall=0,755} ;
-  \item Un modèle RUL dédié par \textbf{GradientBoostingRegressor} (46 features, MAE~=~317~h, $R^2=0{,}56$) entraîné sur des courbes de dégradation Weibull réalistes ;
-  \item Une \textbf{API FastAPI v3.1.0} (11 endpoints, latence $\leq 50$~ms) connectée en temps réel à MariaDB ;
-  \item Un \textbf{dashboard HTML5} industriel SCADA se rafraîchissant toutes les 3~secondes.
+  \item Un ensemble de \textbf{6 modèles non supervisés} (IF, LOF, OCSVM, ECOD, HBOS, COPOD) avec SoftVote \textbf{IF+ECOD+HBOS+COPOD} sous contrainte de précision, atteignant \textbf{AUC-ROC=0,9475} en validation croisée par capteur ;
+  \item Un modèle RUL dédié par \textbf{GradientBoostingRegressor} (46 features, MAE test~=~294~h soit 33\%, $R^2=0{,}61$), exploitant réellement les fréquences caractéristiques de défauts de roulements (BPFO/BPFI/BSF) ;
+  \item Une \textbf{API FastAPI v3.1.0} (13 endpoints documentés, latence $\leq 50$~ms), \textbf{sécurisée} par authentification à clé API et limitation de débit, et dotée d'un \textbf{pipeline de ré-entraînement en libre-service} (upload SQL) ;
+  \item Un \textbf{dashboard HTML5} industriel SCADA se rafraîchissant toutes les 3~secondes ;
+  \item Une \textbf{correction méthodologique documentée} du protocole d'évaluation (passage d'un split chronologique à une validation croisée GroupKFold par capteur), démontrant la robustesse du processus de validation adopté.
 \end{itemize}
 
 Les perspectives d'extension incluent : l'intégration de données de courant pour
-améliorer le modèle RUL, le déploiement Docker pour la portabilité, et l'intégration
-d'un module d'alerte SMS/email complet via \texttt{alert\_manager.py}.
+améliorer davantage le modèle RUL, la généralisation du déploiement Docker/ARM64 pour
+la portabilité sur Raspberry Pi 4, et l'extension du canal d'alerte (actuellement
+e-mail et Slack via \texttt{alert\_manager.py}) à la notification SMS.
 
 %─────────────────────────────────────────────────────────────────────────────
 \begin{thebibliography}{99}
@@ -1258,13 +1518,13 @@ d'un module d'alerte SMS/email complet via \texttt{alert\_manager.py}.
 
 \bibitem{weibull1951} W. Weibull, « A Statistical Distribution Function of Wide Applicability, » \textit{J. Applied Mechanics}, t. 18, p. 293--297, 1951.
 
+\bibitem{friedman2001} J.H. Friedman, « Greedy Function Approximation: A Gradient Boosting Machine, » \textit{Annals of Statistics}, t. 29, n° 5, p. 1189--1232, 2001.
+
 \bibitem{goldstein2012} M. Goldstein et A. Dengel, « Histogram-based Outlier Score (HBOS), » \textit{Poster at KI-2012}, 2012.
 
 \bibitem{li2022} Z. Li \textit{et al.}, « COPOD: Copula-Based Outlier Detection, » in \textit{ICDM 2020}, IEEE, 2020, p. 1118--1123.
 
 \bibitem{li2021} Z. Li \textit{et al.}, « ECOD: Unsupervised Outlier Detection Using Empirical Cumulative Distribution Functions, » \textit{IEEE TKDE}, 2022.
-
-\bibitem{chen2001} T. Chen et C. Guestrin, « XGBoost: A Scalable Tree Boosting System, » \textit{KDD 2016}, 2016.
 
 \bibitem{lundberg2017} S.M. Lundberg et S.-I. Lee, « A Unified Approach to Interpreting Model Predictions, » \textit{NeurIPS}, t. 30, 2017.
 

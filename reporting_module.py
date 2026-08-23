@@ -19,6 +19,7 @@ Usage :
 """
 
 import argparse
+import html
 import json
 import logging
 import sys
@@ -174,6 +175,12 @@ def compute_kpis(results: list, period_hours: float = 24.0) -> dict:
             "sensors_active": 0, "sensors_critical": [],
             "avg_rul_hours": 0, "min_rul_hours": 0,
             "period_hours": period_hours,
+            # Clé oubliée ici jusqu'à présent -- generate_html_report() fait
+            # kpis["period_label"] sans .get(), donc absence de résultats
+            # (fichier réellement vide, ou pas encore monté dans le conteneur
+            # API) faisait planter le rapport HTML en 500 (KeyError) au lieu
+            # d'afficher un rapport vide.
+            "period_label": f"Dernières {int(period_hours)}h" if period_hours < 48 else f"Derniers {int(period_hours/24)}j",
         }
 
     now = datetime.now()
@@ -201,13 +208,16 @@ def compute_kpis(results: list, period_hours: float = 24.0) -> dict:
         sid = r.get("sensor_id", "unknown")
         by_sensor[sid].append(r)
 
-    # Health scores
-    health_scores = [r.get("health_score", r.get("features", {}).get("health_score", 0))
-                     for r in period_results if r.get("health_score") or r.get("features", {}).get("health_score")]
-    health_scores = [h for h in health_scores if h and h > 0]
+    # Health scores — un score de 0 (pire cas réel) doit rester dans les KPI,
+    # donc on filtre sur "valeur présente" (is not None) et non sur "valeur truthy"
+    # (0 est faux en Python et disparaissait silencieusement du calcul).
+    health_scores = [r.get("health_score", r.get("features", {}).get("health_score"))
+                     for r in period_results]
+    health_scores = [h for h in health_scores if h is not None]
 
-    # RUL
-    rul_values = [r.get("rul_hours", 0) for r in period_results if r.get("rul_hours", 0) > 0]
+    # RUL — même correction : un RUL de 0h (rupture imminente) est le cas le
+    # plus critique à faire apparaître dans min_rul_hours, pas à exclure.
+    rul_values = [r.get("rul_hours") for r in period_results if r.get("rul_hours") is not None]
 
     # Capteurs critiques
     critical_sensors = []
@@ -252,14 +262,14 @@ def compute_sensor_summary(results: list) -> list:
     summaries = []
     for sid, sensor_results in sorted(by_sensor.items()):
         last = sensor_results[-1]
-        health_vals = [r.get("health_score", r.get("features", {}).get("health_score", 0))
+        health_vals = [r.get("health_score", r.get("features", {}).get("health_score"))
                        for r in sensor_results]
-        health_vals = [h for h in health_vals if h and h > 0]
+        health_vals = [h for h in health_vals if h is not None]
 
         anomaly_count = sum(1 for r in sensor_results if r.get("is_anomaly"))
         anomaly_rate  = (anomaly_count / len(sensor_results) * 100) if sensor_results else 0
 
-        rul_vals = [r.get("rul_hours", 0) for r in sensor_results if r.get("rul_hours", 0) > 0]
+        rul_vals = [r.get("rul_hours") for r in sensor_results if r.get("rul_hours") is not None]
         last_rul = rul_vals[-1] if rul_vals else 0
 
         risk_level = last.get("risk_level", "OK")
@@ -523,15 +533,15 @@ def _build_sensor_table(summaries: list) -> str:
     rows = ""
     for s in summaries:
         rows += f"""<tr>
-      <td><code style="font-size:12px;">{s['sensor_id']}</code></td>
-      <td>{s.get('motor_id', '—')}</td>
+      <td><code style="font-size:12px;">{html.escape(str(s['sensor_id']))}</code></td>
+      <td>{html.escape(str(s.get('motor_id', '—')))}</td>
       <td>{_risk_badge(s['risk_level'])}</td>
       <td>{_health_bar(s['health_score'])}</td>
       <td>{s['anomaly_count']} <span style="color:#6c757d;font-size:11px;">({s['anomaly_rate']}%)</span></td>
       <td style="font-weight:600;">{s['rul_hours']:.0f}h
         <span style="color:#6c757d;font-size:11px;">({s['rul_days']}j)</span></td>
       <td>{s['total_measures']}</td>
-      <td style="font-size:11px;color:#6c757d;">{s['last_seen'][:19] if len(str(s['last_seen'])) > 10 else s['last_seen']}</td>
+      <td style="font-size:11px;color:#6c757d;">{str(s['last_seen'])[:19] if len(str(s['last_seen'])) > 10 else s['last_seen']}</td>
     </tr>"""
 
     return f"""<table>
@@ -560,13 +570,13 @@ def _build_schedule_html(schedule: list) -> str:
         rows += f"""<li class="{li_class}">
       <div style="display:flex;justify-content:space-between;align-items:flex-start;">
         <div>
-          <strong>{item['sensor_id']}</strong>
-          {f"&nbsp;({item['motor_id']})" if item['motor_id'] != '—' else ''}
+          <strong>{html.escape(str(item['sensor_id']))}</strong>
+          {f"&nbsp;({html.escape(str(item['motor_id']))})" if item['motor_id'] != '—' else ''}
           &nbsp;{_badge(item['urgency'], badge_style)}
         </div>
         <div style="font-size:12px;color:#6c757d;">{item['due_date']}</div>
       </div>
-      <div style="font-size:13px;margin-top:4px;color:#2c3e50;">{item['action']}</div>
+      <div style="font-size:13px;margin-top:4px;color:#2c3e50;">{html.escape(str(item['action']))}</div>
       <div style="font-size:11px;color:#6c757d;margin-top:2px;">
         RUL : {item['rul_hours']:.0f}h — Santé : {item['health_score']:.0f}/100
       </div>
@@ -593,7 +603,7 @@ def _build_active_alerts_section(kpis: dict) -> str:
         style = "critical" if s["risk_level"] == "CRITIQUE" else "warning"
         alerts_html += f"""<div class="alert-box {style}">
       <div>
-        <div class="alert-title">{s['risk_level']} — Capteur {s['sensor_id']}</div>
+        <div class="alert-title">{s['risk_level']} — Capteur {html.escape(str(s['sensor_id']))}</div>
         <div class="alert-body">
           Santé : {s.get('health_score', 0):.0f}/100 &bull;
           RUL estimé : {s.get('rul_hours', 0):.0f}h &bull;
@@ -620,9 +630,9 @@ def _build_anomaly_history_section(history: dict) -> str:
         avg_score = np.mean([e.get("score", 0) for e in entries])
         anomaly_count = sum(1 for e in entries if e.get("score", 0) >= 0.5)
         last_entry = entries[-1]
-        last_ts = last_entry.get("timestamp", "—")[:19]
+        last_ts = str(last_entry.get("timestamp") or "—")[:19]
         rows += f"""<tr>
-      <td><code style="font-size:12px;">{sid}</code></td>
+      <td><code style="font-size:12px;">{html.escape(str(sid))}</code></td>
       <td>{len(entries)}</td>
       <td>{anomaly_count}</td>
       <td>{avg_score:.3f}</td>
@@ -745,6 +755,20 @@ def generate_json_report(report_type: str = "daily") -> dict:
     summaries = compute_sensor_summary(results)
     schedule = compute_maintenance_schedule(summaries)
 
+    # Historique anomalies par capteur (mémoire persistante) — même source que
+    # la section "Historique Anomalies" du rapport HTML (_build_anomaly_history_section).
+    anomaly_history_summary = []
+    for sid, entries in sorted(history.items()):
+        if not entries:
+            continue
+        anomaly_history_summary.append({
+            "sensor_id":     sid,
+            "n_measures":    len(entries),
+            "n_anomalies":   sum(1 for e in entries if e.get("score", 0) >= 0.5),
+            "avg_score":     round(float(np.mean([e.get("score", 0) for e in entries])), 4),
+            "last_timestamp": entries[-1].get("timestamp"),
+        })
+
     return {
         "report_type":    report_type,
         "generated_at":   datetime.now().isoformat(),
@@ -752,6 +776,7 @@ def generate_json_report(report_type: str = "daily") -> dict:
         "kpis":           kpis,
         "sensor_summaries": summaries,
         "maintenance_schedule": schedule[:10],
+        "anomaly_history": anomaly_history_summary,
     }
 
 

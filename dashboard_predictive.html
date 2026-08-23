@@ -55,6 +55,12 @@ header{
 }
 .apib.ok{background:rgba(34,197,94,.08);border-color:rgba(34,197,94,.3);color:var(--green)}
 .apib.err{background:rgba(239,68,68,.08);border-color:rgba(239,68,68,.3);color:var(--red)}
+.nav-link{
+  display:flex;align-items:center;gap:5px;padding:4px 11px;
+  border-radius:20px;font-size:.65rem;font-family:var(--mono);
+  border:1px solid var(--bd2);color:var(--t2);text-decoration:none;transition:.3s
+}
+.nav-link:hover{border-color:var(--c2);color:var(--c2)}
 .dot{width:6px;height:6px;border-radius:50%;background:currentColor;animation:pd 2s infinite}
 @keyframes pd{0%,100%{opacity:1;transform:scale(1)}50%{opacity:.4;transform:scale(.7)}}
 
@@ -215,12 +221,12 @@ canvas{max-height:150px}
 }
 .ov-t{font-size:1.2rem;font-weight:800;color:var(--c1);letter-spacing:2px}
 .ov-s{font-size:.7rem;color:var(--t3);font-family:var(--mono)}
-#api-inp{
+#api-inp,#api-key-inp{
   background:var(--bg2);border:1px solid var(--bd2);border-radius:8px;
   color:var(--t1);font-family:var(--mono);font-size:.75rem;
   padding:8px 14px;width:280px;outline:none;text-align:center
 }
-#api-inp:focus{border-color:var(--c1)}
+#api-inp:focus,#api-key-inp:focus{border-color:var(--c1)}
 .ov-btn{
   background:linear-gradient(135deg,var(--c1),var(--c2));
   border:none;border-radius:8px;color:#000;
@@ -236,15 +242,24 @@ canvas{max-height:150px}
 </head>
 <body>
 
+<script>
+  // ── GARDE D'ACCÈS ── voir dashboard_realtime.html pour le détail : ce
+  // garde ne teste que la présence du token (synchrone, pas de flash de
+  // contenu) ; la validité réelle est vérifiée plus bas via /v1/auth/me.
+  if (!localStorage.getItem('access_token')) {
+    window.location.replace('login.html');
+  }
+</script>
+
 <!-- OVERLAY -->
 <div id="ov">
   <div class="ov-spin" id="ovsp"></div>
   <div class="ov-t">⚙ MAINTENANCE PRÉDICTIVE</div>
   <div class="ov-s">ISG Bizerte · Novation City · API v3.1.0</div>
-  <div style="font-size:.68rem;color:var(--t3)">URL de votre API FastAPI</div>
-  <input id="api-inp" type="text" value="http://localhost:8000">
+  <div style="font-size:.68rem;color:var(--t3)">URL de l'API FastAPI</div>
+  <input id="api-inp" type="text" value="">
   <button class="ov-btn" onclick="doConnect()">CONNECTER</button>
-  <div id="ov-err">❌ Connexion impossible<br>Vérifiez que python api_unified_pythagore.py tourne</div>
+  <div id="ov-err">❌ Connexion impossible<br>Vérifiez que python api_unified_pythagore.py tourne sur le port 8000</div>
 </div>
 
 <!-- HEADER -->
@@ -259,13 +274,16 @@ canvas{max-height:150px}
   <div class="hdr-kpis">
     <div class="hk"><span class="l">Capteurs</span>&nbsp;<span class="v" id="h-s">—</span></div>
     <div class="hk"><span class="l">Anomalies</span>&nbsp;<span class="v" id="h-a" style="color:var(--red)">—</span></div>
-    <div class="hk"><span class="l">AUC-ROC</span>&nbsp;<span class="v" id="h-auc">0.683</span></div>
-    <div class="hk"><span class="l">F1</span>&nbsp;<span class="v" id="h-f1">0.401</span></div>
-    <div class="hk"><span class="l">Modèles</span>&nbsp;<span class="v">IF·LOF·OCSVM·ECOD</span></div>
+    <div class="hk"><span class="l">AUC-ROC</span>&nbsp;<span class="v" id="h-auc">0.842</span></div>
+    <div class="hk"><span class="l">F1</span>&nbsp;<span class="v" id="h-f1">0.629</span></div>
+    <div class="hk"><span class="l">Modèles</span>&nbsp;<span class="v">IF·LOF·OCSVM·ECOD·HBOS·COPOD</span></div>
   </div>
   <div class="hdr-right">
+    <a href="dashboard_realtime.html" class="nav-link" title="Vue détaillée par capteur">📈 Vue détaillée</a>
     <div id="clk"></div>
     <div class="apib err" id="apib"><span class="dot"></span><span id="apit">Déconnecté</span></div>
+    <span class="nav-link" id="userBadge" title="Utilisateur connecté">👤 --</span>
+    <a href="#" class="nav-link" id="logoutLink" title="Se déconnecter">🚪 Déconnexion</a>
   </div>
 </header>
 
@@ -402,12 +420,14 @@ canvas{max-height:150px}
 
     <!-- Votes -->
     <div class="ds">
-      <div class="dst">Votes des 4 modèles ML</div>
+      <div class="dst">Votes des 6 modèles ML</div>
       <div class="vg">
         <div class="vi"><span class="vi-n">Isolation Forest</span><span class="vi-r" id="vIF">—</span></div>
         <div class="vi"><span class="vi-n">LOF</span><span class="vi-r" id="vLOF">—</span></div>
         <div class="vi"><span class="vi-n">OCSVM</span><span class="vi-r" id="vOCSVM">—</span></div>
         <div class="vi"><span class="vi-n">ECOD</span><span class="vi-r" id="vECOD">—</span></div>
+        <div class="vi"><span class="vi-n">HBOS</span><span class="vi-r" id="vHBOS">—</span></div>
+        <div class="vi"><span class="vi-n">COPOD</span><span class="vi-r" id="vCOPOD">—</span></div>
       </div>
     </div>
 
@@ -432,7 +452,12 @@ canvas{max-height:150px}
 // ═══════════════════════════════════════════
 // CONFIGURATION
 // ═══════════════════════════════════════════
-var API = 'http://' + window.location.hostname + ':8000';
+var API = 'https://' + window.location.hostname + ':8000';  // API TLS-only, voir initApiInput()
+// Cle API pour les endpoints proteges (/metrics, /sensors) -- doit correspondre
+// a une des valeurs de API_KEYS dans .env cote serveur. En dur ici pour un
+// usage 100% local (dashboard servi sur localhost uniquement).
+var API_KEY = 'f95c23330af74473f904f9c8a6a72a0388b3f99792e0be0f038b19db36129ebd';
+function apiHeaders(){ return {'X-API-Key': API_KEY}; }
 var SEL = null;
 var SD  = {};  // sensor_id -> data
 var HS  = {};  // history score
@@ -522,15 +547,70 @@ var cH = new Chart(document.getElementById('ch'), {
 // ═══════════════════════════════════════════
 // CONNEXION API
 // ═══════════════════════════════════════════
+
 function initApiInput(){
-  var inp = document.getElementById('api-inp');
   var host = window.location.hostname;
-  inp.value = 'http://' + host + ':8000';
-  API = inp.value;
+  var url  = 'https://' + host + ':8000';
+  document.getElementById('api-inp').value = url;
+  API = url;
+}
+
+// Détection auto http/https : en Docker (docker-compose.yml) l'API est
+// TLS-only, mais en exécution locale native (LANCER.bat, sans certs/
+// présents) elle bascule en HTTP simple -- https:// fixe cassait alors
+// silencieusement toute connexion (voir le même correctif dans
+// dashboard_realtime.html). Essaie https, puis http, met à jour API et le
+// champ affiché avec le schéma qui répond effectivement.
+function detectApiScheme(){
+  var host = window.location.hostname;
+  var schemes = ['https', 'http'];
+  function tryScheme(i){
+    if (i >= schemes.length) return Promise.resolve();
+    var url = schemes[i] + '://' + host + ':8000';
+    var ctrl = new AbortController();
+    var timer = setTimeout(function(){ ctrl.abort(); }, 2500);
+    return fetch(url + '/health', {signal: ctrl.signal}).then(function(r){
+      clearTimeout(timer);
+      if (r.ok) {
+        API = url;
+        document.getElementById('api-inp').value = url;
+        return;
+      }
+      return tryScheme(i + 1);
+    }).catch(function(){
+      clearTimeout(timer);
+      return tryScheme(i + 1);
+    });
+  }
+  return tryScheme(0);
+}
+
+function logout(){
+  localStorage.removeItem('access_token');
+  localStorage.removeItem('user');
+  window.location.replace('login.html');
+}
+
+// Vérification serveur du token (le garde en haut du <body> ne teste que sa
+// présence). Un 401 ici (expiré/invalide) renvoie vers login.html plutôt
+// que de laisser un technicien sur un dashboard dont il n'a plus l'accès.
+function checkAuth(){
+  var token = localStorage.getItem('access_token');
+  return fetch(API + '/v1/auth/me', {headers: {'Authorization': 'Bearer ' + token}})
+    .then(function(r){ if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
+    .then(function(me){
+      document.getElementById('userBadge').textContent = '👤 ' + me.username;
+      return true;
+    })
+    .catch(function(e){
+      console.warn('Session invalide ou expirée :', e.message || e);
+      logout();
+      return false;
+    });
 }
 
 function fetchMetrics(url){
-  fetch(url + '/metrics')
+  fetch(url + '/metrics', {headers: apiHeaders()})
     .then(function(r){ return r.json(); })
     .then(function(m){
       if(m.auc_roc && m.auc_roc > 0)
@@ -569,7 +649,15 @@ function setApiErr(){
   document.getElementById('apit').textContent = 'Connexion perdue';
 }
 
-window.addEventListener('load', function(){ setTimeout(doConnect, 600); });
+window.addEventListener('load', function(){
+  document.getElementById('logoutLink').addEventListener('click', function(e){ e.preventDefault(); logout(); });
+  initApiInput();
+  detectApiScheme().then(function(){
+    return checkAuth();
+  }).then(function(ok){
+    if (ok) setTimeout(doConnect, 400); // sinon logout() a déjà redirigé
+  });
+});
 
 // ═══════════════════════════════════════════
 // BOUCLE PRINCIPALE
@@ -595,7 +683,7 @@ function fetchData(){
       // Fallback /sensors uniquement si aucune donnée live en mémoire
       // Evite de mélanger données live + données historiques CSV
       if(Object.keys(SD).length > 0) return;
-      fetch(API + '/sensors', {signal: AbortSignal.timeout ? AbortSignal.timeout(3000) : undefined})
+      fetch(API + '/sensors', {headers: apiHeaders(), signal: AbortSignal.timeout ? AbortSignal.timeout(3000) : undefined})
         .then(function(r){ return r.json(); })
         .then(function(d){
           if(d.sensors && d.sensors.length > 0){
@@ -698,6 +786,14 @@ function processJSON(raw){
       ts:         (pred.timestamp || e.timestamp || '').slice(11, 19),
       iter:       safeNum(e.iteration)
     };
+    // hasData : le capteur a-t-il des mesures physiques exploitables sur cette
+    // entrée (pas juste un score d'anomalie hérité) ? Sans ça, un capteur avec
+    // un score élevé mais des features NaN/manquantes (ex: temperature absente
+    // sur toute la fenêtre) affichait un badge rouge "ÉLEVÉ"/"CRITIQUE" à côté
+    // d'un panneau entièrement à "--" — trompeur. On neutralise le badge tant
+    // qu'aucune mesure physique fraîche n'est disponible.
+    var d = SD[sid];
+    d.hasData = isFinite(d.temp) && isFinite(d.vib_total) && (d.temp !== 0 || d.vib_total !== 0);
   });
 
   renderList();
@@ -764,13 +860,17 @@ function renderList(){
   var html = '';
   sorted.forEach(function(s){
     var sel = s.sid === SEL ? ' sel' : '';
+    var led = s.hasData ? ledClass(s.score) : 'ln';
+    var ledClr = s.hasData ? ledColor(s.score) : '#6b7280';
+    var riskLabel = s.hasData ? s.risk : 'EN ATTENTE';
+    var pct = s.hasData ? (s.score*100).toFixed(0) + '%' : '—';
     html += '<div class="si' + sel + '" id="si-' + s.sid + '" onclick="selectSensor(\'' + s.sid + '\')">'
-          + '<div class="sled ' + ledClass(s.score) + '"></div>'
+          + '<div class="sled ' + led + '"></div>'
           + '<div class="si-info">'
           + '<div class="si-id">' + s.sid + '</div>'
-          + '<div class="si-sub">' + (s.iter>0&&s.temp>0 ? s.temp.toFixed(1)+'°C' : '—') + ' · ' + (s.iter>0&&s.vib_total>0 ? s.vib_total.toFixed(0)+'mg' : '—') + ' · ' + s.risk + '</div>'
+          + '<div class="si-sub">' + (s.iter>0&&s.temp>0 ? s.temp.toFixed(1)+'°C' : '—') + ' · ' + (s.iter>0&&s.vib_total>0 ? s.vib_total.toFixed(0)+'mg' : '—') + ' · ' + riskLabel + '</div>'
           + '</div>'
-          + '<div class="si-pct" style="color:' + ledColor(s.score) + '">' + (s.score*100).toFixed(0) + '%</div>'
+          + '<div class="si-pct" style="color:' + ledClr + '">' + pct + '</div>'
           + '</div>';
   });
   list.innerHTML = html;
@@ -849,14 +949,16 @@ function renderDetail(sid){
   setEl('did',   sid);
   setEl('dmeta', 'Capteur IFM · Novation City · ' + s.ts + ' · Itération ' + s.iter);
 
-  // Badges
-  var bc = badgeClass(s.score);
+  // Badges — neutralisés tant qu'aucune mesure physique fraîche n'est
+  // disponible pour ce capteur dans la session en cours (voir hasData).
+  var bc = s.hasData ? badgeClass(s.score) : 'dbg-n';
+  var riskLabel = s.hasData ? s.risk : 'EN ATTENTE DE DONNÉES';
   document.getElementById('dbdgs').innerHTML =
-    '<div class="dbg ' + bc + '">' + s.risk + '</div>'
+    '<div class="dbg ' + bc + '">' + riskLabel + '</div>'
   + '<div class="dbg" style="background:rgba(14,165,233,.07);border-color:rgba(14,165,233,.25);color:#0ea5e9">'
-  + s.votes + '/4 votes · ' + (s.score*100).toFixed(0) + '%</div>'
+  + (s.hasData ? (s.votes + '/6 votes · ' + (s.score*100).toFixed(0) + '%') : '—') + '</div>'
   + '<div class="dbg" style="background:rgba(139,92,246,.07);border-color:rgba(139,92,246,.25);color:#a78bfa">'
-  + s.prediction + '</div>';
+  + (s.hasData ? s.prediction : '—') + '</div>';
 
   // ─── Graphique score anomalie
   if(HS[sid] && HS[sid].length){
@@ -924,8 +1026,8 @@ function renderDetail(sid){
     mtr.textContent = '→ Stable'; mtr.style.color = '#00e5c0';
   }
 
-  // ─── Votes des 4 modèles
-  ['IF','LOF','OCSVM','ECOD'].forEach(function(nm){
+  // ─── Votes des 6 modèles
+  ['IF','LOF','OCSVM','ECOD','HBOS','COPOD'].forEach(function(nm){
     var el  = document.getElementById('v' + nm);
     if(!el) return;
     var isA = s.models[nm] === 'ANOMALY';
@@ -988,7 +1090,6 @@ function renderAlerts(){
   list.innerHTML = html;
 }
 
-window.addEventListener('load', function(){ initApiInput(); });
 </script>
 </body>
 </html>

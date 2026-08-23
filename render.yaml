@@ -25,6 +25,10 @@ services:
         value: "utf-8"
       - key: DEMO_MODE
         value: "true"
+      # ── Auth API Key (OBLIGATOIRE — à définir dans le dashboard Render) ─────────
+      # Générer : python -c "import secrets; print(secrets.token_hex(32))"
+      - key: API_KEYS
+        sync: false   # valeur saisie manuellement dans le dashboard Render, jamais exposée
       # ── MariaDB (optionnel — décommentez si vous exposez MariaDB publiquement) ──
       # - key: MARIADB_HOST
       #   sync: false

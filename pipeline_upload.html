@@ -55,6 +55,14 @@ header{
 .dot.ok{background:var(--success);animation:blink 2s infinite}
 .dot.err{background:var(--danger)}
 @keyframes blink{0%,100%{opacity:1}50%{opacity:.3}}
+.nav-link{
+  background:var(--surface);border:1px solid var(--border);
+  border-radius:20px;padding:7px 16px;
+  font-size:12px;color:var(--text);text-decoration:none;
+  display:flex;align-items:center;gap:6px;
+  transition:border-color .3s,color .3s;
+}
+.nav-link:hover{border-color:var(--primary);color:var(--primary)}
 
 /* ─── MAIN ───────────────────────────────────────────── */
 main{max-width:1080px;margin:0 auto;padding:36px 20px 60px}
@@ -327,6 +335,7 @@ main{max-width:1080px;margin:0 auto;padding:36px 20px 60px}
     <p>PFE ISG Bizerte — Mohamed Yassine Balti — Novation City 2026</p>
   </div>
   <div class="hdr-right">
+    <a href="dashboard_realtime.html" class="nav-link" title="Retour au dashboard temps réel">📊 Dashboard</a>
     <div class="api-badge" id="apiBadge">
       <span class="dot" id="apiDot"></span>
       <span id="apiTxt">Vérification...</span>
@@ -357,12 +366,12 @@ main{max-width:1080px;margin:0 auto;padding:36px 20px 60px}
       <div class="step" id="st4">
         <div class="s-circle">🧠</div>
         <div class="s-label">Entraînement</div>
-        <div class="s-sub">IF·LOF·OCSVM·ECOD</div>
+        <div class="s-sub">IF·ECOD·HBOS·COPOD</div>
       </div>
       <div class="step" id="st5">
         <div class="s-circle">🎯</div>
         <div class="s-label">Prédictions</div>
-        <div class="s-sub">Vote 2/4</div>
+        <div class="s-sub">SoftVote + persistance</div>
       </div>
       <div class="step" id="st6">
         <div class="s-circle">✅</div>
@@ -400,10 +409,13 @@ main{max-width:1080px;margin:0 auto;padding:36px 20px 60px}
           placeholder="https://api-predictive-maintenance.onrender.com">
       </div>
       <div class="cfg-item">
+        <label>Clé API (X-API-Key)</label>
+        <input type="password" id="apiKey" placeholder="Votre clé API (obligatoire)">
+      </div>
+      <div class="cfg-item">
         <label>Mode d'entraînement</label>
         <select id="trainMode">
-          <option value="full">Complet — IF + LOF + OCSVM + ECOD (recommandé)</option>
-          <option value="fast">Rapide — IF + LOF seulement</option>
+          <option value="full">Complet — IF + ECOD + HBOS + COPOD (SoftVote)</option>
         </select>
       </div>
     </div>
@@ -493,6 +505,11 @@ main{max-width:1080px;margin:0 auto;padding:36px 20px 60px}
 <script>
 // ─── CONFIG ──────────────────────────────────────────────────
 const apiUrl = () => document.getElementById('apiUrl').value.replace(/\/+$/, '');
+const apiKey = () => document.getElementById('apiKey').value.trim();
+const authHeaders = () => {
+  const k = apiKey();
+  return k ? { 'X-API-Key': k } : {};
+};
 let jobId = null;
 let pollTimer = null;
 let logIndex = 0;
@@ -570,7 +587,7 @@ async function launchPipeline() {
   fd.append('train_mode', document.getElementById('trainMode').value);
 
   try {
-    const r = await fetch(apiUrl() + '/v1/pipeline/upload', { method: 'POST', body: fd });
+    const r = await fetch(apiUrl() + '/v1/pipeline/upload', { method: 'POST', body: fd, headers: authHeaders() });
     if (!r.ok) {
       const err = await r.json().catch(() => ({ detail: 'Erreur serveur' }));
       throw new Error(err.detail || 'Erreur ' + r.status);
@@ -592,7 +609,7 @@ async function launchPipeline() {
 async function poll() {
   if (!jobId) return;
   try {
-    const r = await fetch(apiUrl() + '/v1/pipeline/status/' + jobId + '?since=' + logIndex);
+    const r = await fetch(apiUrl() + '/v1/pipeline/status/' + jobId + '?since=' + logIndex, { headers: authHeaders() });
     if (!r.ok) return;
     const d = await r.json();
 
@@ -722,9 +739,29 @@ function toast(msg, type = '') {
 }
 
 // ─── INIT ────────────────────────────────────────────────────
+// En local (Docker Compose sert cette page sur :3000), l'API tourne sur :8000 de
+// la même machine en HTTPS (certificat auto-signé -- voir TLS_CERT_FILE/TLS_KEY_FILE
+// dans .env) -- inutile de garder l'URL Render par défaut, source de confusion
+// ("API hors ligne" alors que l'API locale tourne bien, juste pas à cette adresse).
+// En production (page servie ailleurs que localhost/127.0.0.1), on ne touche pas
+// à la valeur pré-remplie (URL Render).
+// La saisie de l'utilisateur est mémorisée dans localStorage -- sans ça, toute
+// URL personnalisée (ex: IP réseau, port différent) était écrasée à chaque
+// rechargement de page, obligeant à la retaper à chaque fois.
+const apiUrlInput  = document.getElementById('apiUrl');
+const savedApiUrl  = localStorage.getItem('pipelineApiUrl');
+if (savedApiUrl) {
+  apiUrlInput.value = savedApiUrl;
+} else if (location.hostname === 'localhost' || location.hostname === '127.0.0.1') {
+  apiUrlInput.value = `https://${location.hostname}:8000`;
+}
+apiUrlInput.addEventListener('change', () => {
+  localStorage.setItem('pipelineApiUrl', apiUrlInput.value);
+  checkApi();
+});
+
 checkApi();
 setInterval(checkApi, 30000);
-document.getElementById('apiUrl').addEventListener('change', checkApi);
 </script>
 </body>
 </html>

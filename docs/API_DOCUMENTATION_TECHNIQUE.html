@@ -1,0 +1,672 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<title>Documentation API — Maintenance Prédictive IA</title>
+<style>
+  @page {
+    size: A4;
+    margin: 2.2cm 1.8cm 2.4cm 1.8cm;
+  }
+  body {
+    font-family: "Helvetica", "Arial", sans-serif;
+    font-size: 10pt;
+    color: #1a1a1a;
+    line-height: 1.45;
+  }
+  h1 {
+    font-size: 20pt;
+    color: #0b3d5c;
+    border-bottom: 2pt solid #0b3d5c;
+    padding-bottom: 6pt;
+    margin-top: 0;
+  }
+  h2 {
+    font-size: 14pt;
+    color: #0b3d5c;
+    margin-top: 22pt;
+    margin-bottom: 8pt;
+    border-bottom: 0.75pt solid #b7c9d3;
+    padding-bottom: 3pt;
+    page-break-after: avoid;
+  }
+  h3 {
+    font-size: 11.5pt;
+    color: #145a80;
+    margin-top: 14pt;
+    margin-bottom: 6pt;
+    page-break-after: avoid;
+  }
+  h4 {
+    font-size: 10.5pt;
+    color: #333333;
+    margin-top: 10pt;
+    margin-bottom: 4pt;
+    page-break-after: avoid;
+  }
+  p { margin: 5pt 0; text-align: justify; }
+  .cover {
+    text-align: center;
+    padding-top: 3.2cm;
+  }
+  .cover h1 {
+    font-size: 26pt;
+    border: none;
+    color: #0b3d5c;
+  }
+  .cover .subtitle {
+    font-size: 13pt;
+    color: #555555;
+    margin-top: 10pt;
+  }
+  .cover .meta {
+    margin-top: 36pt;
+    font-size: 10pt;
+    color: #444444;
+  }
+  .cover .badge {
+    display: inline;
+    background-color: #eaf3f8;
+    color: #0b3d5c;
+    padding: 3pt 10pt;
+    border-radius: 3pt;
+    font-size: 9pt;
+    margin-top: 30pt;
+  }
+  .section { page-break-before: always; }
+  .no-break { page-break-before: avoid; }
+  .endpoint { page-break-inside: avoid; margin-bottom: 4pt; }
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 8pt 0 12pt 0;
+    font-size: 9pt;
+  }
+  th {
+    background-color: #0b3d5c;
+    color: #ffffff;
+    padding: 5pt 6pt;
+    text-align: left;
+    font-size: 8.5pt;
+  }
+  td {
+    padding: 4pt 6pt;
+    border-bottom: 0.5pt solid #d5dee3;
+    vertical-align: top;
+  }
+  tr:nth-child(even) td { background-color: #f4f8fa; }
+  .formula {
+    background-color: #f4f8fa;
+    border-left: 3pt solid #0b3d5c;
+    padding: 6pt 10pt;
+    margin: 6pt 0;
+    font-family: "Courier New", monospace;
+    font-size: 9pt;
+    white-space: pre;
+    page-break-inside: avoid;
+  }
+  code {
+    font-family: "Courier New", monospace;
+    background-color: #f0f0f0;
+    padding: 1pt 3pt;
+    font-size: 9pt;
+  }
+  .box-warn {
+    background-color: #fff6e6;
+    border-left: 3pt solid #e0a000;
+    padding: 6pt 10pt;
+    margin: 8pt 0;
+    font-size: 9.5pt;
+  }
+  .box-ok {
+    background-color: #eafaf0;
+    border-left: 3pt solid #159957;
+    padding: 6pt 10pt;
+    margin: 8pt 0;
+    font-size: 9.5pt;
+  }
+  .box-info {
+    background-color: #eaf3f8;
+    border-left: 3pt solid #0b3d5c;
+    padding: 6pt 10pt;
+    margin: 8pt 0;
+    font-size: 9.5pt;
+  }
+  ul, ol { margin: 4pt 0; padding-left: 16pt; }
+  li { margin: 2pt 0; }
+  .toc-item { margin: 3pt 0; font-size: 10pt; }
+  .toc-num { color: #0b3d5c; font-weight: bold; display: inline-block; width: 22pt; }
+  .small { font-size: 8pt; color: #777777; }
+  .center { text-align: center; }
+  .method {
+    display: inline-block;
+    font-family: "Courier New", monospace;
+    font-weight: bold;
+    font-size: 9pt;
+    padding: 1pt 6pt;
+    border-radius: 3pt;
+    color: #ffffff;
+    margin-right: 5pt;
+  }
+  .m-get  { background-color: #159957; }
+  .m-post { background-color: #0b3d5c; }
+  .path { font-family: "Courier New", monospace; font-size: 10pt; font-weight: bold; }
+  .tag-auth   { color: #b34700; font-weight: bold; }
+  .tag-public { color: #159957; font-weight: bold; }
+  .tag-admin  { color: #b30000; font-weight: bold; }
+</style>
+</head>
+<body>
+
+<!-- ═══════════════════════════ PAGE DE GARDE ═══════════════════════════ -->
+<div class="cover">
+  <div class="badge">PFE — ISG BIZERTE / NOVATION CITY</div>
+  <h1>DOCUMENTATION API</h1>
+  <div class="subtitle">Maintenance Prédictive IA — Référence complète de l'API REST<br>
+  Authentification, rate limiting, schémas de requêtes/réponses, 22 endpoints</div>
+  <div class="meta">
+    Fichier source : <code>api_unified_pythagore.py</code><br>
+    Version API : 3.1.0 · Framework : FastAPI 0.115 + Uvicorn · Doc interactive : <code>/docs</code>, <code>/redoc</code><br><br>
+    <span class="small">Document généré le 07/08/2026</span>
+  </div>
+</div>
+
+<!-- ═══════════════════════════ TABLE DES MATIÈRES ═══════════════════════════ -->
+<div class="section">
+<h1>Table des matières</h1>
+<div class="toc-item"><span class="toc-num">1.</span> Vue d'ensemble</div>
+<div class="toc-item"><span class="toc-num">2.</span> Authentification</div>
+<div class="toc-item"><span class="toc-num">3.</span> Rate limiting</div>
+<div class="toc-item"><span class="toc-num">4.</span> CORS</div>
+<div class="toc-item"><span class="toc-num">5.</span> Modèles de données communs</div>
+<div class="toc-item"><span class="toc-num">6.</span> Codes d'erreur</div>
+<div class="toc-item"><span class="toc-num">7.</span> Endpoints — Système</div>
+<div class="toc-item"><span class="toc-num">8.</span> Endpoints — IA / Prédiction</div>
+<div class="toc-item"><span class="toc-num">9.</span> Endpoints — Reporting &amp; Alertes</div>
+<div class="toc-item"><span class="toc-num">10.</span> Endpoints — Pipeline (ré-entraînement)</div>
+<div class="toc-item"><span class="toc-num">11.</span> Tableau récapitulatif</div>
+</div>
+
+<!-- ═══════════════════════════ 1. VUE D'ENSEMBLE ═══════════════════════════ -->
+<div class="section">
+<h1>1. Vue d'ensemble</h1>
+
+<p>L'API <strong>Maintenance Prédictive</strong> expose 22 endpoints HTTP couvrant la détection
+d'anomalie sur roulements (ensemble de 6 modèles ML non supervisés), l'estimation de durée de
+vie résiduelle (RUL), l'analyse spectrale, le reporting et le pilotage du pipeline de
+ré-entraînement. Cette documentation couvre uniquement la surface HTTP de l'API — pour
+l'architecture globale du système (moteur temps réel, dashboards, entraînement), voir
+<code>DOCUMENTATION_TECHNIQUE.pdf</code>.</p>
+
+<table>
+<tr><th>Caractéristique</th><th>Valeur</th></tr>
+<tr><td>Base URL (local)</td><td><code>http://localhost:8000</code></td></tr>
+<tr><td>Documentation interactive</td><td><code>/docs</code> (Swagger UI) · <code>/redoc</code> (ReDoc)</td></tr>
+<tr><td>Format des réponses</td><td><code>application/json; charset=utf-8</code> (forcé explicitement)</td></tr>
+<tr><td>Authentification</td><td>En-tête <code>X-API-Key</code>, 2 rôles (admin / opérateur)</td></tr>
+<tr><td>Méthodes autorisées (CORS)</td><td>GET, POST</td></tr>
+<tr><td>Nombre d'endpoints</td><td>22 (5 Système, 8 IA/Prédiction, 1 Reporting, 2 Alertes, 2 Données, 4 Pipeline)</td></tr>
+</table>
+
+<div class="box-info">
+<strong>Convention de lecture :</strong> chaque endpoint de ce document indique sa méthode HTTP,
+son chemin, son niveau d'authentification (<span class="tag-public">public</span> /
+<span class="tag-auth">opérateur ou admin</span> / <span class="tag-admin">admin uniquement</span>),
+sa limite de débit (rate limit), un exemple de requête/réponse et les codes d'erreur possibles.</div>
+</div>
+
+<!-- ═══════════════════════════ 2. AUTHENTIFICATION ═══════════════════════════ -->
+<div class="section">
+<h1>2. Authentification</h1>
+
+<p>Implémentée dans <code>auth.py</code>. Système de clé API à 2 rôles (RBAC minimal), avec
+comparaison en <strong>temps constant</strong> (<code>hmac.compare_digest</code>) pour résister
+aux attaques temporelles.</p>
+
+<h2>2.1 En-tête requis</h2>
+<div class="formula">X-API-Key: &lt;votre_clé&gt;</div>
+<p>Le nom de l'en-tête est configurable via la variable d'environnement <code>API_KEY_HEADER</code>
+(défaut : <code>X-API-Key</code>).</p>
+
+<h2>2.2 Rôles</h2>
+<table>
+<tr><th>Rôle</th><th>Variable d'environnement</th><th>Droits</th></tr>
+<tr><td><strong>admin</strong></td><td><code>API_KEYS=cle1,cle2</code></td><td>Tous les endpoints protégés, y compris <code>/v1/pipeline/upload</code></td></tr>
+<tr><td><strong>operator</strong></td><td><code>API_KEYS_OPERATOR=cle3,cle4</code></td><td>Tous les endpoints protégés <strong>sauf</strong> <code>/v1/pipeline/upload</code></td></tr>
+</table>
+<p>Génération d'une clé sûre :</p>
+<div class="formula">python -c "import secrets; print(secrets.token_hex(32))"</div>
+
+<h2>2.3 Comportement</h2>
+<table>
+<tr><th>Situation</th><th>Code</th><th>Message</th></tr>
+<tr><td>En-tête absent</td><td>401</td><td>En-tête X-API-Key manquant.</td></tr>
+<tr><td>Clé invalide</td><td>401</td><td>Clé API invalide.</td></tr>
+<tr><td>Clé opérateur sur endpoint admin-only</td><td>403</td><td>Cette opération nécessite une clé API de niveau admin.</td></tr>
+<tr><td>Aucune clé configurée côté serveur</td><td>503</td><td>Fail-closed — l'API refuse tout plutôt que de s'ouvrir par erreur</td></tr>
+</table>
+
+<p>Chaque tentative (succès/échec) est journalisée dans <code>audit.log</code> (JSON Lines) avec
+horodatage, résultat (<code>GRANTED</code>/<code>DENIED</code>/<code>FORBIDDEN</code>), rôle, IP,
+méthode, chemin, et une <strong>empreinte SHA-256 tronquée</strong> de la clé — jamais la clé en
+clair.</p>
+
+<h2>2.4 Endpoints publics (sans clé)</h2>
+<p><code>GET /</code>, <code>GET /health</code>, <code>/docs</code>, <code>/redoc</code>,
+<code>GET /metrics</code>, <code>GET /v1/model-card</code>, <code>GET /sensors</code>,
+<code>GET /anomalies</code>, <code>GET /v1/health-score/{id}</code>,
+<code>GET /v1/history/{id}</code>, <code>GET /v1/alert-level/{id}</code>,
+<code>GET /v1/results</code>, <code>GET /v1/spectral/{id}</code>, <code>GET /pipeline</code>,
+<code>GET /v1/alerts</code>, <code>GET /v1/alerts/stats</code>.</p>
+</div>
+
+<!-- ═══════════════════════════ 3. RATE LIMITING ═══════════════════════════ -->
+<div class="section">
+<h1>3. Rate limiting</h1>
+
+<p>Implémenté dans <code>rate_limiter.py</code> — fenêtre glissante en mémoire, thread-safe, sans
+dépendance externe (pas de Redis).</p>
+
+<ul>
+<li><strong>Clé de comptage</strong> : <code>(IP source, chemin)</code> — pour les requêtes
+<code>POST</code>, le <code>sensor_id</code> extrait du corps JSON est ajouté à la clé
+(<code>ip:chemin:sensor_id</code>), pour que chaque capteur ait son propre quota plutôt qu'un
+quota partagé par IP sur <code>/v1/predict</code>.</li>
+<li><strong>Limite dépassée</strong> → <strong>429</strong> avec en-tête
+<code>Retry-After: &lt;secondes&gt;</code>.</li>
+<li><strong>Purge automatique</strong> des entrées inactives depuis plus d'1h (toutes les 5 min).</li>
+<li>La limite par minute varie selon l'endpoint (5 à 60 req/min) — voir le
+<a href="#recap">tableau récapitulatif</a>.</li>
+</ul>
+
+<div class="formula">HTTP/1.1 429 Too Many Requests
+Retry-After: 12
+
+{"detail": "Trop de requetes. Limite : 60 appels/60s par IP. Reessayez dans 12s."}</div>
+
+<div class="box-warn">
+<strong>Limite connue :</strong> basé sur <code>request.client.host</code>, qui reflète l'IP du
+reverse proxy si l'API est déployée derrière un proxy sans <code>proxy_headers=True</code>
+configuré côté Uvicorn — dans ce cas, tous les clients externes partageraient le même quota.
+</div>
+</div>
+
+<!-- ═══════════════════════════ 4. CORS ═══════════════════════════ -->
+<div class="section">
+<h1>4. CORS</h1>
+<p>Contrôlé par la variable d'environnement <code>CORS_ORIGINS</code> :</p>
+<table>
+<tr><th>Valeur</th><th>Effet</th></tr>
+<tr><td>Non définie</td><td><code>*</code> — toutes origines autorisées (adapté au développement)</td></tr>
+<tr><td>Définie</td><td>Liste d'origines séparées par des virgules (à utiliser en production)</td></tr>
+</table>
+<p>Méthodes autorisées : <code>GET</code>, <code>POST</code>. En-têtes : tous.</p>
+</div>
+
+<!-- ═══════════════════════════ 5. MODÈLES DE DONNÉES ═══════════════════════════ -->
+<div class="section">
+<h1>5. Modèles de données communs</h1>
+
+<h2>5.1 <code>MeasurePoint</code> — une mesure capteur</h2>
+<p>Tous les champs sont optionnels sauf mention contraire par endpoint. Toute valeur hors plage
+déclenche une erreur de validation Pydantic (<strong>422</strong>).</p>
+<table>
+<tr><th>Champ</th><th>Type</th><th>Plage physique</th><th>Description</th></tr>
+<tr><td><code>timestamp</code></td><td>string (ISO 8601)</td><td>—</td><td>Horodatage de la mesure</td></tr>
+<tr><td><code>temperature</code></td><td>float</td><td>-20 à 150 °C</td><td>Température</td></tr>
+<tr><td><code>vibration_x</code></td><td>float</td><td>0 à 5000 mg</td><td>Vibration RMS axe X</td></tr>
+<tr><td><code>vibration_y</code></td><td>float</td><td>0 à 5000 mg</td><td>Vibration RMS axe Y</td></tr>
+<tr><td><code>vibration_z</code></td><td>float</td><td>0 à 5000 mg</td><td>Vibration RMS axe Z</td></tr>
+<tr><td><code>current</code></td><td>float</td><td>0 à 500 A</td><td>Courant moteur</td></tr>
+<tr><td><code>power</code></td><td>float</td><td>0 à 100 000 W</td><td>Puissance</td></tr>
+<tr><td><code>vitesse</code></td><td>float</td><td>0 à 10 000 RPM</td><td>Vitesse</td></tr>
+<tr><td><code>acc_p2p</code></td><td>float</td><td>0 à 30 000 mg</td><td>Accélération peak-to-peak (axe Y)</td></tr>
+<tr><td><code>acc_z2p</code></td><td>float</td><td>0 à 15 000 mg</td><td>Accélération zero-to-peak (axe Y)</td></tr>
+<tr><td><code>acc_crest</code></td><td>float</td><td>0 à 5000</td><td>Facteur de crête accélération</td></tr>
+<tr><td><code>acc_rms</code></td><td>float</td><td>0 à 5000 mg</td><td>Accélération RMS (axe Y)</td></tr>
+</table>
+
+<h2>5.2 Dictionnaire <code>features</code></h2>
+<p>Retourné par <code>/v1/predict</code> et <code>/v1/iot-predict</code>, calculé par
+<code>extract_features()</code> à partir de l'historique fourni (filtre médian anti-spike
+k=3 appliqué en amont sur température et vibration) :</p>
+<table>
+<tr><th>Groupe</th><th>Clés</th></tr>
+<tr><td>Thermique</td><td><code>temp_mean, temp_std, temp_trend, temp_cur</code></td></tr>
+<tr><td>Vibration Z</td><td><code>vib_z_mean, vib_z_std, vib_z_rms_w, vib_z_kurt, vib_z_crest, vib_z_cur</code></td></tr>
+<tr><td>Vibration X</td><td><code>vib_x_mean, vib_x_std, vib_x_rms_w, vib_x_kurt</code></td></tr>
+<tr><td>Vibration Y</td><td><code>vib_y_mean, vib_y_std, vib_y_rms_w, vib_y_kurt</code></td></tr>
+<tr><td>Ratios inter-axes</td><td><code>vib_xy_ratio, vib_xz_ratio</code></td></tr>
+<tr><td>Courant</td><td><code>current_mean, current_std</code> (toujours 0 — aucun capteur de courant installé)</td></tr>
+<tr><td>Vibration totale (Pythagore 3D)</td><td><code>vib_total = √(X² + Y² + Z²)</code> — base ISO 10816-3 / ISO 20816</td></tr>
+<tr><td>Santé</td><td><code>health_score</code> (0–100)</td></tr>
+<tr><td>Accélération IFM</td><td><code>acc_p2p, acc_z2p, acc_crest, acc_rms</code> (souvent 0 — limitation gateway)</td></tr>
+<tr><td>V6 (avancées)</td><td><code>delta_vib, delta_temp, vib_entropy, fft_ratio, vib_asym_xy, vib_asym_xz</code></td></tr>
+</table>
+</div>
+
+<!-- ═══════════════════════════ 6. CODES D'ERREUR ═══════════════════════════ -->
+<div class="section">
+<h1>6. Codes d'erreur</h1>
+<table>
+<tr><th>Code</th><th>Signification</th><th>Exemple de cause</th></tr>
+<tr><td><strong>400</strong></td><td>Requête invalide</td><td><code>history</code> vide, moins de mesures que le minimum requis</td></tr>
+<tr><td><strong>401</strong></td><td>Non authentifié</td><td>En-tête <code>X-API-Key</code> absent ou clé invalide</td></tr>
+<tr><td><strong>403</strong></td><td>Authentifié mais non autorisé</td><td>Clé opérateur sur un endpoint admin-only</td></tr>
+<tr><td><strong>404</strong></td><td>Ressource introuvable</td><td>Capteur sans historique, <code>job_id</code> inconnu</td></tr>
+<tr><td><strong>422</strong></td><td>Erreur de validation Pydantic</td><td>Champ hors plage physique, type incorrect</td></tr>
+<tr><td><strong>429</strong></td><td>Trop de requêtes</td><td>Rate limit dépassé (voir en-tête <code>Retry-After</code>)</td></tr>
+<tr><td><strong>500</strong></td><td>Erreur serveur</td><td>Exception non gérée pendant le traitement</td></tr>
+<tr><td><strong>503</strong></td><td>Service indisponible</td><td>Aucune clé API configurée, module optionnel non chargé (<code>signal_processing</code>, <code>reporting_module</code>)</td></tr>
+</table>
+</div>
+
+<!-- ═══════════════════════════ 7. SYSTÈME ═══════════════════════════ -->
+<div class="section">
+<h1>7. Endpoints — Système</h1>
+
+<div class="endpoint"><span class="method m-get">GET</span><span class="path">/</span> — <span class="tag-public">public</span></div>
+<p>Identité de l'API et liste résumée des endpoints principaux. Pas de rate limit.</p>
+
+<div class="endpoint"><span class="method m-get">GET</span><span class="path">/health</span> — <span class="tag-public">public</span></div>
+<p>Health check — état des modèles chargés. Pas de rate limit.</p>
+<div class="formula">{
+  "status": "ok",
+  "models_loaded": true,
+  "models": ["if", "lof", "ocsvm", "ecod", "hbos", "copod"],
+  "features_count": 31,
+  "version": "3.1.0",
+  "n_sensors_in_memory": 19,
+  "timestamp": "2026-08-07T10:00:00"
+}</div>
+
+<div class="endpoint"><span class="method m-get">GET</span><span class="path">/metrics</span> — <span class="tag-public">public</span> · 30/min</div>
+<p>Métriques de performance du modèle (source : <code>models/metrics_v3.csv</code>) :
+<code>f1_score</code>, <code>accuracy</code>, <code>precision</code>, <code>recall</code>,
+<code>auc_roc</code>, <code>n_anomalies</code>, <code>n_total</code>, <code>contamination</code>,
+<code>weights</code> (poids appris du stacking par modèle), <code>window_size</code>,
+<code>n_features</code>.</p>
+
+<div class="endpoint"><span class="method m-get">GET</span><span class="path">/v1/model-card</span> — <span class="tag-public">public</span> · 30/min</div>
+<p>« Model card » — provenance des données d'entraînement, méthodologie, limites connues, pour
+chaque composant (détection d'anomalie et RUL). Permet d'auditer la fiabilité d'une prédiction
+avant utilisation pour une décision critique.</p>
+
+<div class="endpoint"><span class="method m-get">GET</span><span class="path">/v1/system-limits</span> — <span class="tag-auth">opérateur/admin</span> · 30/min</div>
+<p>Liste structurée (L1 à L6) des limitations techniques connues : alertes non persistantes par
+défaut, features d'accélération toujours nulles, absence de capteur de courant, pas de
+déploiement edge, RUL heuristique non validé sur pannes réelles, etc.</p>
+</div>
+
+<!-- ═══════════════════════════ 8. IA / PRÉDICTION ═══════════════════════════ -->
+<div class="section">
+<h1>8. Endpoints — IA / Prédiction</h1>
+
+<h2>8.1 POST /v1/predict</h2>
+<div class="endpoint"><span class="method m-post">POST</span><span class="path">/v1/predict</span> — <span class="tag-auth">opérateur/admin</span> · 60/min (par IP + sensor_id)</div>
+<p>Détection d'anomalie en temps réel via un ensemble non supervisé <strong>IF + LOF + OCSVM +
+ECOD + HBOS + COPOD</strong>, fusionné par <strong>stacking LogisticRegression</strong>. Un filtre
+de <strong>persistance temporelle</strong> (k=3 fenêtres consécutives par défaut) confirme
+l'anomalie avant de la remonter, pour réduire les faux positifs isolés.</p>
+
+<p><strong>Requête</strong> (minimum 1 mesure dans <code>history</code>) :</p>
+<div class="formula">{
+  "sensor_id": "8f7f2f7e",
+  "motor_id": "Motor_1604",
+  "history": [
+    { "temperature": 32.5, "vibration_x": 266.0, "vibration_y": 273.0,
+      "vibration_z": 280.0, "current": 0 }
+  ]
+}</div>
+
+<p><strong>Réponse</strong> (200) :</p>
+<div class="formula">{
+  "sensor_id": "8f7f2f7e", "motor_id": "Motor_1604",
+  "timestamp": "2026-08-07T10:00:00",
+  "prediction": "NORMAL", "is_anomaly": false,
+  "confidence": 0.12, "votes": 1, "risk_level": "FAIBLE",
+  "anomaly_score": 0.12,
+  "individual_models": {"IF":"NORMAL","LOF":"ANOMALY","OCSVM":"NORMAL",
+                         "ECOD":"NORMAL","HBOS":"NORMAL","COPOD":"NORMAL"},
+  "individual_scores": {"IF":0.08,"LOF":0.61,"OCSVM":0.15,
+                         "ECOD":0.10,"HBOS":0.09,"COPOD":0.11},
+  "features": { "temp_mean": 32.5, "vib_total": 391.2, "health_score": 94.3, "...": "..." }
+}</div>
+<table>
+<tr><th>Champ</th><th>Détail</th></tr>
+<tr><td><code>risk_level</code></td><td>FAIBLE (score&lt;0.25) · MODÉRÉ (&lt;0.50) · ÉLEVÉ (&lt;0.75) · CRITIQUE (≥0.75) — reforcé à FAIBLE si <code>health_score</code>≥85 sans anomalie confirmée</td></tr>
+<tr><td><code>votes</code></td><td>Nombre de modèles (0–6) dont le score individuel dépasse 0.5</td></tr>
+</table>
+<p>Effets de bord : met à jour l'historique glissant du capteur, alimente le buffer de
+vibration brute, déclenche une alerte externe si <code>risk_level</code> est CRITIQUE ou ÉLEVÉ.</p>
+<p><strong>Erreurs</strong> : 400 si <code>history</code> vide.</p>
+
+<h2>8.2 POST /v1/predict-rul</h2>
+<div class="endpoint"><span class="method m-post">POST</span><span class="path">/v1/predict-rul</span> — <span class="tag-auth">opérateur/admin</span> · 60/min</div>
+<p>Estime le temps restant avant défaillance (RUL), en combinant score de dégradation
+instantané, tendance temporelle, historique d'anomalies récentes, et un modèle ML
+(<code>GradientBoostingRegressor</code>) qui peut <strong>aggraver</strong> (jamais atténuer) le
+niveau d'alerte de l'heuristique. Minimum <strong>3 mesures</strong> dans <code>history</code>.</p>
+
+<div class="box-warn">Le RUL est une <strong>estimation empirique</strong> — aucun modèle
+supervisé sur pannes réelles confirmées n'est disponible à ce jour. Ne pas utiliser comme seule
+base d'une décision d'arrêt machine.</div>
+
+<p><strong>Réponse</strong> (200) :</p>
+<div class="formula">{
+  "sensor_id": "8f7f2f7e", "motor_id": "Motor_1604",
+  "timestamp": "2026-08-07T10:00:00",
+  "rul_hours": 456.2, "rul_days": 19.01,
+  "degradation_rate": 18.4, "health_score": 94.3,
+  "confidence": "MOYENNE", "alert_level": "OK",
+  "recommendation": "Fonctionnement normal. RUL > 14 jours...",
+  "trend": { "temp_trend": 0.42, "vib_total_trend": 3.1,
+             "deg_instant": 0.21, "deg_rate": 0.05,
+             "rul_model": "heuristic_CDC + ML_gradient_boosting" }
+}</div>
+<table>
+<tr><th>Champ</th><th>Détail</th></tr>
+<tr><td><code>alert_level</code></td><td>OK (&gt;14j) · ATTENTION (7–14j) · URGENT (3–7j) · CRITIQUE (&lt;3j)</td></tr>
+<tr><td><code>confidence</code></td><td>HAUTE (≥10 mesures) · MOYENNE (≥5) · FAIBLE (&lt;5)</td></tr>
+</table>
+<p>Garde-fou capteur sain : <code>health_score</code>≥85 force <code>alert_level=OK</code> avec un
+RUL plancher de 336h (14 jours).</p>
+<p><strong>Erreurs</strong> : 400 si moins de 3 mesures.</p>
+
+<h2>8.3 POST /v1/iot-predict</h2>
+<div class="endpoint"><span class="method m-post">POST</span><span class="path">/v1/iot-predict</span> — <span class="tag-auth">opérateur/admin</span> · 60/min</div>
+<p>Endpoint pensé pour la <strong>production sans accès base de données</strong>. Le client envoie
+<strong>une mesure à la fois</strong> ; le serveur maintient une fenêtre glissante de 20 mesures
+par <code>sensor_id</code> et retourne <strong>prédiction d'anomalie + RUL en un seul appel</strong>
+(RUL à <code>null</code> tant que moins de 3 mesures accumulées).</p>
+<div class="formula">{
+  "sensor_id": "8f7f2f7e", "temperature": 32.5,
+  "vibration_x": 266.0, "vibration_y": 273.0, "vibration_z": 280.0
+}</div>
+<p>Champs requis : <code>temperature</code>, <code>vibration_x</code>, <code>vibration_y</code>,
+<code>vibration_z</code>. Réponse : union des champs de <code>/v1/predict</code> et
+<code>/v1/predict-rul</code>, plus <code>window_size</code>.</p>
+
+<h2>8.4 POST /v1/spectral-analysis</h2>
+<div class="endpoint"><span class="method m-post">POST</span><span class="path">/v1/spectral-analysis</span> — <span class="tag-auth">opérateur/admin</span> · 20/min</div>
+<p>Analyse spectrale complète du signal de vibration : FFT (spectre de puissance, fréquences
+dominantes), analyse d'enveloppe (démodulation Hilbert), fréquences caractéristiques de défauts
+roulements (<strong>BPFO, BPFI, BSF, FTF</strong> — roulement SKF 6205-2RS), décomposition en
+ondelettes (CWT Morlet).</p>
+<p>Requête identique à <code>/v1/predict</code>, plus paramètres query <code>rpm</code> (1450.0),
+<code>fs</code> (100.0 Hz). Minimum <strong>8 mesures</strong> <code>vibration_z</code>.</p>
+<p><strong>Erreurs</strong> : 400 si moins de 8 mesures ; 503 si <code>signal_processing.py</code>
+indisponible.</p>
+
+<h2>8.5 GET /v1/spectral/{sensor_id}</h2>
+<div class="endpoint"><span class="method m-get">GET</span><span class="path">/v1/spectral/{sensor_id}</span> — <span class="tag-public">public</span> · 30/min</div>
+<p>Version publique et en lecture seule : utilise le buffer serveur des dernières valeurs
+<code>vibration_z</code> déjà reçues via <code>/v1/predict</code> (pas de recalcul côté client,
+pensé pour le dashboard). Paramètres query : <code>rpm</code>, <code>fs</code>.</p>
+
+<h2>8.6 GET /v1/health-score/{sensor_id}</h2>
+<div class="endpoint"><span class="method m-get">GET</span><span class="path">/v1/health-score/{sensor_id}</span> — <span class="tag-public">public</span> · 60/min</div>
+<p>Score de santé (0–100) <strong>normalisé par baseline propre au capteur</strong> (calculée sur
+ses 20 premières mesures) — évite le biais d'une comparaison à un seuil global identique pour
+tous les moteurs.</p>
+<div class="formula">{
+  "sensor_id": "8f7f2f7e", "health_score": 91.4, "health_raw": 88.0,
+  "baseline": 0.12, "score_method": "relatif_baseline",
+  "anomaly_rate": 0.1, "n_records": 42, "last_score": 0.09,
+  "trend": "STABLE", "timestamp": "2026-08-07T10:00:00"
+}</div>
+<p>Si le capteur n'a aucun historique : <code>health_score: 100.0</code>, <code>n_records: 0</code>
+(pas de 404 sur cet endpoint).</p>
+
+<h2>8.7 GET /v1/history/{sensor_id}</h2>
+<div class="endpoint"><span class="method m-get">GET</span><span class="path">/v1/history/{sensor_id}</span> — <span class="tag-public">public</span> · 60/min</div>
+<p>Historique glissant des prédictions d'un capteur (en mémoire — réinitialisé au redémarrage,
+sauf persistance disque <code>anomaly_history_persist.json</code>). Paramètre query
+<code>limit</code> (défaut 20). Maximum en mémoire : 50 entrées par capteur.</p>
+<p><strong>Erreurs</strong> : 404 si aucun historique pour ce capteur.</p>
+
+<h2>8.8 GET /v1/alert-level/{sensor_id}</h2>
+<div class="endpoint"><span class="method m-get">GET</span><span class="path">/v1/alert-level/{sensor_id}</span> — <span class="tag-public">public</span> · 60/min</div>
+<p>Niveau d'alerte <strong>consolidé</strong> sur les 10 dernières prédictions, pensé pour un feu
+tricolore de dashboard : <code>alert_level</code> OK (vert) · ATTENTION (jaune) · URGENT (orange)
+· CRITIQUE (rouge) · INCONNU (gris, si aucune donnée).</p>
+
+<h2>8.9 GET /v1/results</h2>
+<div class="endpoint"><span class="method m-get">GET</span><span class="path">/v1/results</span> — <span class="tag-public">public</span> · 60/min</div>
+<p>Dernières prédictions (anomalie + RUL fusionnées) de tous les capteurs actifs, ou d'un capteur
+précis via <code>?sensor_id=</code>. Mis à jour à chaque appel <code>/v1/predict</code> ou
+<code>/v1/predict-rul</code>. Erreurs : 404 si <code>sensor_id</code> fourni mais introuvable.</p>
+
+<h2>8.10 GET /sensors et GET /anomalies</h2>
+<div class="endpoint"><span class="method m-get">GET</span><span class="path">/sensors</span> — <span class="tag-public">public</span> · 60/min</div>
+<p>Liste des capteurs actifs (source : historique temps réel en mémoire, sinon CSV historique).</p>
+<div class="endpoint"><span class="method m-get">GET</span><span class="path">/anomalies</span> — <span class="tag-public">public</span> · 60/min</div>
+<p>Anomalies filtrées par score minimum. Paramètres query : <code>min_score</code> (0.5),
+<code>limit</code> (100).</p>
+</div>
+
+<!-- ═══════════════════════════ 9. REPORTING & ALERTES ═══════════════════════════ -->
+<div class="section">
+<h1>9. Endpoints — Reporting &amp; Alertes</h1>
+
+<h2>9.1 GET /v1/report</h2>
+<div class="endpoint"><span class="method m-get">GET</span><span class="path">/v1/report</span> — <span class="tag-auth">opérateur/admin</span> · 20/min</div>
+<p>Génère un rapport de maintenance à partir des données temps réel.</p>
+<table>
+<tr><th>Paramètre query</th><th>Valeurs</th></tr>
+<tr><td><code>type</code></td><td><code>daily</code> (24h, défaut) · <code>weekly</code> (7j) · <code>monthly</code> (30j) · <code>full</code></td></tr>
+<tr><td><code>format</code></td><td><code>json</code> (défaut) · <code>html</code></td></tr>
+<tr><td><code>sensor_id</code></td><td>optionnel — filtre sur un seul capteur</td></tr>
+</table>
+<p><strong>Erreurs</strong> : 400 si <code>type</code> invalide ; 503 si
+<code>reporting_module.py</code> indisponible.</p>
+
+<h2>9.2 GET /v1/alerts</h2>
+<div class="endpoint"><span class="method m-get">GET</span><span class="path">/v1/alerts</span> — <span class="tag-public">public</span> · 30/min</div>
+<p>Historique des alertes externes envoyées (email/webhook/SMS) par <code>AlertManager</code>,
+avec statut de livraison par canal (booléens uniquement — jamais d'adresse, URL ou identifiant
+exposé). Paramètre query <code>limit</code> (défaut 50).</p>
+
+<h2>9.3 GET /v1/alerts/stats</h2>
+<div class="endpoint"><span class="method m-get">GET</span><span class="path">/v1/alerts/stats</span> — <span class="tag-public">public</span> · 30/min</div>
+<p>Statistiques globales du gestionnaire d'alertes : total envoyées, répartition par niveau,
+cooldowns actifs.</p>
+
+<div class="box-info">
+<strong>Note de cohérence documentaire :</strong> <code>/v1/alerts</code> et
+<code>/v1/alerts/stats</code> ne portent pas de dépendance <code>require_api_key</code> dans le
+code actuel de <code>api_unified_pythagore.py</code> — ils sont donc accessibles sans clé, comme
+les autres endpoints de monitoring en lecture seule.</div>
+</div>
+
+<!-- ═══════════════════════════ 10. PIPELINE ═══════════════════════════ -->
+<div class="section">
+<h1>10. Endpoints — Pipeline (ré-entraînement)</h1>
+
+<p>Workflow complet de ré-entraînement à partir d'un dump SQL MariaDB (<code>ai_cp</code>),
+exécuté en arrière-plan (thread) : parsing SQL → CSV, entraînement des 6 modèles, rechargement à
+chaud dans l'API (sans redémarrage).</p>
+
+<h2>10.1 GET /pipeline</h2>
+<div class="endpoint"><span class="method m-get">GET</span><span class="path">/pipeline</span> — <span class="tag-public">public</span></div>
+<p>Sert la page HTML d'upload (<code>pipeline_upload.html</code>). Exclue du schéma OpenAPI.</p>
+
+<h2>10.2 POST /v1/pipeline/upload</h2>
+<div class="endpoint"><span class="method m-post">POST</span><span class="path">/v1/pipeline/upload</span> — <span class="tag-admin">admin uniquement</span> · 5/min</div>
+<p>Reçoit un fichier <code>.sql</code> (flux par blocs de 4 Mo, pour éviter de charger un dump de
+plusieurs centaines de Mo entièrement en mémoire), puis démarre en tâche de fond : parsing SQL
+(<code>generate_dataset_from_sql.py</code>), entraînement (<code>train_model_v3_unsupervised.py</code>),
+rechargement des modèles.</p>
+<p><strong>Requête</strong> : <code>multipart/form-data</code> — <code>file</code> (.sql, requis),
+<code>train_mode</code> (<code>"full"</code> ou <code>"fast"</code>, défaut <code>"full"</code>).</p>
+<div class="formula">curl -X POST http://localhost:8000/v1/pipeline/upload \
+  -H "X-API-Key: &lt;clé_admin&gt;" \
+  -F "file=@dump_ai_cp.sql" \
+  -F "train_mode=full"</div>
+<div class="formula">{
+  "job_id": "a1b2c3d4e5f6", "status": "running",
+  "filename": "dump_ai_cp.sql", "size_mb": 87.4,
+  "poll_url": "/v1/pipeline/status/a1b2c3d4e5f6"
+}</div>
+<p><strong>Erreurs</strong> : 400 si l'extension n'est pas <code>.sql</code> ; 401/403 selon le
+rôle de la clé — <strong>une clé opérateur valide reçoit 403</strong>, pas 401.</p>
+
+<h2>10.3 GET /v1/pipeline/status/{job_id}</h2>
+<div class="endpoint"><span class="method m-get">GET</span><span class="path">/v1/pipeline/status/{job_id}</span> — <span class="tag-auth">opérateur/admin</span> · 60/min</div>
+<p>Statut d'un job en cours — à interroger toutes les 2-3 secondes. Paramètre query
+<code>since</code> (défaut 0) : ne retourne que les logs postérieurs à cet index.</p>
+<div class="formula">{
+  "job_id": "a1b2c3d4e5f6", "status": "running", "step": 4,
+  "step_name": "Entraînement des modèles ML...", "progress": 58,
+  "elapsed": "1m 12s",
+  "new_logs": [{"text": "✅ LOF entraîné", "type": "s"}],
+  "total_logs": 34, "results": null
+}</div>
+<p><code>status</code> : <code>running</code> · <code>done</code> · <code>error</code>.
+<code>results</code> (non nul une fois terminé) inclut <code>auc</code>, <code>f1</code>,
+<code>n_measures</code>, <code>n_anomalies</code>, <code>top_anomalies</code>.</p>
+<p><strong>Erreurs</strong> : 404 si <code>job_id</code> inconnu.</p>
+
+<h2>10.4 GET /v1/pipeline/jobs</h2>
+<div class="endpoint"><span class="method m-get">GET</span><span class="path">/v1/pipeline/jobs</span> — <span class="tag-auth">opérateur/admin</span> · 30/min</div>
+<p>Liste des 10 derniers jobs de pipeline (résumé : <code>job_id</code>, <code>status</code>,
+<code>filename</code>, <code>progress</code>, <code>elapsed</code>, <code>created_at</code>).</p>
+</div>
+
+<!-- ═══════════════════════════ 11. RÉCAPITULATIF ═══════════════════════════ -->
+<div class="section">
+<h1 id="recap">11. Tableau récapitulatif</h1>
+
+<table>
+<tr><th>Méthode</th><th>Endpoint</th><th>Auth</th><th>Rate limit (req/min)</th><th>Tag</th></tr>
+<tr><td>GET</td><td>/</td><td>Non</td><td>—</td><td>Système</td></tr>
+<tr><td>GET</td><td>/health</td><td>Non</td><td>—</td><td>Système</td></tr>
+<tr><td>GET</td><td>/metrics</td><td>Non</td><td>30</td><td>Système</td></tr>
+<tr><td>GET</td><td>/v1/model-card</td><td>Non</td><td>30</td><td>Système</td></tr>
+<tr><td>GET</td><td>/v1/system-limits</td><td>Oui</td><td>30</td><td>Système</td></tr>
+<tr><td>POST</td><td>/v1/predict</td><td>Oui</td><td>60</td><td>IA / Prédiction</td></tr>
+<tr><td>POST</td><td>/v1/predict-rul</td><td>Oui</td><td>60</td><td>IA / Prédiction</td></tr>
+<tr><td>POST</td><td>/v1/iot-predict</td><td>Oui</td><td>60</td><td>IA / Prédiction</td></tr>
+<tr><td>POST</td><td>/v1/spectral-analysis</td><td>Oui</td><td>20</td><td>IA / Prédiction</td></tr>
+<tr><td>GET</td><td>/v1/spectral/{sensor_id}</td><td>Non</td><td>30</td><td>IA / Prédiction</td></tr>
+<tr><td>GET</td><td>/v1/health-score/{sensor_id}</td><td>Non</td><td>60</td><td>IA / Prédiction</td></tr>
+<tr><td>GET</td><td>/v1/history/{sensor_id}</td><td>Non</td><td>60</td><td>IA / Prédiction</td></tr>
+<tr><td>GET</td><td>/v1/alert-level/{sensor_id}</td><td>Non</td><td>60</td><td>IA / Prédiction</td></tr>
+<tr><td>GET</td><td>/v1/results</td><td>Non</td><td>60</td><td>IA / Prédiction</td></tr>
+<tr><td>GET</td><td>/sensors</td><td>Non</td><td>60</td><td>Données</td></tr>
+<tr><td>GET</td><td>/anomalies</td><td>Non</td><td>60</td><td>Données</td></tr>
+<tr><td>GET</td><td>/v1/report</td><td>Oui</td><td>20</td><td>Reporting</td></tr>
+<tr><td>GET</td><td>/v1/alerts</td><td>Non</td><td>30</td><td>Alertes</td></tr>
+<tr><td>GET</td><td>/v1/alerts/stats</td><td>Non</td><td>30</td><td>Alertes</td></tr>
+<tr><td>GET</td><td>/pipeline</td><td>Non</td><td>—</td><td>Pipeline</td></tr>
+<tr><td>POST</td><td>/v1/pipeline/upload</td><td><strong>Admin uniquement</strong></td><td>5</td><td>Pipeline</td></tr>
+<tr><td>GET</td><td>/v1/pipeline/status/{job_id}</td><td>Oui</td><td>60</td><td>Pipeline</td></tr>
+<tr><td>GET</td><td>/v1/pipeline/jobs</td><td>Oui</td><td>30</td><td>Pipeline</td></tr>
+</table>
+
+<p class="small">Source : <code>api_unified_pythagore.py</code>, <code>auth.py</code>,
+<code>rate_limiter.py</code>. Document généré à partir de <code>API_DOCUMENTATION.md</code>.</p>
+</div>
+
+</body>
+</html>

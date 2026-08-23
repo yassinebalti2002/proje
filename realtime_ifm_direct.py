@@ -188,31 +188,50 @@ class IFMGatewayReader:
     def _detect_port_mode(self, port_num: int):
         """
         Détecte si le port répond en mode 'getdata' (structuré) ou 'pdin' (hex).
-        Stocke aussi le sensor_id (productname ou fallback).
+        Stocke aussi le sensor_id.
+
+        IMPORTANT : l'ID stable retenu est le SensorNodeId réel de la gateway
+        (ex: "07da47b8") quand il est disponible dans la réponse getdata/
+        dataStorage — PAS "port{N}_{productname}". Sans ça, les sensor_id
+        générés ici ("port1_VVB001") ne correspondent à aucun capteur connu
+        du reste du système (IFM_KNOWN_IDS dans api_unified_pythagore.py,
+        dataset d'entraînement, historique persistant) : l'historique ne
+        survit pas aux redémarrages de l'API pour ces capteurs, et ils sont
+        purgés après 2h comme des capteurs "inconnus" (voir
+        _touch_sensor_and_sweep / IFM_KNOWN_IDS côté API). productname ne
+        renvoie que le modèle (VVB001/VSE002), partagé par plusieurs
+        capteurs -- inutilisable comme identifiant unique.
         """
-        # 1. Essai productname → label lisible (pour affichage seulement)
-        # L'ID stable reste toujours "port{N}" pour éviter les changements de nom
+        # 1. Essai productname → utilisé seulement en fallback si le firmware
+        # ne renvoie pas SensorNodeId (voir étapes 2-4 ci-dessous, prioritaires)
         stable_id = f"port{port_num}"
+        product_name = ""
         try:
             url = f"{self.base}/iolinkmaster/port[{port_num}]/iolinkdevice/productname"
             r = self._requests.get(url, timeout=self.timeout)
             if r.status_code == 200:
                 data = r.json()
-                name = data.get("data", {}).get("value", "")
-                name = "".join(c for c in str(name) if c.isalnum() or c in "-_")
-                # sensor_id = port stable + nom lisible
-                self._sensor_ids[port_num] = f"{stable_id}_{name}" if name else stable_id
-            else:
-                self._sensor_ids[port_num] = stable_id
+                product_name = "".join(
+                    c for c in str(data.get("data", {}).get("value", ""))
+                    if c.isalnum() or c in "-_"
+                )
         except Exception:
-            self._sensor_ids[port_num] = stable_id
+            pass
+        self._sensor_ids[port_num] = f"{stable_id}_{product_name}" if product_name else stable_id
 
-        # 2. Essai mode getdata (firmware ≥ 2.x)
+        # 2. Essai mode getdata (firmware ≥ 2.x) — SensorNodeId prioritaire
         try:
             url = f"{self.base}/iolinkmaster/port[{port_num}]/iolinkdevice/getdata"
             r = self._requests.get(url, timeout=self.timeout)
             if r.status_code == 200:
                 self._mode[port_num] = "getdata"
+                try:
+                    body = r.json()
+                    real_id = body.get("data", body).get("SensorNodeId")
+                    if real_id:
+                        self._sensor_ids[port_num] = str(real_id)
+                except Exception:
+                    pass
                 log.info(
                     f"  Port {port_num} → mode getdata | sensor_id={self._sensor_ids[port_num]}"
                 )
@@ -220,25 +239,42 @@ class IFMGatewayReader:
         except Exception:
             pass
 
-        # 3. Essai mode pdin (firmware 1.x)
+        # 3. Essai mode pdin (firmware 1.x) — le payload hex ne contient PAS
+        # de SensorNodeId (uniquement des valeurs numériques brutes) : reste
+        # sur le fallback port{N}_{productname} pour ce mode, limitation
+        # matérielle du protocole, pas corrigeable côté logiciel ici.
         try:
             url = f"{self.base}/iolinkmaster/port[{port_num}]/iolinkdevice/pdin"
             r = self._requests.get(url, timeout=self.timeout)
             if r.status_code == 200:
                 self._mode[port_num] = "pdin"
                 log.info(
-                    f"  Port {port_num} → mode pdin | sensor_id={self._sensor_ids[port_num]}"
+                    f"  Port {port_num} → mode pdin | sensor_id={self._sensor_ids[port_num]} "
+                    f"(SensorNodeId indisponible en mode pdin — ID non garanti unique)"
                 )
                 return
         except Exception:
             pass
 
-        # 4. Essai datastorage global (certains firmwares)
+        # 4. Essai datastorage global (certains firmwares) — SensorNodeId
+        # présent au niveau de l'entrée ET dans processdata selon firmware
         try:
             url = f"{self.base}/dataStorage"
             r = self._requests.get(url, timeout=self.timeout)
             if r.status_code == 200:
                 self._mode[port_num] = "datastorage"
+                try:
+                    entries = r.json().get("data", [])
+                    if isinstance(entries, dict):
+                        entries = [entries]
+                    for entry in entries:
+                        if int(entry.get("port", -1)) == port_num:
+                            real_id = entry.get("SensorNodeId") or entry.get("processdata", {}).get("SensorNodeId")
+                            if real_id:
+                                self._sensor_ids[port_num] = str(real_id)
+                            break
+                except Exception:
+                    pass
                 log.info(
                     f"  Port {port_num} → mode datastorage | sensor_id={self._sensor_ids[port_num]}"
                 )
@@ -351,6 +387,12 @@ class IFMGatewayReader:
             log.warning(f"Port {port_num} getdata : vib_z=0 → capteur peut-être arrêté")
             return None
 
+        # Rafraîchit le cache si SensorNodeId est présent dans cette lecture
+        # (robuste si un capteur est reconnecté sur un port différent en
+        # cours de route -- voir _detect_port_mode pour le contexte complet)
+        real_id = data.get("SensorNodeId")
+        if real_id:
+            self._sensor_ids[port_num] = str(real_id)
         sensor_id = self._sensor_ids.get(port_num, f"port{port_num}")
         session = {
             "sensor_id":   sensor_id,
@@ -514,6 +556,11 @@ class IFMGatewayReader:
             if temp is None or vib_z == 0:
                 continue   # ← continue, pas return None
 
+            # Rafraîchit le cache si SensorNodeId est présent (voir même
+            # correctif dans _read_getdata et _detect_port_mode)
+            real_id = entry.get("SensorNodeId") or pd_data.get("SensorNodeId")
+            if real_id:
+                self._sensor_ids[port_num] = str(real_id)
             sensor_id = self._sensor_ids.get(port_num, f"port{port_num}")
             return {
                 "sensor_id":   sensor_id,
@@ -546,6 +593,11 @@ class APIClient:
         self.timeout = timeout
         self.retries = retries
         self.ok = self.total = 0
+        raw = os.getenv("API_KEYS", "")
+        first_key = raw.split(",")[0].strip() if raw else ""
+        self.headers = {"X-API-Key": first_key} if first_key else {}
+        if not first_key:
+            log.warning("API_KEYS non défini — les requêtes vers l'API retourneront 401/503")
 
     def _post(self, endpoint, payload):
         try:
@@ -558,7 +610,7 @@ class APIClient:
             try:
                 r = requests.post(
                     f"{self.base}{endpoint}",
-                    json=payload, timeout=self.timeout
+                    json=payload, headers=self.headers, timeout=self.timeout
                 )
                 if r.status_code == 200:
                     return r.json(), None
@@ -578,13 +630,13 @@ class APIClient:
         })
         if data:
             self.ok += 1
-            for m in ["IF", "LOF", "OCSVM", "ECOD"]:
+            for m in ["IF", "LOF", "OCSVM", "ECOD", "HBOS", "COPOD"]:
                 data.setdefault("individual_models", {}).setdefault(m, "INCONNU")
             return data, None
         return {
             "prediction": "INCONNU", "votes": 0, "risk_level": "INCONNU",
             "anomaly_score": 0.0, "confidence": 0.0,
-            "individual_models": {m: "INCONNU" for m in ["IF", "LOF", "OCSVM", "ECOD"]},
+            "individual_models": {m: "INCONNU" for m in ["IF", "LOF", "OCSVM", "ECOD", "HBOS", "COPOD"]},
         }, err
 
     def predict_rul(self, sensor_id, predict_result, history):
@@ -625,14 +677,16 @@ def display(iteration, sensor_id, last_m, predict, rul, source="IFM_DIRECT"):
     rul_h  = rul.get("rul_hours")
     health = rul.get("health_score")
     rul_str = f"{rul_h:.1f}h / {rul.get('rul_days', 0):.2f}j" if rul_h else "N/A"
+    n_models = len(mods) if mods else 4
+    models_str = " | ".join(f"{m}={icon(m)}" for m in mods) if mods else "N/A"
 
     print(f"\n{'─'*60}")
     print(f"[{ts}]  #{iteration}  |  Capteur : {sensor_id}  |  Source : {source}")
     print(f"{'─'*60}")
     print(f"{color}{BOLD}🔴 Risque    : {risk}{RESET}")
-    print(f"🗳️  Votes     : {predict.get('votes','?')}/4 modèles")
+    print(f"🗳️  Votes     : {predict.get('votes','?')}/{n_models} modèles")
     print(f"📊 Score     : {predict.get('anomaly_score','?')}")
-    print(f"🤖 Modèles   : IF={icon('IF')} | LOF={icon('LOF')} | OCSVM={icon('OCSVM')} | ECOD={icon('ECOD')}")
+    print(f"🤖 Modèles   : {models_str}")
     print(f"⏳ RUL       : {rul_str}")
     print(f"💚 Santé     : {f'{health}/100' if health is not None else 'N/A'}")
     print(f"🔔 Alerte    : {rul.get('alert_level','?')}")
@@ -767,9 +821,10 @@ def run(args):
                 display(iteration, sensor_id, last_m, predict, rul)
 
                 if predict.get("risk_level") in ("CRITIQUE", "ÉLEVÉ"):
+                    n_models = len(predict.get("individual_models") or {}) or 4
                     log.warning(
                         f"🔴 {predict.get('risk_level')} — "
-                        f"capteur={sensor_id} | votes={predict.get('votes')}/4 | "
+                        f"capteur={sensor_id} | votes={predict.get('votes')}/{n_models} | "
                         f"temp={last.get('temperature')}°C | vib_z={last.get('vibration_z')}mg"
                     )
 

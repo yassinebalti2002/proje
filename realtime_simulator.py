@@ -20,6 +20,7 @@ import argparse
 import json
 import logging
 import math
+import os
 import random
 import sys
 import time
@@ -36,6 +37,15 @@ logging.basicConfig(
     ]
 )
 log = logging.getLogger("simulator")
+
+# Charge API_KEYS depuis .env — sans ça, APIClient ne trouve jamais la clé et
+# toutes les requêtes échouent en 401 (contrairement aux autres moteurs qui
+# chargent .env indirectement via `from config import ...`).
+try:
+    from dotenv import load_dotenv
+    load_dotenv()
+except ImportError:
+    pass
 
 # ── Couleurs ──────────────────────────────────────────────────────────────────
 GREEN  = "\033[92m"
@@ -152,6 +162,11 @@ class APIClient:
         self.timeout = timeout
         self.retries = retries
         self.ok = self.total = 0
+        raw = os.getenv("API_KEYS", "")
+        first_key = raw.split(",")[0].strip() if raw else ""
+        self.headers = {"X-API-Key": first_key} if first_key else {}
+        if not first_key:
+            log.warning("API_KEYS non défini — les requêtes vers l'API retourneront 401/503")
 
     def _post(self, endpoint, payload):
         try:
@@ -163,7 +178,7 @@ class APIClient:
         for attempt in range(1, self.retries + 1):
             try:
                 r = requests.post(f"{self.base}{endpoint}",
-                                  json=payload, timeout=self.timeout)
+                                  json=payload, headers=self.headers, timeout=self.timeout)
                 if r.status_code == 200:
                     return r.json(), None
                 log.warning(f"[{endpoint}] HTTP {r.status_code} — tentative {attempt}/{self.retries}")
@@ -182,7 +197,7 @@ class APIClient:
         })
         if data:
             self.ok += 1
-            for m in ["IF", "LOF", "OCSVM", "ECOD"]:
+            for m in ["IF", "LOF", "OCSVM", "ECOD", "HBOS", "COPOD"]:
                 data.setdefault("individual_models", {})\
                     .setdefault(m, "INCONNU")
             return data, None
@@ -190,7 +205,7 @@ class APIClient:
             "prediction": "INCONNU", "votes": 0,
             "risk_level": "INCONNU", "anomaly_score": 0.0,
             "confidence": 0.0,
-            "individual_models": {m: "INCONNU" for m in ["IF","LOF","OCSVM","ECOD"]},
+            "individual_models": {m: "INCONNU" for m in ["IF","LOF","OCSVM","ECOD","HBOS","COPOD"]},
         }, err
 
     def predict_rul(self, sensor_id, predict_result, history):
@@ -231,14 +246,16 @@ def display(iteration, scenario_label, sensor_id, last_m, predict, rul):
 
     rul_h  = rul.get("rul_hours")
     health = rul.get("health_score")
+    n_models = len(mods) if mods else 4
+    models_str = " | ".join(f"{m}={icon(m)}" for m in mods) if mods else "N/A"
 
     print(f"\n{'─'*58}")
     print(f"[{ts}] Itération #{iteration}  |  Scénario : {BOLD}{scenario_label}{RESET}  |  Capteur : {sensor_id}")
     print(f"{'─'*58}")
     print(f"{color}{BOLD}🔴 Risque    : {risk}{RESET}")
-    print(f"🗳️  Votes     : {predict.get('votes','?')}/4 modèles")
+    print(f"🗳️  Votes     : {predict.get('votes','?')}/{n_models} modèles")
     print(f"📊 Score     : {predict.get('anomaly_score','?')}")
-    print(f"🤖 Modèles   : IF={icon('IF')} | LOF={icon('LOF')} | OCSVM={icon('OCSVM')} | ECOD={icon('ECOD')}")
+    print(f"🤖 Modèles   : {models_str}")
     rul_str = f"{rul_h:.1f}h / {rul.get('rul_days','?'):.2f}j" if rul_h else "N/A"
     print(f"⏳ RUL       : {rul_str}")
     print(f"💚 Santé     : {f'{health}/100' if health is not None else 'N/A'}")

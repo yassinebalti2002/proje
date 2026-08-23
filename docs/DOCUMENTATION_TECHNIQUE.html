@@ -1,0 +1,674 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<title>Documentation Technique — Maintenance Prédictive IA</title>
+<style>
+  @page {
+    size: A4;
+    margin: 2.2cm 1.8cm 2.4cm 1.8cm;
+  }
+  body {
+    font-family: "Helvetica", "Arial", sans-serif;
+    font-size: 10pt;
+    color: #1a1a1a;
+    line-height: 1.45;
+  }
+  h1 {
+    font-size: 20pt;
+    color: #0b3d5c;
+    border-bottom: 2pt solid #0b3d5c;
+    padding-bottom: 6pt;
+    margin-top: 0;
+  }
+  h2 {
+    font-size: 14pt;
+    color: #0b3d5c;
+    margin-top: 22pt;
+    margin-bottom: 8pt;
+    border-bottom: 0.75pt solid #b7c9d3;
+    padding-bottom: 3pt;
+    page-break-after: avoid;
+  }
+  h3 {
+    font-size: 11.5pt;
+    color: #145a80;
+    margin-top: 14pt;
+    margin-bottom: 6pt;
+    page-break-after: avoid;
+  }
+  h4 {
+    font-size: 10.5pt;
+    color: #333333;
+    margin-top: 10pt;
+    margin-bottom: 4pt;
+    page-break-after: avoid;
+  }
+  p { margin: 5pt 0; text-align: justify; }
+  .cover {
+    text-align: center;
+    padding-top: 3.2cm;
+  }
+  .cover h1 {
+    font-size: 26pt;
+    border: none;
+    color: #0b3d5c;
+  }
+  .cover .subtitle {
+    font-size: 13pt;
+    color: #555555;
+    margin-top: 10pt;
+  }
+  .cover .meta {
+    margin-top: 36pt;
+    font-size: 10pt;
+    color: #444444;
+  }
+  .cover .badge {
+    display: inline;
+    background-color: #eaf3f8;
+    color: #0b3d5c;
+    padding: 3pt 10pt;
+    border-radius: 3pt;
+    font-size: 9pt;
+    margin-top: 30pt;
+  }
+  .section { page-break-before: always; }
+  .no-break { page-break-before: avoid; }
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 8pt 0 12pt 0;
+    font-size: 9pt;
+  }
+  th {
+    background-color: #0b3d5c;
+    color: #ffffff;
+    padding: 5pt 6pt;
+    text-align: left;
+    font-size: 8.5pt;
+  }
+  td {
+    padding: 4pt 6pt;
+    border-bottom: 0.5pt solid #d5dee3;
+    vertical-align: top;
+  }
+  tr:nth-child(even) td { background-color: #f4f8fa; }
+  .formula {
+    background-color: #f4f8fa;
+    border-left: 3pt solid #0b3d5c;
+    padding: 6pt 10pt;
+    margin: 6pt 0;
+    font-family: "Courier New", monospace;
+    font-size: 9.5pt;
+    white-space: pre;
+  }
+  code {
+    font-family: "Courier New", monospace;
+    background-color: #f0f0f0;
+    padding: 1pt 3pt;
+    font-size: 9pt;
+  }
+  .box-warn {
+    background-color: #fff6e6;
+    border-left: 3pt solid #e0a000;
+    padding: 6pt 10pt;
+    margin: 8pt 0;
+    font-size: 9.5pt;
+  }
+  .box-ok {
+    background-color: #eafaf0;
+    border-left: 3pt solid #159957;
+    padding: 6pt 10pt;
+    margin: 8pt 0;
+    font-size: 9.5pt;
+  }
+  .box-info {
+    background-color: #eaf3f8;
+    border-left: 3pt solid #0b3d5c;
+    padding: 6pt 10pt;
+    margin: 8pt 0;
+    font-size: 9.5pt;
+  }
+  ul, ol { margin: 4pt 0; padding-left: 16pt; }
+  li { margin: 2pt 0; }
+  .toc-item { margin: 3pt 0; font-size: 10pt; }
+  .toc-num { color: #0b3d5c; font-weight: bold; display: inline-block; width: 22pt; }
+  .small { font-size: 8pt; color: #777777; }
+  .center { text-align: center; }
+</style>
+</head>
+<body>
+
+<!-- ═══════════════════════════ PAGE DE GARDE ═══════════════════════════ -->
+<div class="cover">
+  <div class="badge">PFE — ISG BIZERTE / NOVATION CITY</div>
+  <h1>MAINTENANCE PRÉDICTIVE IA</h1>
+  <div class="subtitle">Détection d'anomalies et estimation de durée de vie résiduelle<br>
+  pour roulements industriels — 20 capteurs IFM en production réelle</div>
+  <div class="meta">
+    Documentation technique complète<br>
+    Système : API FastAPI v3.1.0 · Ensemble ML non supervisé (6 modèles) · Dashboards temps réel<br><br>
+    <span class="small">Document généré le 27/07/2026 · mis à jour le 05/08/2026 (métriques vérifiées, captures d'écran réelles)</span>
+  </div>
+</div>
+
+<!-- ═══════════════════════════ TABLE DES MATIÈRES ═══════════════════════════ -->
+<div class="section">
+<h1>Table des matières</h1>
+<div class="toc-item"><span class="toc-num">1.</span> Résumé exécutif</div>
+<div class="toc-item"><span class="toc-num">2.</span> Architecture générale du système</div>
+<div class="toc-item"><span class="toc-num">3.</span> Sources de données</div>
+<div class="toc-item"><span class="toc-num">4.</span> Pipeline de détection d'anomalies (Machine Learning)</div>
+<div class="toc-item"><span class="toc-num">5.</span> Estimation de la durée de vie résiduelle (RUL)</div>
+<div class="toc-item"><span class="toc-num">6.</span> API REST (FastAPI)</div>
+<div class="toc-item"><span class="toc-num">7.</span> Moteur temps réel</div>
+<div class="toc-item"><span class="toc-num">8.</span> Tableaux de bord (dashboards)</div>
+<div class="toc-item"><span class="toc-num">9.</span> Tests, validation et audit qualité</div>
+<div class="toc-item"><span class="toc-num">10.</span> Déploiement et exploitation</div>
+<div class="toc-item"><span class="toc-num">11.</span> Limites connues et pistes d'amélioration</div>
+<div class="toc-item"><span class="toc-num">12.</span> Annexes — Glossaire et formules</div>
+</div>
+
+<!-- ═══════════════════════════ 1. RÉSUMÉ EXÉCUTIF ═══════════════════════════ -->
+<div class="section">
+<h1>1. Résumé exécutif</h1>
+
+<p>Le système <strong>Maintenance Prédictive IA</strong> surveille en continu 20 capteurs de vibration et
+température IFM VVB001 installés sur des moteurs industriels réels (site Novation City). Il détecte les
+anomalies vibratoires annonciatrices de défauts de roulement et estime la durée de vie résiduelle (RUL)
+des équipements, permettant une maintenance conditionnelle plutôt que systématique ou réactive.</p>
+
+<h3>Chaîne de traitement</h3>
+<div class="formula">Capteurs IFM (vibration + température)
+  → Passerelle IO-Link (HTTP REST)
+  → Base de données MariaDB (table ai_cp.full_data)
+  → Moteur temps réel (realtime_mariadb.py, polling 2s)
+  → API FastAPI (extraction de 31 features, ensemble ML, RUL)
+  → Dashboards web (visualisation, alertes)</div>
+
+<h3>Chiffres clés</h3>
+<table>
+<tr><th>Indicateur</th><th>Valeur</th></tr>
+<tr><td>Capteurs surveillés</td><td>20 (IFM VVB001)</td></tr>
+<tr><td>Mesures historiques disponibles</td><td>1 648 886 lignes (nov. 2025 – mars 2026)</td></tr>
+<tr><td>Sessions fenêtrées utilisées à l'entraînement</td><td>73 917 (dont 1 764 anomalies étiquetées, ≈10%)</td></tr>
+<tr><td>Modèles de détection d'anomalies</td><td>6 entraînés (Isolation Forest, LOF, OCSVM, ECOD, HBOS, COPOD) — 4 dans le vote final (SoftVote)</td></tr>
+<tr><td>Features extraites par fenêtre</td><td>31</td></tr>
+<tr><td>AUC-ROC (validation croisée GroupKFold, 3 folds, par capteur)</td><td>0.9475</td></tr>
+<tr><td>F1-score (seuil sous contrainte précision ≥ 0.70)</td><td>0.298</td></tr>
+<tr><td>MAE RUL (GradientBoostingRegressor, split par moteur)</td><td>294 h (≈33%) — R²=0.611</td></tr>
+<tr><td>Tests automatisés</td><td>73/73 passants (vérifié le 05/08/2026)</td></tr>
+<tr><td>Version API</td><td>3.1.0</td></tr>
+</table>
+
+<div class="box-ok">
+<strong>État du système :</strong> l'ensemble de la chaîne (API, moteur temps réel, entraînement, dashboards)
+a été audité, testé de bout en bout sur des données réelles, et les bugs identifiés ont été corrigés
+et re-vérifiés (voir section 9). Les métriques ML ci-dessus sont celles du modèle réellement déployé
+(<code>models/metrics_v3.csv</code>, <code>models/metrics_rul_v1.json</code>) — voir section 4.5 pour le détail
+de la correction méthodologique (fuite de données) qui a précédé ce chiffrage.
+</div>
+</div>
+
+<!-- ═══════════════════════════ 2. ARCHITECTURE ═══════════════════════════ -->
+<div class="section">
+<h1>2. Architecture générale du système</h1>
+
+<h2>2.1 Vue d'ensemble des composants</h2>
+<table>
+<tr><th>Composant</th><th>Fichier(s)</th><th>Rôle</th></tr>
+<tr><td>API REST</td><td><code>api_unified_pythagore.py</code></td><td>Point d'entrée unique : extraction de features, inférence ML, calcul RUL, endpoints de consultation</td></tr>
+<tr><td>Authentification</td><td><code>auth.py</code></td><td>Vérification de clé API (X-API-Key) en temps constant</td></tr>
+<tr><td>Rate limiting</td><td><code>rate_limiter.py</code></td><td>Limiteur de débit par IP, fenêtre glissante, purge périodique</td></tr>
+<tr><td>Traitement du signal</td><td><code>signal_processing.py</code></td><td>Analyse spectrale, enveloppe, fréquences de défaut roulement (BPFO/BPFI/BSF)</td></tr>
+<tr><td>Moteur temps réel</td><td><code>realtime_mariadb.py</code></td><td>Polling MariaDB, fenêtrage par capteur, appels API, sauvegarde résultats</td></tr>
+<tr><td>Entraînement anomalies</td><td><code>train_model_v3_unsupervised.py</code></td><td>Extraction features + entraînement des 6 modèles + stacking</td></tr>
+<tr><td>Entraînement RUL</td><td><code>train_rul_model.py</code></td><td>Génération de courbes de dégradation synthétiques + GradientBoosting</td></tr>
+<tr><td>Gestion d'alertes</td><td><code>alert_manager.py</code></td><td>Envoi d'alertes email / webhook / SMS avec cooldown</td></tr>
+<tr><td>Reporting</td><td><code>reporting_module.py</code></td><td>Génération de rapports HTML/JSON (quotidien, hebdomadaire, incident)</td></tr>
+<tr><td>Dashboard prédictif</td><td><code>dashboard_predictive.html</code></td><td>Vue d'ensemble du parc, historique, tendances</td></tr>
+<tr><td>Dashboard temps réel</td><td><code>dashboard_realtime.html</code></td><td>Vue détaillée par capteur, graphiques temps réel</td></tr>
+<tr><td>Configuration</td><td><code>config.py</code>, <code>.env</code></td><td>Paramètres centralisés (hôtes, ports, clés, capteurs)</td></tr>
+</table>
+
+<h2>2.2 Flux de données détaillé</h2>
+<ol>
+<li>Chaque capteur IFM transmet, via une passerelle IO-Link (protocole HTTP REST, format JSON), des mesures
+de température et de vibration triaxiale (X, Y, Z) à intervalles réguliers.</li>
+<li>La passerelle consolide les mesures dans la base <code>MariaDB</code>, table <code>ai_cp.full_data</code>
+(colonnes : <code>SensorNodeId</code>, <code>gph</code> — type de mesure, <code>data</code> — JSON brut).</li>
+<li><code>realtime_mariadb.py</code> interroge cette table toutes les 2 secondes (<code>SELECT ... WHERE id &gt; last_id</code>),
+consolide 3 lignes (température + vibration X + vibration Y, la vibration Z étant portée par la ligne température)
+en une "session" complète par capteur.</li>
+<li>Chaque capteur dispose d'une fenêtre glissante de N mesures (20 en fonctionnement normal, paramétrable en replay).
+Une fois la fenêtre pleine <strong>et une nouvelle mesure reçue</strong>, le moteur appelle l'API.</li>
+<li>L'API extrait 31 features de la fenêtre, exécute les 6 modèles de détection, calcule le score d'anomalie
+consolidé (stacking + filtre de persistance), puis calcule le RUL (heuristique + modèle ML).</li>
+<li>Le résultat est sauvegardé dans <code>realtime_results.json</code> (50 dernières entrées par capteur) et
+consultable via les dashboards, qui interrogent l'API et ce fichier toutes les quelques secondes.</li>
+</ol>
+
+<h2>2.3 Pile technologique</h2>
+<table>
+<tr><th>Couche</th><th>Technologie</th></tr>
+<tr><td>Langage</td><td>Python 3.11+</td></tr>
+<tr><td>Framework API</td><td>FastAPI 0.115 + Uvicorn</td></tr>
+<tr><td>Machine Learning</td><td>scikit-learn 1.5, pyod 2.0 (ECOD/HBOS/COPOD)</td></tr>
+<tr><td>Base de données</td><td>MariaDB (via mysql-connector-python)</td></tr>
+<tr><td>Frontend</td><td>HTML / JavaScript vanilla, Chart.js</td></tr>
+<tr><td>Tests</td><td>pytest 8.3, httpx</td></tr>
+<tr><td>Déploiement</td><td>Docker / docker-compose, ou lancement natif Windows (<code>LANCER.bat</code>)</td></tr>
+</table>
+</div>
+
+<!-- ═══════════════════════════ 3. SOURCES DE DONNÉES ═══════════════════════════ -->
+<div class="section">
+<h1>3. Sources de données</h1>
+
+<h2>3.1 Capteurs IFM VVB001</h2>
+<p>20 capteurs de vibration + température, connectés en IO-Link à une passerelle IFM (modèle AL1352/AL1322),
+qui expose les mesures en HTTP REST. Chaque capteur mesure :</p>
+<ul>
+<li>Température (°C)</li>
+<li>Vibration RMS sur les 3 axes X, Y, Z (mg)</li>
+<li>Accélération (P2P, Z2P, RMS, facteur de crête) — lorsque disponible</li>
+</ul>
+<div class="box-warn"><strong>Limitation matérielle documentée :</strong> le courant électrique moteur
+n'est pas mesuré par ces capteurs (feature <code>current_mean</code> systématiquement à 0). De même, les 4
+features d'accélération brute sont structurellement nulles pour la majorité des capteurs, la passerelle IFM
+ne transmettant pas ce flux dans la consolidation multi-lignes.</div>
+
+<h2>3.2 Base de données ai_cp.full_data</h2>
+<table>
+<tr><th>Caractéristique</th><th>Valeur</th></tr>
+<tr><td>Table</td><td><code>ai_cp.full_data</code></td></tr>
+<tr><td>Volume</td><td>1 648 886 mesures</td></tr>
+<tr><td>Période</td><td>Novembre 2025 → Mars 2026</td></tr>
+<tr><td>Capteurs distincts</td><td>20 (identifiants hexadécimaux 8 caractères)</td></tr>
+<tr><td>Format de la mesure (colonne <code>data</code>)</td><td>JSON — <code>{"SensorNodeId", "gph", "data": {"Temperature", "Vibration": {"RMS": {"X","Y","Z"}}, "Acceleration": {...}}}</code></td></tr>
+</table>
+
+<h2>3.3 Jeux de données dérivés utilisés pour l'entraînement</h2>
+<table>
+<tr><th>Fichier</th><th>Contenu</th><th>Taille</th></tr>
+<tr><td><code>data/dataset_real_full.csv</code></td><td>606 106 sessions réelles consolidées (sensor_id, timestamp, température, vibration X/Y/Z)</td><td>29,9 Mo</td></tr>
+<tr><td><code>data/dataset_2026_with_acc.csv</code></td><td>Sous-ensemble récent avec données d'accélération</td><td>0,33 Mo</td></tr>
+<tr><td><code>data/dataset_rul_synthetic.csv</code></td><td>Courbes de dégradation synthétiques (Weibull) pour l'entraînement RUL</td><td>6,9 Mo</td></tr>
+</table>
+</div>
+
+<!-- ═══════════════════════════ 4. PIPELINE ANOMALIES ═══════════════════════════ -->
+<div class="section">
+<h1>4. Pipeline de détection d'anomalies (Machine Learning)</h1>
+
+<h2>4.1 Extraction des features (31 au total)</h2>
+<p>Les features sont calculées sur une <strong>fenêtre glissante de 20 mesures consécutives</strong> par capteur
+(<code>WINDOW_SIZE = 20</code>), avec filtrage médian anti-pic (k=3) en amont.</p>
+
+<table>
+<tr><th>Groupe</th><th>Nb</th><th>Features</th></tr>
+<tr><td>Température</td><td>4</td><td>temp_mean, temp_std, temp_trend, temp_cur</td></tr>
+<tr><td>Vibration Z (axe principal)</td><td>6</td><td>vib_z_mean, vib_z_std, vib_z_rms_w, vib_z_kurt, vib_z_crest, vib_z_cur</td></tr>
+<tr><td>Vibration X</td><td>4</td><td>vib_x_mean, vib_x_std, vib_x_rms_w, vib_x_kurt</td></tr>
+<tr><td>Vibration Y</td><td>4</td><td>vib_y_mean, vib_y_std, vib_y_rms_w, vib_y_kurt</td></tr>
+<tr><td>Combinées</td><td>2</td><td>vib_total, health_score</td></tr>
+<tr><td>Accélération</td><td>4</td><td>acc_p2p, acc_z2p, acc_crest, acc_rms</td></tr>
+<tr><td>Courant</td><td>1</td><td>current_mean</td></tr>
+<tr><td>V6 (avancées)</td><td>6</td><td>delta_vib, delta_temp, vib_entropy, fft_ratio, vib_asym_xy, vib_asym_xz</td></tr>
+</table>
+
+<h3>Formules principales</h3>
+
+<p><strong>RMS (énergie du signal) :</strong></p>
+<div class="formula">RMS(x) = sqrt( (1/n) x Sum(x_i^2) )</div>
+
+<p><strong>Facteur de crête (détection de chocs impulsionnels) :</strong></p>
+<div class="formula">crest(x) = max(|x|) / RMS(x)</div>
+
+<p><strong>Kurtosis (convention Pearson, fisher=False, normale ≈ 3) :</strong></p>
+<div class="formula">Kurt(x) = E[(x - mu)^4] / sigma^4</div>
+
+<p><strong>Tendance (pente de régression linéaire, degré 1) :</strong></p>
+<div class="formula">x(t) ~= a.t + b   (moindres carres)  ->  trend = a</div>
+
+<p><strong>Vibration totale 3D (norme de Pythagore, ISO 10816-3) :</strong></p>
+<div class="formula">V_total = sqrt( Vx^2 + Vy^2 + Vz^2 )</div>
+
+<p><strong>Entropie de Shannon (irrégularité du signal, histogramme 10 bins) :</strong></p>
+<div class="formula">H(x) = - Sum( p_i . log(p_i) )</div>
+
+<p><strong>Ratio FFT (périodicité anormale) :</strong></p>
+<div class="formula">FFT_ratio = max(|FFT(x)|^2) / Sum(|FFT(x)|^2)</div>
+
+<p><strong>Score de santé (health_score, 0-100) :</strong></p>
+<div class="formula">temp_n = clip((temp_mean - 25) / 40, 0, 1)
+vib_n  = clip(mean(V_total) / (sqrt(3) x 1500), 0, 1)
+kurt_n = clip(Kurt(Vz) / 10, 0, 1)
+
+health_score = 100 x (1 - 0.35.temp_n - 0.35.vib_n - 0.30.kurt_n)</div>
+
+<h2>4.2 Prétraitement</h2>
+<p><strong>RobustScaler</strong> (résistant aux valeurs extrêmes, centrage médiane/IQR) :</p>
+<div class="formula">x' = (x - mediane(x)) / IQR(x)</div>
+<p><strong>PCA</strong> (Analyse en Composantes Principales), conservant 95% de la variance — réduit typiquement
+31 features à 5-8 composantes principales, filtrant le bruit résiduel.</p>
+
+<h2>4.3 Les 6 modèles non supervisés</h2>
+<table>
+<tr><th>Modèle</th><th>Principe</th></tr>
+<tr><td><strong>Isolation Forest</strong></td><td>Isole chaque point via des arbres aléatoires ; un point isolé rapidement (peu de coupures) est anormal.
+Score = 2^(-E[h(x)]/c(n))</td></tr>
+<tr><td><strong>LOF</strong> (Local Outlier Factor)</td><td>Compare la densité locale d'un point à celle de ses k plus proches voisins.</td></tr>
+<tr><td><strong>OCSVM</strong> (One-Class SVM)</td><td>Hyperplan (noyau RBF) séparant les données normales de l'origine, marge maximale.</td></tr>
+<tr><td><strong>ECOD</strong></td><td>Fonction de répartition empirique par dimension, probabilité de queue — rapide, sans hyperparamètre de distance.</td></tr>
+<tr><td><strong>HBOS</strong></td><td>Histogramme indépendant par feature, score = somme des -log(densité).</td></tr>
+<tr><td><strong>COPOD</strong></td><td>Modélise la dépendance entre features via une copule empirique, corrige l'asymétrie des distributions.</td></tr>
+</table>
+
+<h2>4.4 Fusion des scores (SoftVote) et décision</h2>
+<p>Chaque score brut est normalisé en [0,1] par écrêtage sur les percentiles d'entraînement (P1/P99, stockés
+dans <code>threshold_v3.pkl</code>), puis combiné par une <strong>moyenne pondérée (SoftVote)</strong> des
+4 modèles retenus dans le vote final — LOF et OCSVM sont entraînés et affichés à titre de comparaison mais
+exclus du vote (AUC individuels trop faibles) :</p>
+<div class="formula">score = 0.25 x s_IF + 0.25 x s_ECOD + 0.25 x s_HBOS + 0.25 x s_COPOD</div>
+<p>Le seuil de décision final maximise le F1-score <strong>sous contrainte de précision ≥ 0.70</strong>
+(<code>best_threshold_precision_f1</code>, sélectionné sur le train de chaque fold), puis un
+<strong>filtre de persistance temporelle</strong> exige que k=3 fenêtres consécutives dépassent ce seuil
+avant de confirmer l'anomalie — réduisant les faux positifs isolés.</p>
+
+<h2>4.5 Résultats d'entraînement</h2>
+<p>La validation croisée est effectuée <strong>par capteur entier</strong> (<code>GroupKFold</code>, 3 folds) :
+les fenêtres glissantes se chevauchant à 95%, un découpage ligne par ligne mettrait quasi la même fenêtre en
+train et en test. <code>GroupKFold</code> partitionne les 19 capteurs exploitables en 3 groupes disjoints —
+chaque capteur sert exactement une fois de test, jamais vu pendant l'entraînement de ce fold.</p>
+<table>
+<tr><th>Métrique</th><th>Moyenne CV (3 folds, holdout par capteur)</th></tr>
+<tr><td>AUC-ROC</td><td>0.9475</td></tr>
+<tr><td>F1-score</td><td>0.298</td></tr>
+<tr><td>Précision</td><td>0.373</td></tr>
+<tr><td>Recall</td><td>0.282</td></tr>
+<tr><td>Accuracy</td><td>0.910</td></tr>
+</table>
+
+<div class="box-info">
+<strong>Le F1 modéré n'est pas un défaut du modèle.</strong> L'AUC-ROC=0.9475 reste le signal le plus fiable :
+il mesure la capacité de séparation anomalie/normal indépendamment du seuil choisi, et reste excellent en
+généralisation. Le F1 relativement bas s'explique par la conjonction de deux choix : (1) seulement 19 capteurs
+disponibles pour l'estimation par groupe — un échantillon de groupes limité borne mécaniquement le recall
+observable — et (2) la contrainte métier <strong>précision ≥ 0.70</strong> imposée volontairement au choix du
+seuil, qui limite le recall au profit d'alertes plus fiables (moins de fausses alertes envoyées aux équipes de
+maintenance).
+</div>
+
+<div class="box-warn">
+<strong>Historique de la correction (audit juillet 2026) :</strong> une première version évaluait le
+scaler/PCA/modèles sur les données mêmes qui avaient servi à leur fit (resubstitution), donnant des métriques
+optimistes non représentatives (AUC=0.842, F1=0.629). Un premier correctif à split unique par capteur
+(<code>GroupShuffleSplit</code> 80/20) a révélé le problème inverse : à haute variance sur seulement 19 groupes,
+un tirage précis peut isoler la quasi-totalité des capteurs sains d'un côté (AUC=0.957 mais F1/Precision/Recall=0).
+La <strong>validation croisée par groupe</strong> (GroupKFold, 3 folds) ci-dessus est la correction retenue :
+stable et représentative. Le modèle réellement déployé est ensuite ré-entraîné sur l'intégralité des 19 capteurs
+— la CV ne sert qu'à estimer honnêtement sa performance de généralisation, pas à produire l'artefact final.</div>
+</div>
+
+<!-- ═══════════════════════════ 5. RUL ═══════════════════════════ -->
+<div class="section">
+<h1>5. Estimation de la durée de vie résiduelle (RUL)</h1>
+
+<p>Le RUL combine deux approches complémentaires, retourné sous le champ <code>rul_model</code> :
+<code>"heuristic_CDC + ML_GradientBoosting_v1"</code>.</p>
+
+<h2>5.1 Approche heuristique (compute_rul)</h2>
+<p>Basée sur des seuils industriels fixes et la tendance récente, sans apprentissage :</p>
+<table>
+<tr><th>Feature</th><th>Seuil ATTENTION</th><th>Seuil CRITIQUE</th><th>Maximum</th></tr>
+<tr><td>Température moyenne</td><td>50.0°C</td><td>60.0°C</td><td>70.0°C</td></tr>
+<tr><td>Vibration totale (√3×seuil_Z)</td><td>≈1039 mg</td><td>≈1732 mg</td><td>≈2598 mg</td></tr>
+<tr><td>Kurtosis vibration Z</td><td>7.0</td><td>10.0</td><td>13.0</td></tr>
+<tr><td>Facteur de crête</td><td>3.0</td><td>5.0</td><td>8.0</td></tr>
+</table>
+<p>Un score de dégradation combiné (instantané 50% + tendance 30% + historique d'anomalies 20%) détermine
+le niveau d'alerte (OK / ATTENTION / URGENT / CRITIQUE) et une estimation en heures par interpolation
+dans la plage correspondante (0-72h critique, 72-168h urgent, 168-336h attention, 336-720h OK).</p>
+
+<h2>5.2 Modèle ML dédié (GradientBoostingRegressor)</h2>
+<div class="box-warn">
+<strong>Limite majeure à connaître :</strong> aucune donnée de défaillance réelle confirmée n'est disponible
+(aucun moteur n'a atteint la panne complète pendant la période de collecte nov. 2025 → juin 2026). Le modèle
+ML est donc entraîné sur des <strong>courbes de dégradation 100% synthétiques</strong>.
+</div>
+<p>Génération de 150 "moteurs" simulés, durée de vie aléatoire (500-3000h), profil de dégradation de
+<strong>Weibull</strong> :</p>
+<div class="formula">deg(t) = 1 - exp( -(t/scale)^shape )      shape aleatoire in [1.5, 3.5]</div>
+<p>Les features (température, vibration, courant, spectrales) sont dérivées de cette courbe puis recalibrées
+(moyenne/écart-type) sur les données réelles pour rester dans une plage physiquement plausible — mais la
+cible RUL elle-même reste entièrement fabriquée.</p>
+
+<table>
+<tr><th>Métrique (jeu de test, split par moteur)</th><th>Valeur</th></tr>
+<tr><td>R²</td><td>0.608 – 0.611 (reproductible)</td></tr>
+<tr><td>MAE test</td><td>≈295h (≈33% de la moyenne RUL)</td></tr>
+<tr><td>Features utilisées</td><td>46 (25 temporelles + 21 spectrales)</td></tr>
+<tr><td>Feature la plus importante</td><td>env_rms (17-21% d'importance)</td></tr>
+</table>
+</div>
+
+<!-- ═══════════════════════════ 6. API ═══════════════════════════ -->
+<div class="section">
+<h1>6. API REST (FastAPI)</h1>
+
+<h2>6.1 Endpoints principaux</h2>
+<table>
+<tr><th>Méthode</th><th>Endpoint</th><th>Auth</th><th>Description</th></tr>
+<tr><td>POST</td><td>/v1/predict</td><td>Oui</td><td>Détection d'anomalie sur un historique de mesures</td></tr>
+<tr><td>POST</td><td>/v1/predict-rul</td><td>Oui</td><td>Estimation RUL</td></tr>
+<tr><td>POST</td><td>/v1/iot-predict</td><td>Oui</td><td>Prédiction + RUL en un appel, fenêtre gérée côté serveur</td></tr>
+<tr><td>GET</td><td>/v1/health-score/{id}</td><td>Non</td><td>Score de santé 0-100 d'un capteur</td></tr>
+<tr><td>GET</td><td>/v1/history/{id}</td><td>Non</td><td>Historique des prédictions en mémoire</td></tr>
+<tr><td>GET</td><td>/v1/alert-level/{id}</td><td>Non</td><td>Niveau d'alerte consolidé (pour feux tricolores)</td></tr>
+<tr><td>GET</td><td>/health</td><td>Non</td><td>Health check, modèles chargés</td></tr>
+<tr><td>GET</td><td>/metrics</td><td>Oui</td><td>Métriques du modèle déployé</td></tr>
+<tr><td>GET</td><td>/sensors</td><td>Oui</td><td>Liste des capteurs connus</td></tr>
+<tr><td>GET</td><td>/anomalies</td><td>Oui</td><td>Anomalies filtrées par score</td></tr>
+</table>
+
+<h2>6.2 Sécurité</h2>
+<ul>
+<li><strong>Authentification</strong> : en-tête <code>X-API-Key</code>, comparaison en temps constant
+(<code>hmac.compare_digest</code>) — résiste aux attaques temporelles.</li>
+<li><strong>Rate limiting</strong> : fenêtre glissante par IP + endpoint, purge périodique anti-fuite mémoire.</li>
+<li><strong>CORS</strong> : restreint via <code>CORS_ORIGINS</code> en production (ouvert par défaut en dev).</li>
+<li><strong>Validation stricte</strong> : bornes physiques sur chaque mesure (Pydantic — température -20/150°C, vibration 0/5000mg, etc.).</li>
+<li><strong>Anti-XSS</strong> : échappement HTML systématique des champs libres (sensor_id, motor_id) dans les rapports générés.</li>
+</ul>
+</div>
+
+<!-- ═══════════════════════════ 7. MOTEUR TEMPS RÉEL ═══════════════════════════ -->
+<div class="section">
+<h1>7. Moteur temps réel</h1>
+
+<p><code>realtime_mariadb.py</code> assure la liaison entre la base de données et l'API. Trois modes de
+fonctionnement :</p>
+<table>
+<tr><th>Mode</th><th>Commande</th><th>Usage</th></tr>
+<tr><td>Temps réel</td><td><code>python realtime_mariadb.py</code></td><td>Polling continu des nouvelles mesures (production)</td></tr>
+<tr><td>Replay</td><td><code>--replay N --window 5</code></td><td>Rejoue les N dernières mesures historiques (démonstration, tests)</td></tr>
+<tr><td>Simulateur</td><td><code>realtime_simulator.py</code></td><td>Données synthétiques, sans MariaDB ni capteurs (démo hors-ligne)</td></tr>
+</table>
+
+<h2>7.1 Logique de fenêtrage</h2>
+<p>Chaque capteur dispose d'une fenêtre glissante (<code>deque(maxlen=window)</code>). Une prédiction n'est
+déclenchée que pour les capteurs ayant reçu une <strong>nouvelle</strong> mesure durant le cycle de poll
+courant (2 secondes par défaut) — évite les prédictions redondantes sur données inchangées.</p>
+
+<h2>7.2 Persistance des résultats</h2>
+<p>Chaque prédiction est ajoutée à <code>realtime_results.json</code> (structure : itération, timestamp,
+sensor_id, mesure, prédiction, RUL), limité aux 50 dernières entrées par capteur.</p>
+</div>
+
+<!-- ═══════════════════════════ 8. DASHBOARDS ═══════════════════════════ -->
+<div class="section">
+<h1>8. Tableaux de bord (dashboards)</h1>
+
+<table>
+<tr><th></th><th>dashboard_predictive.html</th><th>dashboard_realtime.html</th></tr>
+<tr><td>Source de données</td><td>Lit directement les prédictions/RUL déjà calculées et sauvegardées par le moteur</td><td>Idem depuis la correction — affiche les valeurs calculées par le moteur (pas de recalcul navigateur)</td></tr>
+<tr><td>Vue</td><td>Vue d'ensemble du parc, comparaisons inter-capteurs</td><td>Vue détaillée d'un capteur sélectionné, graphiques temps réel</td></tr>
+<tr><td>Rafraîchissement</td><td>4 secondes</td><td>5 secondes</td></tr>
+<tr><td>Authentification requise</td><td>Oui (endpoints /metrics, /sensors)</td><td>Non (n'appelle que des endpoints publics + fichier JSON local)</td></tr>
+</table>
+
+<div class="box-warn">
+<strong>Historique du bug corrigé :</strong> dashboard_realtime.html recalculait initialement ses propres
+prédictions côté navigateur en appelant l'API en direct. Comme <code>realtime_mariadb.py</code> ne persiste
+que <code>vibration_z</code> et un total combiné (pas X/Y séparément), la reconstruction utilisait à tort
+la magnitude combinée comme axe X seul — gonflant <code>vib_total</code> d'un facteur ~10. Corrigé en
+affichant directement les valeurs déjà calculées par le moteur, identiques aux deux dashboards.
+</div>
+
+<h2>8.1 Captures d'écran — données réelles Novation City</h2>
+<p>Captures effectuées le 06/08/2026 avec le moteur <code>realtime_mariadb.py</code> en mode
+<code>--replay</code> rejouant de vraies mesures issues de <code>ai_cp.full_data</code> (pas le simulateur
+synthétique) : 19 capteurs actifs, dont plusieurs en alerte CRITIQUE/URGENT réelle, historique de score
+et RUL calculés par le pipeline ML complet.</p>
+
+<p><strong>Dashboard temps réel</strong> (<code>dashboard_realtime.html</code>) — vue détaillée du capteur
+sélectionné, résumé intelligent du parc, actions prioritaires et RUL :</p>
+<p class="center"><img src="docs/screenshots/dashboard_realtime_main.png" style="width:100%; border:0.75pt solid #b7c9d3; margin:6pt 0;"></p>
+
+<p><strong>Analyse spectrale</strong> — panneau FFT + fréquences caractéristiques de défaut roulement
+(BPFO/BPFI/BSF/FTF, référence SKF 6205-2RS), ouvert depuis le bouton « Analyse spectrale » du dashboard :</p>
+<p class="center"><img src="docs/screenshots/dashboard_realtime_spectral.png" style="width:100%; border:0.75pt solid #b7c9d3; margin:6pt 0;"></p>
+
+<p><strong>Pipeline d'upload</strong> (<code>pipeline_upload.html</code>) — interface de ré-entraînement :
+upload d'un dump SQL, parsing, consolidation du dataset, entraînement (IF+ECOD+HBOS+COPOD, SoftVote),
+prédictions et métriques, avec statut de connexion API en direct :</p>
+<p class="center"><img src="docs/screenshots/pipeline_upload.png" style="width:100%; border:0.75pt solid #b7c9d3; margin:6pt 0;"></p>
+</div>
+
+<!-- ═══════════════════════════ 9. TESTS ═══════════════════════════ -->
+<div class="section">
+<h1>9. Tests, validation et audit qualité</h1>
+
+<h2>9.1 Suite de tests automatisés</h2>
+<table>
+<tr><th>Fichier</th><th>Nb tests</th><th>Portée</th></tr>
+<tr><td>tests/test_ml_functions.py</td><td>36</td><td>Fonctions statistiques, extraction de features, authentification (sans serveur requis)</td></tr>
+<tr><td>tests/test_security.py</td><td>18</td><td>Authentification 401/200, rate limiting 429, CORS</td></tr>
+<tr><td>tests/test_api_final.py</td><td>8</td><td>Scénarios d'intégration bout-en-bout (NORMAL/CRITIQUE/DÉGRADATION)</td></tr>
+<tr><td>tests/test_new_endpoints_and_regressions.py</td><td>11</td><td>Endpoints non couverts + tests de non-régression (XSS, NaN)</td></tr>
+<tr><td><strong>Total</strong></td><td><strong>73</strong></td><td><strong>73/73 passants</strong></td></tr>
+</table>
+
+<h2>9.2 Bugs identifiés et corrigés</h2>
+<table>
+<tr><th>#</th><th>Bug</th><th>Sévérité</th><th>Fichier</th></tr>
+<tr><td>1</td><td>XSS stocké — sensor_id/motor_id non échappés dans les rapports HTML</td><td>Critique</td><td>reporting_module.py</td></tr>
+<tr><td>2</td><td>Crash sur timestamp manquant (None) dans l'historique</td><td>Majeur</td><td>reporting_module.py</td></tr>
+<tr><td>3</td><td>Valeurs NaN non filtrées dans /v1/history</td><td>Mineur</td><td>api_unified_pythagore.py</td></tr>
+<tr><td>4</td><td>Fuite mémoire — capteurs arbitraires jamais purgés (anomaly_history, iot_windows...)</td><td>Majeur</td><td>api_unified_pythagore.py</td></tr>
+<tr><td>5</td><td>Prédictions dupliquées à chaque cycle de polling, même sans nouvelle donnée</td><td>Majeur</td><td>realtime_mariadb.py</td></tr>
+<tr><td>6</td><td>Mot de passe MariaDB en dur dans le code source (fallback)</td><td>Sécurité</td><td>realtime_mariadb.py</td></tr>
+<tr><td>7</td><td>vib_total gonflé x10 — recalcul navigateur à partir de données incomplètes</td><td>Majeur</td><td>dashboard_realtime.html</td></tr>
+<tr><td>8</td><td>Fonction apiHeaders() appelée mais jamais définie (ReferenceError silencieux)</td><td>Majeur</td><td>dashboard_predictive.html</td></tr>
+<tr><td>9</td><td>Redirection &gt; non échappée dans echo (cmd.exe) — script de lancement en échec</td><td>Bloquant</td><td>LANCER.bat</td></tr>
+<tr><td>10</td><td>Guillemets imbriqués fragiles dans start/cmd — échecs de lancement API/moteur</td><td>Majeur</td><td>LANCER.bat</td></tr>
+<tr><td>11</td><td>Image Docker incomplète — realtime_mariadb.py/config.py non copiés</td><td>Majeur</td><td>Dockerfile</td></tr>
+</table>
+
+<h2>9.3 Fiabilité de l'évaluation ML</h2>
+<p>Les métriques rapportées en section 4.5 (AUC=0.9475, F1=0.298) proviennent d'une validation croisée par
+groupe (<code>GroupKFold</code>, chaque capteur sert exactement une fois de test, jamais vu à l'entraînement de
+ce fold) — méthodologie qui exclut structurellement la fuite de données entre train et test. Elles sont donc
+directement comparables à ce qu'on peut attendre en production, contrairement aux premières métriques
+auto-rapportées avant l'audit de juillet 2026 (voir encart section 4.5), qui évaluaient en resubstitution.</p>
+
+<h2>9.4 Comment relancer les tests</h2>
+<div class="formula">python -m pytest tests/ -v --api-key &lt;votre_cle&gt;</div>
+</div>
+
+<!-- ═══════════════════════════ 10. DÉPLOIEMENT ═══════════════════════════ -->
+<div class="section">
+<h1>10. Déploiement et exploitation</h1>
+
+<h2>10.1 Lancement local — commande unique</h2>
+<div class="formula">.\LANCER.bat</div>
+<p>Ce script vérifie/démarre automatiquement MariaDB, crée l'environnement virtuel si nécessaire, installe
+les dépendances, vérifie les modèles ML, puis démarre l'API (port 8000), le moteur temps réel et le serveur
+du dashboard (port 3000).</p>
+
+<h2>10.2 Déploiement Docker</h2>
+<div class="formula">cp .env.example .env
+cp alert_config.example.json alert_config.json
+docker compose up --build</div>
+<p>Trois services : <code>api</code> (FastAPI, port 8000), <code>moteur</code> (realtime_mariadb.py),
+<code>dashboard</code> (nginx, port 3000).</p>
+
+<h2>10.3 Variables d'environnement clés</h2>
+<table>
+<tr><th>Variable</th><th>Rôle</th></tr>
+<tr><td>API_KEYS</td><td>Clé(s) API valides, séparées par virgules</td></tr>
+<tr><td>MARIADB_HOST / PORT / USER / PASSWORD / DATABASE</td><td>Connexion à la base de données</td></tr>
+<tr><td>CORS_ORIGINS</td><td>Origines autorisées en production</td></tr>
+<tr><td>DEMO_MODE</td><td>Active des données simulées sans base réelle</td></tr>
+</table>
+</div>
+
+<!-- ═══════════════════════════ 11. LIMITES ═══════════════════════════ -->
+<div class="section">
+<h1>11. Limites connues et pistes d'amélioration</h1>
+
+<table>
+<tr><th>Limite</th><th>Impact</th><th>Piste d'amélioration</th></tr>
+<tr><td>Courant électrique toujours à 0 (pas de capteur)</td><td>Feature current_mean sans effet discriminant</td><td>Ajouter un capteur de courant (pince ampèremétrique)</td></tr>
+<tr><td>RUL sans données de panne réelle</td><td>Modèle ML entraîné sur données synthétiques uniquement</td><td>Collecter des historiques de panne confirmée sur le long terme</td></tr>
+<tr><td>Pas de classification du type de défaut (bille/piste int./piste ext.)</td><td>Détection binaire anomalie/normal uniquement</td><td>Nécessiterait des données labellisées par type de défaut réel</td></tr>
+<tr><td>F1-score modéré (0.298) sous contrainte précision≥0.70</td><td>Recall limité (0.282) — une partie des vraies anomalies n'est pas détectée ; AUC=0.9475 reste le signal fiable du pouvoir de discrimination réel</td><td>Collecter plus de capteurs/données pour réduire la variance du GroupKFold ; réévaluer l'arbitrage précision/recall selon la tolérance métier aux pannes manquées</td></tr>
+<tr><td>Pas de banc d'essai physique avec défauts injectables</td><td>Impossible de démontrer une détection sur défaut connu à la demande</td><td>Construction d'un banc de test (BOM disponible dans PROTOTYPE_PHYSIQUE.md)</td></tr>
+<tr><td>Rate limiting par IP peu fiable derrière un reverse proxy</td><td>Sans configuration proxy_headers</td><td>Configurer Uvicorn avec --proxy-headers en production</td></tr>
+</table>
+</div>
+
+<!-- ═══════════════════════════ 12. ANNEXES ═══════════════════════════ -->
+<div class="section">
+<h1>12. Annexes — Glossaire et formules</h1>
+
+<h2>12.1 Glossaire des métriques</h2>
+<table>
+<tr><th>Terme</th><th>Définition</th></tr>
+<tr><td><strong>Recall (rappel)</strong></td><td>Parmi toutes les vraies anomalies, proportion détectée. Recall = VP / (VP + FN)</td></tr>
+<tr><td><strong>Précision</strong></td><td>Parmi toutes les alertes émises, proportion de vraies anomalies. Précision = VP / (VP + FP)</td></tr>
+<tr><td><strong>F1-score</strong></td><td>Moyenne harmonique précision/rappel. F1 = 2×(P×R)/(P+R)</td></tr>
+<tr><td><strong>AUC-ROC</strong></td><td>Aire sous la courbe ROC — capacité du modèle à classer une anomalie au-dessus d'un cas normal, indépendamment du seuil. 0.5=hasard, 1.0=parfait</td></tr>
+<tr><td><strong>RUL</strong></td><td>Remaining Useful Life — durée de vie utile restante estimée avant défaillance</td></tr>
+<tr><td><strong>Contamination</strong></td><td>Proportion supposée d'anomalies dans les données d'entraînement (hyperparamètre des modèles non supervisés)</td></tr>
+<tr><td><strong>Stacking</strong></td><td>Technique d'ensemble combinant les prédictions de plusieurs modèles via un méta-modèle (ici LogisticRegression)</td></tr>
+</table>
+
+<h2>12.2 Structure des fichiers du projet</h2>
+<table>
+<tr><th>Dossier/Fichier</th><th>Contenu</th></tr>
+<tr><td><code>models/</code></td><td>Modèles ML entraînés (.pkl), scaler, PCA, seuils, métriques</td></tr>
+<tr><td><code>data/</code></td><td>Jeux de données CSV (réels et synthétiques)</td></tr>
+<tr><td><code>tests/</code></td><td>Suite de tests pytest (73 tests)</td></tr>
+<tr><td><code>edge_models/</code>, <code>edge_optimize.py</code></td><td>Outillage d'optimisation pour déploiement embarqué (Raspberry Pi)</td></tr>
+<tr><td><code>postman/</code></td><td>Collections Postman pour tester l'API manuellement</td></tr>
+<tr><td><code>reports/</code></td><td>Rapports générés (HTML/JSON)</td></tr>
+</table>
+
+<h2>12.3 Fréquences caractéristiques de défaut roulement (SKF 6205-2RS, 1450 tr/min)</h2>
+<table>
+<tr><th>Défaut</th><th>Fréquence</th></tr>
+<tr><td>Bague extérieure (BPFO)</td><td>90.1 Hz</td></tr>
+<tr><td>Bague intérieure (BPFI)</td><td>143.7 Hz</td></tr>
+<tr><td>Bille (BSF)</td><td>59.5 Hz</td></tr>
+<tr><td>Cage (FTF)</td><td>10.0 Hz</td></tr>
+</table>
+<p class="small">Calculées automatiquement par <code>signal_processing.py</code> selon la vitesse réelle du moteur.
+Normes de référence : ISO 10816-3 / ISO 20816-3.</p>
+
+</div>
+
+</body>
+</html>

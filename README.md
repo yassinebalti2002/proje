@@ -5,6 +5,9 @@
 Projet de Fin d'Études — Mohamed Yassine Balti  
 ISG Bizerte × Novation City (Sousse, Tunisie) — 2025/2026
 
+> 📖 Documentation complète : [`docs/DOCUMENTATION.md`](docs/DOCUMENTATION.md) (architecture détaillée, tous les endpoints, pipeline ML, limites connues, historique des corrections)
+> 🧪 Guide de test : [`docs/TESTING_GUIDE.md`](docs/TESTING_GUIDE.md) (tests unitaires, sécurité, intégration, replay MariaDB réel, dashboard, Docker)
+
 ---
 
 ## Vue d'ensemble
@@ -34,15 +37,27 @@ Dashboard HTML5  (rafraîchissement 3 s)
 
 ## Performances ML réelles
 
-| Métrique | Valeur | Note |
-|----------|--------|------|
-| AUC-ROC | **0,836** | Ensemble SoftVote |
-| Recall | **0,877** | Priorité industrielle |
-| Accuracy | 0,800 | 73 917 sessions |
-| F1-Score | 0,367 | Contamination 20 % |
-| Precision | 0,232 | |
-| MAE RUL | **317 h** | GradientBoostingRegressor |
-| R² RUL | **0,56** | 46 features spectrales |
+Métriques calculées par **validation croisée par capteur** (GroupKFold, 3 folds — chaque capteur
+sert exactement une fois de test, jamais vu pendant l'entraînement de ce fold) : bien plus stable
+qu'un split unique, qui peut tomber par malchance sur un fold quasi sans anomalies (voir historique
+des corrections dans `docs/DOCUMENTATION.md`).
+
+| Métrique | **Moyenne CV (3 folds, holdout)** | Note |
+|----------|:---:|------|
+| AUC-ROC | **0,9475** | Signal le plus stable — excellente séparation anomalie/normal en généralisation |
+| F1-Score | **0,298** | Seuil sous contrainte precision ≥ 0,70 (V9), sélectionné sur le train de chaque fold |
+| Precision | **0,373** | |
+| Recall | **0,282** | |
+| MAE RUL | **294 h** (33 %) | GradientBoostingRegressor, split par moteur (`GroupShuffleSplit`) |
+| R² RUL | **0,61** | 46 features spectrales, 30 moteurs jamais vus en entraînement |
+
+> Ces chiffres remplacent les anciens (AUC=0,842, Recall=0,755, F1=0,629), qui étaient calculés
+> **en resubstitution** : le scaler/PCA/modèles étaient évalués sur les données mêmes qui avaient
+> servi à les entraîner (pas de vrai jeu de test), les mêmes soucis affectaient historiquement le
+> modèle RUL (split aléatoire par ligne au lieu du moteur). Corrigé en juillet 2026 — détail complet
+> dans `docs/DOCUMENTATION.md` § Historique des corrections. Le modèle réellement déployé
+> (`models/*.pkl`) est ensuite ré-entraîné sur l'intégralité des données disponibles (19 capteurs) —
+> la CV ne sert qu'à estimer honnêtement sa performance de généralisation, pas à le produire.
 
 ---
 
@@ -57,7 +72,7 @@ Dashboard HTML5  (rafraîchissement 3 s)
 | HBOS | pyod | Histogramme par feature |
 | COPOD | pyod | Copule multivariée |
 
-Vote : **SoftVote à seuil dynamique optimal** (stocké dans `models/threshold_v3.pkl`)
+Vote : **SoftVote à seuil optimal sous contrainte precision ≥ 0,70** (stocké dans `models/threshold_v3.pkl`)
 
 ---
 
@@ -104,13 +119,16 @@ python realtime_mariadb.py --replay 50
 ```bash
 docker build -t maintenance-predictive .
 
-# Run local
-docker run -p 8000:8000 maintenance-predictive
+# Run local (copier .env.example → .env et remplir les valeurs)
+cp .env.example .env
+docker run -p 8000:8000 --env-file .env maintenance-predictive
 
-# Run avec MariaDB local
+# Run avec variables explicites
 docker run -p 8000:8000 \
+  -e API_KEYS=<votre_cle_secrete> \
   -e MARIADB_HOST=192.168.120.58 \
-  -e MARIADB_PASSWORD=xxx \
+  -e MARIADB_USER=app_user \
+  -e MARIADB_PASSWORD=<mot_de_passe> \
   maintenance-predictive
 ```
 
@@ -157,6 +175,7 @@ Ce dépôt inclut un fichier `render.yaml` prêt à l'emploi.
 | Variable | Valeur | Description |
 |----------|--------|-------------|
 | `PORT` | auto | Injecté automatiquement par Render |
+| `API_KEYS` | `secrets.token_hex(32)` | **Obligatoire** — clé d'authentification |
 | `DEMO_MODE` | `true` | Mode replay sans MariaDB |
 | `MARIADB_HOST` | optionnel | IP/hostname MariaDB public |
 | `MARIADB_PASSWORD` | optionnel | Mot de passe MariaDB |
@@ -170,21 +189,35 @@ Ce dépôt inclut un fichier `render.yaml` prêt à l'emploi.
 | GET | `/health` | Statut API + modèles chargés |
 | GET | `/metrics` | Métriques ML officielles |
 | GET | `/sensors` | Liste des 20 capteurs IFM |
-| GET | `/v1/dashboard/overview` | Résumé global tous capteurs |
-| GET | `/v1/sensors/{id}/summary` | Résumé complet 1 capteur |
-| GET | `/v1/alert-level/{id}` | Niveau d'alerte (FAIBLE/MODÉRÉ/ÉLEVÉ/CRITIQUE) |
+| GET | `/anomalies` | Anomalies filtrées par score |
+| GET | `/v1/alert-level/{id}` | Niveau d'alerte (OK/ATTENTION/URGENT/CRITIQUE) |
 | GET | `/v1/health-score/{id}` | Health Score 0–100 |
-| GET | `/v1/history/{id}` | Historique 200 prédictions |
-| GET | `/v1/live/{id}` | Fenêtre brute 20 mesures |
-| POST | `/v1/predict` | Inférence 6 modèles SoftVote |
-| POST | `/v1/predict-rul` | Estimation RUL (GBR) |
+| GET | `/v1/history/{id}` | Historique des prédictions en mémoire |
+| GET | `/v1/results` | Derniers résultats consolidés (tous capteurs) |
+| POST | `/v1/predict` | Inférence 6 modèles + stacking |
+| POST | `/v1/predict-rul` | Estimation RUL (heuristique + GBR) |
+| POST | `/v1/iot-predict` | Prédiction + RUL en un appel, fenêtre gérée côté serveur |
+| POST | `/v1/pipeline/upload` | Upload d'un dump SQL + déclenchement d'un ré-entraînement |
+| GET | `/v1/pipeline/status/{job_id}` | Suivi d'un ré-entraînement en cours |
 
 Documentation interactive : `GET /docs`
+
+### Authentification
+
+Tous les endpoints `/v1/*` nécessitent un en-tête `X-API-Key` :
+
+```bash
+curl -H "X-API-Key: <votre_cle>" http://localhost:8000/v1/predict ...
+```
+
+Générer une clé : `python -c "import secrets; print(secrets.token_hex(32))"`  
+La définir dans `.env` : `API_KEYS=<votre_cle>`
 
 ### Exemple `/v1/predict`
 
 ```json
 POST /v1/predict
+Headers: X-API-Key: <votre_cle>
 {
   "sensor_id": "68c11f06",
   "history": [

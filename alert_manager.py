@@ -34,6 +34,7 @@ Génération du mot de passe d'application Gmail :
 
 import json
 import logging
+import os
 import smtplib
 import threading
 import time
@@ -44,6 +45,14 @@ from pathlib import Path
 from typing import Optional
 
 log = logging.getLogger("alert_manager")
+
+# Hôte utilisé dans les liens des emails d'alerte. "localhost" ne veut rien
+# dire pour quelqu'un qui lit l'email depuis son téléphone ou un autre poste
+# (résoudrait vers SON PROPRE appareil, pas le serveur) -- même classe de bug
+# que le "localhost" en dur qu'on a corrigé dans le dashboard. À définir dans
+# .env (PUBLIC_HOST=<IP ou nom DNS accessible par le client>) pour un vrai
+# déploiement ; reste "localhost" par défaut pour un usage 100% local/démo.
+PUBLIC_HOST = os.getenv("PUBLIC_HOST", "localhost")
 
 # ══════════════════════════════════════════════════════════════════════════════
 #  CONFIGURATION PAR DÉFAUT
@@ -118,6 +127,9 @@ class AlertManager:
         self.config = self._load_config(config_path)
         # {sensor_id: datetime} — dernière alerte envoyée par capteur
         self._last_alert: dict = {}
+        # Protège _last_alert contre la race entre le check et la réservation
+        # du cooldown (voir send_alert / send_system_alert).
+        self._alert_lock = threading.Lock()
         # Historique persisté des alertes envoyées
         self._history_path = Path(__file__).parent / "alert_history.json"
         log.info("AlertManager initialisé — canaux actifs : " + self._active_channels())
@@ -198,13 +210,20 @@ class AlertManager:
             log.debug(f"Alerte ignorée — health_score={health_score} > seuil={min_health}")
             return
 
-        # Règle 3 — Cooldown par capteur
+        # Règle 3 — Cooldown par capteur. Le check et la réservation du créneau
+        # doivent être atomiques (lock) : l'envoi réel se fait dans un thread
+        # séparé et peut prendre plusieurs secondes (SMTP), donc si on ne
+        # réservait qu'après coup, deux détections rapprochées du même capteur
+        # passeraient toutes les deux le check et déclencheraient un envoi en
+        # double avant que la première n'ait eu le temps de marquer le cooldown.
         cooldown = rules.get("cooldown_seconds", 300)
-        last = self._last_alert.get(sensor_id)
-        if last and (datetime.now() - last).total_seconds() < cooldown:
-            remaining = cooldown - (datetime.now() - last).total_seconds()
-            log.debug(f"Alerte ignorée — cooldown {sensor_id} ({remaining:.0f}s restantes)")
-            return
+        with self._alert_lock:
+            last = self._last_alert.get(sensor_id)
+            if last and (datetime.now() - last).total_seconds() < cooldown:
+                remaining = cooldown - (datetime.now() - last).total_seconds()
+                log.debug(f"Alerte ignorée — cooldown {sensor_id} ({remaining:.0f}s restantes)")
+                return
+            self._last_alert[sensor_id] = datetime.now()
 
         # Préparer le contexte de l'alerte
         alert_ctx = {
@@ -220,9 +239,6 @@ class AlertManager:
             **(extra or {})
         }
 
-        # Marquer le cooldown avant l'envoi (pour éviter les doublons rapides)
-        self._last_alert[sensor_id] = datetime.now()
-
         # Lancer l'envoi en arrière-plan
         t = threading.Thread(
             target=self._dispatch_all,
@@ -232,6 +248,49 @@ class AlertManager:
         )
         t.start()
         log.info(f"🔔 Alerte déclenchée — capteur={sensor_id} niveau={risk_level}")
+
+    # ──────────────────────────────────────────────────────────────────────────
+    #  Alerte systeme (pas liee a un capteur -- ex: API/moteur en panne)
+    # ──────────────────────────────────────────────────────────────────────────
+
+    def send_system_alert(self, message: str, cooldown_seconds: int = 1800, extra: dict = None):
+        """
+        Envoie une alerte de niveau SYSTEME (ex: API injoignable, moteur arrete),
+        sur les memes canaux que send_alert() mais sans les regles de filtrage
+        propres aux capteurs (health_score, alert_levels autorises) -- un
+        systeme hors service doit toujours alerter. Cooldown global separe
+        (pas par capteur) pour eviter le spam si l'incident dure longtemps.
+        """
+        cooldown_key = "__system__"
+        with self._alert_lock:
+            last = self._last_alert.get(cooldown_key)
+            if last and (datetime.now() - last).total_seconds() < cooldown_seconds:
+                remaining = cooldown_seconds - (datetime.now() - last).total_seconds()
+                log.debug(f"Alerte systeme ignoree — cooldown ({remaining:.0f}s restantes)")
+                return
+            self._last_alert[cooldown_key] = datetime.now()
+
+        alert_ctx = {
+            "sensor_id":    "SYSTEME",
+            "risk_level":   "CRITIQUE",
+            "health_score": 0,
+            "rul_hours":    None,
+            "rul_days":     None,
+            "vib_total":    None,
+            "temperature":  None,
+            "votes":        0,
+            "timestamp":    datetime.now().isoformat(),
+            "system_message": message,
+            # Clé utilisée pour libérer le cooldown en cas d'échec total dans
+            # _dispatch_all() — distincte de "sensor_id" (cooldown global, pas
+            # par capteur).
+            "_cooldown_key": cooldown_key,
+            **(extra or {})
+        }
+
+        t = threading.Thread(target=self._dispatch_all, args=(alert_ctx,), daemon=True, name="alert-system")
+        t.start()
+        log.warning(f"🔴 Alerte SYSTEME déclenchée — {message}")
 
     # ──────────────────────────────────────────────────────────────────────────
     #  Dispatch
@@ -255,6 +314,12 @@ class AlertManager:
                 "Aucun canal d'alerte activé ou tous ont échoué. "
                 "Vérifiez alert_config.json"
             )
+            # Le cooldown a déjà été réservé au moment de la décision d'envoi
+            # (send_alert / send_system_alert) — si tous les canaux échouent
+            # (ex : SMTP en panne), on le libère pour retenter dès la prochaine
+            # détection plutôt que de rester silencieux `cooldown_seconds`.
+            with self._alert_lock:
+                self._last_alert.pop(ctx.get("_cooldown_key", ctx["sensor_id"]), None)
 
         # Sauvegarder dans l'historique
         self._save_to_history(ctx, results)
@@ -319,11 +384,11 @@ class AlertManager:
             f"RUL       : {rul_str}\n"
             f"Vibration : {ctx.get('vib_total', 'N/A')} mg\n"
             f"Temp.     : {ctx.get('temperature', 'N/A')}°C\n"
-            f"Votes ML  : {ctx.get('votes', '?')}/4 modèles\n"
+            f"Votes ML  : {ctx.get('votes', '?')}/6 modèles\n"
             f"Horodatage: {ctx['timestamp']}\n"
             f"{'='*40}\n"
-            f"Dashboard : http://localhost:3000/dashboard_predictive.html\n"
-            f"API       : http://localhost:8000/docs\n"
+            f"Dashboard : http://{PUBLIC_HOST}:3000/dashboard_realtime.html\n"
+            f"API       : https://{PUBLIC_HOST}:8000/docs\n"
         )
 
     def _build_email_html(self, ctx: dict) -> str:
@@ -376,7 +441,7 @@ class AlertManager:
         </tr>
         <tr style="background:#f9fafb;">
           <td style="padding:10px;border:1px solid #e5e7eb;font-weight:bold;">🤖 Votes ML</td>
-          <td style="padding:10px;border:1px solid #e5e7eb;">{ctx.get('votes', '?')}/4 modèles</td>
+          <td style="padding:10px;border:1px solid #e5e7eb;">{ctx.get('votes', '?')}/6 modèles</td>
         </tr>
         <tr>
           <td style="padding:10px;border:1px solid #e5e7eb;font-weight:bold;">🕐 Horodatage</td>
@@ -393,7 +458,7 @@ class AlertManager:
       </div>
       <!-- Liens -->
       <div style="margin-top:20px;text-align:center;">
-        <a href="http://localhost:3000/dashboard_predictive.html"
+        <a href="http://{PUBLIC_HOST}:3000/dashboard_realtime.html"
            style="background:{level_color};color:#fff;padding:12px 24px;
                   border-radius:8px;text-decoration:none;font-weight:bold;">
           Ouvrir le Dashboard
@@ -459,7 +524,7 @@ class AlertManager:
                             {"title": "RUL",        "value": rul_str,                      "short": True},
                             {"title": "Vibration",  "value": f"{ctx.get('vib_total','N/A')} mg", "short": True},
                             {"title": "Température","value": f"{ctx.get('temperature','N/A')}°C", "short": True},
-                            {"title": "Votes ML",   "value": f"{ctx.get('votes','?')}/4",  "short": True},
+                            {"title": "Votes ML",   "value": f"{ctx.get('votes','?')}/6",  "short": True},
                             {"title": "Horodatage", "value": ctx["timestamp"],              "short": False},
                         ],
                         "footer": "Maintenance Prédictive — ISG Bizerte"
@@ -479,7 +544,7 @@ class AlertManager:
                             {"name": "RUL",        "value": rul_str},
                             {"name": "Vibration",  "value": f"{ctx.get('vib_total','N/A')} mg"},
                             {"name": "Température","value": f"{ctx.get('temperature','N/A')}°C"},
-                            {"name": "Votes ML",   "value": f"{ctx.get('votes','?')}/4"},
+                            {"name": "Votes ML",   "value": f"{ctx.get('votes','?')}/6"},
                             {"name": "Horodatage", "value": ctx["timestamp"]},
                         ]
                     }]
@@ -555,18 +620,21 @@ class AlertManager:
 
         try:
             client = Client(cfg["account_sid"], cfg["auth_token"])
-            success = True
-            for to in to_numbers:
-                msg = client.messages.create(
-                    body=body,
-                    from_=cfg["from_number"],
-                    to=to
-                )
-                log.info(f"✅ SMS envoyé → {to} | SID: {msg.sid}")
-            return success
         except Exception as e:
-            log.error(f"SMS Twilio : erreur : {e}")
+            log.error(f"SMS Twilio : erreur d'initialisation du client : {e}")
             return False
+
+        # Un échec sur un destinataire ne doit pas faire perdre le succès des
+        # autres — chaque envoi est isolé pour refléter un succès partiel réel.
+        any_success = False
+        for to in to_numbers:
+            try:
+                msg = client.messages.create(body=body, from_=cfg["from_number"], to=to)
+                log.info(f"✅ SMS envoyé → {to} | SID: {msg.sid}")
+                any_success = True
+            except Exception as e:
+                log.error(f"SMS Twilio : échec envoi vers {to} : {e}")
+        return any_success
 
     # ──────────────────────────────────────────────────────────────────────────
     #  Historique

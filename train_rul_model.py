@@ -348,7 +348,9 @@ def train_rul_model(dataset: pd.DataFrame, test_size: float = 0.2) -> dict:
     available_features = [c for c in FEATURE_COLS if c in dataset.columns]
     log.info(f"Features utilisées : {len(available_features)}/{len(FEATURE_COLS)}")
 
-    df_clean = dataset[available_features + [TARGET_COL]].dropna()
+    has_motor_id = "motor_id" in dataset.columns
+    cols_to_keep = available_features + [TARGET_COL] + (["motor_id"] if has_motor_id else [])
+    df_clean = dataset[cols_to_keep].dropna()
     df_clean = df_clean[df_clean[TARGET_COL] >= 0]
 
     X = df_clean[available_features].values
@@ -356,10 +358,30 @@ def train_rul_model(dataset: pd.DataFrame, test_size: float = 0.2) -> dict:
 
     log.info(f"Dataset nettoyé : {len(X)} lignes")
 
-    # Split train/test
-    X_train, X_test, y_train, y_test = train_test_split(
-        X, y, test_size=test_size, random_state=42
-    )
+    # Split train/test — PAR MOTEUR (GroupShuffleSplit), pas par ligne.
+    # Le dataset est constitué de courbes de dégradation continues par moteur
+    # (bruit gaussien faible de 2-3% autour d'une courbe de Weibull lisse) :
+    # deux points temporellement proches du même moteur sont quasi identiques.
+    # Un split aléatoire par ligne laisserait fuir de l'information du moteur
+    # entre train et test (interpolation triviale), gonflant artificiellement
+    # R²/MAE. On tient donc des moteurs ENTIERS à l'écart.
+    if has_motor_id:
+        from sklearn.model_selection import GroupShuffleSplit
+        motor_ids = df_clean["motor_id"].values
+        gss = GroupShuffleSplit(n_splits=1, test_size=test_size, random_state=42)
+        train_idx, test_idx = next(gss.split(X, y, groups=motor_ids))
+        X_train, X_test = X[train_idx], X[test_idx]
+        y_train, y_test = y[train_idx], y[test_idx]
+        log.info(
+            f"Split par moteur : train={len(train_idx)} lignes "
+            f"({pd.Series(motor_ids[train_idx]).nunique()} moteurs) | "
+            f"test={len(test_idx)} lignes ({pd.Series(motor_ids[test_idx]).nunique()} moteurs, jamais vus en train)"
+        )
+    else:
+        log.warning("Colonne motor_id absente — split aléatoire par ligne en secours (risque de fuite)")
+        X_train, X_test, y_train, y_test = train_test_split(
+            X, y, test_size=test_size, random_state=42
+        )
 
     # Scaler
     scaler = RobustScaler()

@@ -1,60 +1,58 @@
 {
   "model": "GradientBoostingRegressor",
   "n_features": 46,
-  "n_train": 9600,
-  "n_test": 2400,
-  "mae_train_h": 286.08,
-  "mae_test_h": 317.09,
-  "mae_test_pct": 37.5,
-  "rmse_test_h": 427.73,
-  "r2_test": 0.5594,
-  "cv_mae_h": 320.86,
-  "cv_std_h": 9.14,
-  "rf_mae_test_h": 315.0,
-  "rf_r2_test": 0.5656,
+  "n_train": 6000,
+  "n_test": 1500,
+  "mae_train_h": 268.93,
+  "mae_test_h": 294.42,
+  "mae_test_pct": 32.96,
+  "rmse_test_h": 402.98,
+  "r2_test": 0.6107,
+  "cv_mae_h": 314.34,
+  "cv_std_h": 32.67,
   "top10_features": [
     {
-      "feature": "spec_total_energy",
-      "importance": 0.4024
-    },
-    {
-      "feature": "vib_z_std",
-      "importance": 0.108
-    },
-    {
-      "feature": "health_score",
-      "importance": 0.0708
-    },
-    {
-      "feature": "vib_total",
-      "importance": 0.0665
-    },
-    {
       "feature": "env_rms",
-      "importance": 0.0487
+      "importance": 0.1662
     },
     {
-      "feature": "wavelet_entropy",
-      "importance": 0.0284
+      "feature": "vib_x_mean",
+      "importance": 0.1221
     },
     {
-      "feature": "vib_z_rms_w",
-      "importance": 0.0227
+      "feature": "spec_total_energy",
+      "importance": 0.0843
     },
     {
       "feature": "vib_x_rms_w",
-      "importance": 0.0193
+      "importance": 0.0767
+    },
+    {
+      "feature": "vib_total",
+      "importance": 0.0661
     },
     {
       "feature": "vib_z_cur",
-      "importance": 0.0187
+      "importance": 0.0644
     },
     {
-      "feature": "temp_mean",
-      "importance": 0.0172
+      "feature": "spec_flatness",
+      "importance": 0.0383
+    },
+    {
+      "feature": "vib_z_std",
+      "importance": 0.0306
+    },
+    {
+      "feature": "spec_entropy",
+      "importance": 0.0285
+    },
+    {
+      "feature": "vib_y_rms_w",
+      "importance": 0.0267
     }
   ],
-  "trained_at": "2026-06-10T10:43:49.616520",
+  "trained_at": "2026-07-16T16:22:30.209494",
   "feature_cols": [
     "temp_mean",
     "temp_std",

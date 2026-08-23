@@ -75,8 +75,10 @@ try:
     from config import (MARIADB_HOST, MARIADB_PORT, MARIADB_USER,
                         MARIADB_PASSWORD, MARIADB_DATABASE, MARIADB_TABLE)
 except ImportError:
+    # config.py absent -- pas de mot de passe en dur ici, doit venir de
+    # MARIADB_PASSWORD (env) ou --password (CLI).
     MARIADB_HOST, MARIADB_PORT, MARIADB_USER = "192.168.1.50", 3306, "root"
-    MARIADB_PASSWORD, MARIADB_DATABASE, MARIADB_TABLE = "yassine2019", "ai_cp", "full_data"
+    MARIADB_PASSWORD, MARIADB_DATABASE, MARIADB_TABLE = "", "ai_cp", "full_data"
 
 DEFAULT_CONFIG = {
     "host":     os.environ.get("MARIADB_HOST",     MARIADB_HOST),
@@ -276,6 +278,14 @@ class MariaDBReader:
         sensor_id = row.get("SensorNodeId", "unknown")
         gph       = row.get("gph", "")
 
+        # Lignes d'accusé de réception protocole gateway (type='req', ex:
+        # {"code":200,"cid":1,"adr":"..."}) — SensorNodeId toujours vide,
+        # aucune mesure dedans, et leur JSON est souvent mal échappé en base
+        # (guillemets non protégés). Rien à en extraire : on les ignore
+        # silencieusement plutôt que de tenter un parsing voué à l'échec.
+        if not sensor_id:
+            return None
+
         # Parser le JSON du champ data
         # Fix : le connecteur MySQL peut retourner data comme str OU comme dict
         try:
@@ -308,12 +318,16 @@ class MariaDBReader:
             meas_id = f"{sensor_id}_{row['id']}"
 
         key = f"{sensor_id}_{meas_id}"
+        # Horodatage TTL fixé dès la première ligne reçue pour cette session,
+        # quel que soit son type — sinon une session qui ne reçoit jamais la
+        # ligne "temperature" (capteur partiellement défaillant) n'a jamais de
+        # "ts" et n'est donc jamais purgée par le TTL : fuite mémoire silencieuse.
+        self._pending[key].setdefault("ts", time.time())
 
         # Remplir le buffer selon le type de mesure
         if gph == "temperature":
             self._pending[key]["sensor_id"] = sensor_id
             self._pending[key]["temperature"] = data.get("Temperature")
-            self._pending[key].setdefault("ts", time.time())  # horodatage TTL
             # La ligne temperature contient aussi la vibration Z RMS
             vib_rms = data.get("Vibration", {}).get("RMS", {})
             if "Z" in vib_rms:
@@ -403,10 +417,26 @@ class MariaDBReader:
 
 class APIClient:
     def __init__(self, host="localhost", port=8000, timeout=10, retries=3):
-        self.base    = f"http://{host}:{port}"
+        # API_USE_TLS : l'API sert HTTPS avec un certificat auto-signé (voir
+        # generate_selfsigned_cert.py) -- verify=False ici est acceptable
+        # car cet appel reste interne au réseau Docker (le conteneur moteur
+        # ne publie aucun port, non exposé au LAN) ; la protection contre
+        # l'écoute réseau vise la liaison externe navigateur↔API sur le LAN,
+        # pas ce trajet interne conteneur↔conteneur.
+        self.use_tls = os.getenv("API_USE_TLS", "false").strip().lower() in ("1", "true", "yes")
+        scheme       = "https" if self.use_tls else "http"
+        self.base    = f"{scheme}://{host}:{port}"
         self.timeout = timeout
         self.retries = retries
         self.ok = self.total = 0
+        raw = os.getenv("API_KEYS", "")
+        first_key = raw.split(",")[0].strip() if raw else ""
+        self.headers = {"X-API-Key": first_key} if first_key else {}
+        if not first_key:
+            log.warning("API_KEYS non défini — les requêtes vers l'API retourneront 401/503")
+        if self.use_tls:
+            import urllib3
+            urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
     def _post(self, endpoint, payload):
         try:
@@ -419,7 +449,8 @@ class APIClient:
             try:
                 r = requests.post(
                     f"{self.base}{endpoint}",
-                    json=payload, timeout=self.timeout
+                    json=payload, headers=self.headers, timeout=self.timeout,
+                    verify=not self.use_tls,
                 )
                 if r.status_code == 200:
                     return r.json(), None
@@ -439,13 +470,13 @@ class APIClient:
         })
         if data:
             self.ok += 1
-            for m in ["IF", "LOF", "OCSVM", "ECOD"]:
+            for m in ["IF", "LOF", "OCSVM", "ECOD", "HBOS", "COPOD"]:
                 data.setdefault("individual_models", {}).setdefault(m, "INCONNU")
             return data, None
         return {
             "prediction": "INCONNU", "votes": 0, "risk_level": "INCONNU",
             "anomaly_score": 0.0, "confidence": 0.0,
-            "individual_models": {m: "INCONNU" for m in ["IF","LOF","OCSVM","ECOD"]},
+            "individual_models": {m: "INCONNU" for m in ["IF","LOF","OCSVM","ECOD","HBOS","COPOD"]},
         }, err
 
     def predict_rul(self, sensor_id, predict_result, history):
@@ -486,14 +517,16 @@ def display(iteration, sensor_id, last_m, predict, rul):
     rul_h  = rul.get("rul_hours")
     health = rul.get("health_score")
     rul_str = f"{rul_h:.1f}h / {rul.get('rul_days', 0):.2f}j" if rul_h else "N/A"
+    n_models = len(mods) if mods else 4
+    models_str = " | ".join(f"{m}={icon(m)}" for m in mods) if mods else "N/A"
 
     print(f"\n{'─'*60}")
     print(f"[{ts}]  #{iteration}  |  Capteur : {sensor_id}  |  Source : MariaDB RÉEL")
     print(f"{'─'*60}")
     print(f"{color}{BOLD}🔴 Risque    : {risk}{RESET}")
-    print(f"🗳️  Votes     : {predict.get('votes','?')}/4 modèles")
+    print(f"🗳️  Votes     : {predict.get('votes','?')}/{n_models} modèles")
     print(f"📊 Score     : {predict.get('anomaly_score','?')}")
-    print(f"🤖 Modèles   : IF={icon('IF')} | LOF={icon('LOF')} | OCSVM={icon('OCSVM')} | ECOD={icon('ECOD')}")
+    print(f"🤖 Modèles   : {models_str}")
     print(f"⏳ RUL       : {rul_str}")
     print(f"💚 Santé     : {f'{health}/100' if health is not None else 'N/A'}")
     print(f"🔔 Alerte    : {rul.get('alert_level','?')}")
@@ -579,6 +612,13 @@ def run(args):
     try:
         while True:
             sessions = reader.poll(batch_size=args.batch)
+            # Capteurs ayant reçu une nouvelle mesure CE cycle -- seuls eux
+            # doivent redemander une prédiction. Sans ce filtre, tous les
+            # capteurs à fenêtre pleine étaient re-prédits à chaque poll
+            # (toutes les args.poll secondes) même sans donnée nouvelle,
+            # produisant des doublons dans realtime_results.json et des
+            # appels API redondants.
+            sensors_updated = set()
 
             if sessions:
                 for session in sessions:
@@ -593,6 +633,7 @@ def run(args):
 
                     windows[sensor_id].append(session)
                     waiting_msg_shown[sensor_id] = False
+                    sensors_updated.add(sensor_id)
 
                     # Log nouvelle mesure
                     log.info(
@@ -610,8 +651,9 @@ def run(args):
                             end="\r"
                         )
 
-            # Prédictions pour chaque capteur ayant une fenêtre pleine
-            for sensor_id, window in windows.items():
+            # Prédictions uniquement pour les capteurs mis à jour ce cycle ET dont la fenêtre est pleine
+            for sensor_id in sensors_updated:
+                window = windows[sensor_id]
                 if len(window) < args.window:
                     continue
 
@@ -645,9 +687,10 @@ def run(args):
 
                 # Log alerte critique
                 if predict.get("risk_level") in ("CRITIQUE", "ÉLEVÉ"):
+                    n_models = len(predict.get("individual_models") or {}) or 4
                     log.warning(
                         f"🔴 {predict.get('risk_level')} — "
-                        f"capteur={sensor_id} | votes={predict.get('votes')}/4 | "
+                        f"capteur={sensor_id} | votes={predict.get('votes')}/{n_models} | "
                         f"temp={last.get('temperature')}°C | vib_z={last.get('vibration_z')}mg"
                     )
 
@@ -730,10 +773,15 @@ def run_diagnostic(args):
         return False
 
     # 4. API
-    print(f"\n4. API FastAPI http://{args.api_host}:{args.api_port}...")
+    _use_tls = os.getenv("API_USE_TLS", "false").strip().lower() in ("1", "true", "yes")
+    _scheme  = "https" if _use_tls else "http"
+    print(f"\n4. API FastAPI {_scheme}://{args.api_host}:{args.api_port}...")
     try:
         import requests
-        r = requests.get(f"http://{args.api_host}:{args.api_port}/health", timeout=5)
+        if _use_tls:
+            import urllib3
+            urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+        r = requests.get(f"{_scheme}://{args.api_host}:{args.api_port}/health", timeout=5, verify=not _use_tls)
         d = r.json()
         if d.get("status") == "ok":
             print(f"   {GREEN}✅ API OK — version={d.get('version')} | modèles={d.get('models')}{RESET}")

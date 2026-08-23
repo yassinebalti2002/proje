@@ -13,7 +13,7 @@
 ║    GET  /v1/history/{id}         → Historique prédictions par capteur  [NEW] ║
 ║    GET  /v1/alert-level/{id}     → Niveau d'alerte actuel capteur      [NEW] ║
 ║    GET  /health                  → Health check                              ║
-║    GET  /metrics                 → Métriques modèle V9 (AUC=0.836)          ║
+║    GET  /metrics                 → Métriques modèle V3 (AUC=0.9475 CV)          ║
 ║    GET  /sensors                 → Liste capteurs depuis full_data           ║
 ║    GET  /anomalies               → Anomalies filtrées                        ║
 ╚══════════════════════════════════════════════════════════════════════════════╝
@@ -31,6 +31,27 @@ from typing import List, Optional
 from datetime import datetime, timedelta
 from collections import deque
 from scipy.stats import entropy as sp_entropy
+
+# ── Chargement .env (ignoré silencieusement si absent — Docker injecte les vars) ─
+try:
+    from dotenv import load_dotenv
+    load_dotenv()
+except ImportError:
+    pass
+
+# ── Authentification API Key ───────────────────────────────────────────────────
+from auth import require_api_key, require_admin_key
+from rate_limiter import make_rate_limiter
+
+# ── Authentification utilisateurs (register/login humain, JWT) ────────────────
+try:
+    from user_auth import router as user_auth_router, init_users_table
+    USER_AUTH_OK = True
+except Exception as _ua_e:
+    USER_AUTH_OK = False
+    logging.getLogger(__name__).warning(
+        f"user_auth non disponible : {_ua_e} — /v1/auth/* sera absent"
+    )
 
 # ── Module d'alertes externes (email / webhook / SMS) ─────────────────────────
 try:
@@ -80,7 +101,8 @@ warnings.filterwarnings("ignore")
 API_VERSION = "3.1.0"
 
 try:
-    from fastapi import FastAPI, HTTPException, UploadFile, File, Form, BackgroundTasks
+    from fastapi import FastAPI, HTTPException, UploadFile, File, Form, BackgroundTasks, Depends, Request
+    from fastapi.responses import JSONResponse
     from fastapi.encoders import jsonable_encoder
     from fastapi.responses import HTMLResponse, FileResponse
     from fastapi.middleware.cors import CORSMiddleware
@@ -114,14 +136,12 @@ MODEL_OCSVM     = MODEL_DIR / "model_ocsvm_v3.pkl"
 MODEL_ECOD      = MODEL_DIR / "model_ecod_v3.pkl"
 MODEL_HBOS      = MODEL_DIR / "model_hbos_v3.pkl"
 MODEL_COPOD     = MODEL_DIR / "model_copod_v3.pkl"
+MODEL_META_LR   = MODEL_DIR / "model_meta_lr.pkl"
 SCALER_PATH     = MODEL_DIR / "scaler_v3.pkl"
 PCA_PATH        = MODEL_DIR / "pca_v3.pkl"
 FEATURES_PATH   = MODEL_DIR / "features_v3.pkl"
 THRESHOLD_PATH  = MODEL_DIR / "threshold_v3.pkl"
 METRICS_PATH    = MODEL_DIR / "metrics_v3.csv"
-# Fallback si metrics_v2 absent → chercher metrics_v3
-if not METRICS_PATH.exists():
-    METRICS_PATH = MODEL_DIR / "metrics_v3.csv"
 RESULTS_PATH = DATA_DIR  / "results_v2.csv"
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -134,6 +154,7 @@ pca           = None
 features_list = []
 df_results    = None
 thresholds    = {}    # seuils optimaux du SoftVote chargés depuis threshold_v3.pkl
+meta_lr       = None  # stacking LogisticRegression combinant les scores des modèles (remplace la moyenne fixe)
 
 # Historique glissant des scores d'anomalie par sensor_id (pour RUL)
 # Format : {sensor_id: deque([(timestamp, anomaly_score, confidence), ...])}
@@ -152,13 +173,64 @@ BASELINE_SAMPLES = 20
 
 # Persistence de l'historique sur disque (survit au redémarrage)
 HISTORY_PATH = Path("anomaly_history_persist.json")
-PERSIST_INTERVAL = 300   # sauvegarder toutes les 5 minutes
+PERSIST_INTERVAL = 60   # sauvegarder toutes les 60s -- fenetre de perte de donnees
+                         # reduite de 5min a 1min en cas d'arret non propre (crash,
+                         # kill -9). Cout : ecriture disque d'un petit JSON (quelques
+                         # Ko a dizaines de Ko pour 20 capteurs x 50 entrees max) une
+                         # fois par minute -- negligeable.
 _last_persist: float = 0.0
 
 # Fenêtres glissantes serveur pour /v1/iot-predict (IoT sans accès base de données)
 # {sensor_id: deque([MeasurePoint-like dict, ...], maxlen=IOT_WINDOW_SIZE)}
+# IMPORTANT : doit rester alignée avec WINDOW_SIZE de train_model_v3_unsupervised.py
+# (=20). Une fenêtre serveur plus courte biaise std/trend/kurtosis/entropie par
+# rapport à ce que les modèles ont appris (dérive de distribution silencieuse).
 iot_windows: dict = {}
-IOT_WINDOW_SIZE = 10
+IOT_WINDOW_SIZE = 20
+
+# Buffer brut de vibration_z par capteur, alimenté à chaque /v1/predict — sert
+# uniquement à l'analyse spectrale publique en lecture (GET /v1/spectral/{id}),
+# qui ne peut pas s'appuyer sur iot_windows (vide : le moteur de production
+# réel appelle /v1/predict + /v1/predict-rul, jamais /v1/iot-predict).
+_raw_vib_buffers: dict = {}
+RAW_VIB_BUFFER_SIZE = 64
+
+# ── Purge des capteurs inactifs (anti fuite memoire) ───────────────────────────
+# anomaly_history / sensor_baseline / _persistence_buffers / iot_windows sont
+# indexes par sensor_id fourni librement par le client (ex: /v1/iot-predict).
+# Sans purge, un appelant qui varie le sensor_id a chaque appel fait grossir
+# ces dicts indefiniment -- meme classe de fuite que celle deja corrigee dans
+# rate_limiter.py, ici cote etat applicatif plutot que rate limiting.
+_sensor_last_seen: dict = {}
+_SENSOR_SWEEP_INTERVAL = 300.0   # secondes entre deux balayages
+_SENSOR_STALE_AFTER    = 7200.0  # capteur inactif depuis 2h -> purge (sauf capteurs IFM connus)
+_last_sensor_sweep: float = 0.0
+
+
+def _touch_sensor_and_sweep(sensor_id: str) -> None:
+    """Marque sensor_id comme actif et purge periodiquement les capteurs
+    inactifs et inconnus (jamais les capteurs IFM reels de IFM_KNOWN_IDS)."""
+    global _last_sensor_sweep
+    import time as _time
+    now = _time.time()
+    _sensor_last_seen[sensor_id] = now
+    if now - _last_sensor_sweep < _SENSOR_SWEEP_INTERVAL:
+        return
+    _last_sensor_sweep = now
+    stale = [
+        sid for sid, ts in _sensor_last_seen.items()
+        if sid not in IFM_KNOWN_IDS and now - ts > _SENSOR_STALE_AFTER
+    ]
+    for sid in stale:
+        _sensor_last_seen.pop(sid, None)
+        anomaly_history.pop(sid, None)
+        sensor_baseline.pop(sid, None)
+        _persistence_buffers.pop(sid, None)
+        iot_windows.pop(sid, None)
+        _raw_vib_buffers.pop(sid, None)
+        globals().get("_latest_results", {}).pop(sid, None)
+    if stale:
+        log.info(f"Purge capteurs inactifs (>2h, non-IFM) : {len(stale)} capteur(s)")
 
 
 def save_history_to_disk():
@@ -186,7 +258,7 @@ IFM_KNOWN_IDS = {
     "07da47b8","0ff416d2","2c6254af","3a782f1b","4b5e4b32",
     "53cb61b2","68c11f06","6e0c1740","718fd2af","8f7f2f7e",
     "91d92804","99695e98","a6a46be1","aa7b02a1","b2acdf45",
-    "bc59bf5f","d9508e77","eb084747","f48c25f9",
+    "bc59bf5f","d9508e77","eb084747","f48c25f9","ed6fa322",
 }
 
 def load_history_from_disk():
@@ -213,7 +285,7 @@ def load_history_from_disk():
 
 
 def load_all_models():
-    global models, scaler, pca, features_list, df_results, thresholds
+    global models, scaler, pca, features_list, df_results, thresholds, meta_lr
 
     log.info("Chargement des modèles V3...")
 
@@ -246,6 +318,9 @@ def load_all_models():
         if THRESHOLD_PATH.exists():
             thresholds = joblib.load(THRESHOLD_PATH)
             log.info(f"✅ Seuils optimaux chargés | input={thresholds.get('unsupervised_input','pca')} | ensemble={thresholds.get('ensemble_names',['IF','LOF','OCSVM','ECOD'])}")
+        if MODEL_META_LR.exists():
+            meta_lr = joblib.load(MODEL_META_LR)
+            log.info("✅ Stacking LogisticRegression chargé (remplace la moyenne fixe SoftVote)")
         n_models = sum(1 for k in ["if","lof","ocsvm","ecod","hbos","copod"] if k in models)
         log.info(f"✅ {n_models} modèles chargés | Features: {len(features_list)} | PCA: {pca.n_components_}")
 
@@ -306,6 +381,7 @@ class PredictResponse(BaseModel):
     risk_level:     str           # "FAIBLE" | "MODÉRÉ" | "CRITIQUE"
     anomaly_score:  float
     individual_models: dict
+    individual_scores: dict = {}
     features: dict
 
 
@@ -382,6 +458,7 @@ class IoTPredictResponse(BaseModel):
     risk_level:     str           # "FAIBLE" | "MODÉRÉ" | "ÉLEVÉ" | "CRITIQUE"
     anomaly_score:  float
     individual_models: dict
+    individual_scores: dict = {}
     # ── RUL (None si moins de 3 mesures accumulées) ──────────────────────────
     rul_hours:      Optional[float]
     rul_days:       Optional[float]
@@ -407,8 +484,19 @@ def safe_rms(lst):
     return float(np.sqrt(np.mean(arr**2))) if len(arr) > 0 else np.nan
 
 def safe_kurtosis(lst):
+    """Kurtosis "régulière" (fisher=False, baseline=3 pour une distribution
+    normale) — DOIT rester alignée avec train_model_v3_unsupervised.py qui
+    utilise la même convention (kurtosis(VZ, fisher=False)) pour calculer
+    vib_z_kurt/vib_x_kurt/vib_y_kurt. Une divergence de convention ici décale
+    silencieusement ces 3 features de ~3 unités par rapport à ce que le
+    RobustScaler/PCA/modèles ont appris comme "normal" en entraînement."""
     from scipy.stats import kurtosis as sp_kurt
-    return float(sp_kurt(lst)) if len(lst) >= 4 else 0.0
+    if len(lst) < 4:
+        return 3.0
+    arr = np.array(lst, dtype=float)
+    if np.std(arr) < 1e-10:   # données constantes → kurtosis indéfini
+        return 3.0
+    return float(sp_kurt(arr, fisher=False))
 
 def safe_crest(lst):
     arr = np.array(lst)
@@ -552,9 +640,13 @@ def extract_features(history: List[MeasurePoint]) -> dict:
                         if vib_x and vib_y else np.nan,
         "vib_xz_ratio": safe_mean(vib_x) / (safe_mean(vib_z) + 1e-9)
                         if vib_x and vib_z else np.nan,
-        # Courant moteur
-        "current_mean": safe_mean([h.current for h in history if h.current is not None]) or 0.0,
-        "current_std":  safe_std([h.current  for h in history if h.current is not None]) or 0.0,
+        # Courant moteur — np.nan est "truthy" en Python : `NaN or 0.0` reste NaN,
+        # donc le fallback à 0.0 (capteurs sans mesure de courant) ne s'appliquait
+        # jamais avec `or`. np.nan_to_num() corrige ça côté vecteur ML (nan_to_num
+        # dans /v1/predict), mais la réponse JSON "features" renvoyait "null" au
+        # lieu de 0.0 — corrigé ici pour que la valeur affichée soit cohérente.
+        "current_mean": float(np.nan_to_num(safe_mean([h.current for h in history if h.current is not None]), nan=0.0)),
+        "current_std":  float(np.nan_to_num(safe_std([h.current  for h in history if h.current is not None]), nan=0.0)),
     }
 
     # Vibration totale 3D — Théorème de Pythagore
@@ -585,9 +677,11 @@ def extract_features(history: List[MeasurePoint]) -> dict:
     feat["delta_temp"]  = float(np.mean(temps[mid:]) - np.mean(temps[:mid])) if len(temps) >= 4 else 0.0
     feat["vib_entropy"] = signal_entropy_api(vib_z)
     feat["fft_ratio"]   = fft_ratio_api(vib_z)
-    vx_m = safe_mean(vib_x) or 0.0
-    vy_m = safe_mean(vib_y) or 0.0
-    vz_m = safe_mean(vib_z) or 0.0
+    # np.nan_to_num plutôt que `or 0.0` : NaN est "truthy" en Python, le
+    # fallback `or` ne s'active jamais pour une moyenne indéfinie (axe absent).
+    vx_m = float(np.nan_to_num(safe_mean(vib_x), nan=0.0))
+    vy_m = float(np.nan_to_num(safe_mean(vib_y), nan=0.0))
+    vz_m = float(np.nan_to_num(safe_mean(vib_z), nan=0.0))
     feat["vib_asym_xy"] = float(abs(vx_m - vy_m) / (vx_m + vy_m + 1e-9))
     feat["vib_asym_xz"] = float(abs(vx_m - vz_m) / (vx_m + vz_m + 1e-9))
 
@@ -606,7 +700,9 @@ def run_ensemble(X_raw: np.ndarray, sensor_id: str = "default") -> dict:
                 "is_anomaly": False, "raw_anomaly": False,
                 "individual": {"IF": "N/A", "LOF": "N/A",
                                "OCSVM": "N/A", "ECOD": "N/A",
-                               "HBOS": "N/A", "COPOD": "N/A"}}
+                               "HBOS": "N/A", "COPOD": "N/A"},
+                "individual_scores": {"IF": 0.0, "LOF": 0.0, "OCSVM": 0.0,
+                                      "ECOD": 0.0, "HBOS": 0.0, "COPOD": 0.0}}
 
     X_scaled = scaler.transform(X_raw)
     use_scaled = thresholds.get("unsupervised_input", "pca") == "scaled" if thresholds else False
@@ -640,12 +736,31 @@ def run_ensemble(X_raw: np.ndarray, sensor_id: str = "default") -> dict:
     s_hbos  = _soft(models["hbos"],  "hbos",  is_pyod=True) if "hbos"  in models else 0.5
     s_copod = _soft(models["copod"], "copod", is_pyod=True) if "copod" in models else 0.5
 
-    # SoftVote RAPPORT : IF + ECOD + HBOS + COPOD uniquement (LOF/OCSVM exclus — AUC trop faible)
-    active_scores = [s_if, s_ecod]
-    if "hbos"  in models: active_scores.append(s_hbos)
-    if "copod" in models: active_scores.append(s_copod)
+    # RAPPORT : stacking LogisticRegression (remplace la moyenne fixe à 4 modèles) —
+    # apprend le poids de chaque détecteur, y compris LOF/OCSVM (poids appris
+    # quasi nul/négatif s'ils sont bruités, plutôt qu'une exclusion manuelle).
+    all_scores = {"if": s_if, "lof": s_lof, "ocsvm": s_ocsvm, "ecod": s_ecod,
+                  "hbos": s_hbos, "copod": s_copod}
+    meta_order = (thresholds or {}).get("meta_feature_order")
+    if meta_lr is not None and meta_order:
+        feat_vec = np.array([[all_scores[k] for k in meta_order]])
+        soft_score = float(meta_lr.predict_proba(feat_vec)[0, 1])
+    else:
+        # Fallback (modèles pas encore ré-entraînés avec le stacking) : ancienne
+        # moyenne IF+ECOD+HBOS+COPOD, LOF/OCSVM exclus (AUC individuel trop faible).
+        active_scores = [s_if, s_ecod]
+        if "hbos"  in models: active_scores.append(s_hbos)
+        if "copod" in models: active_scores.append(s_copod)
+        soft_score = float(np.mean(active_scores))
 
-    soft_score = float(np.mean(active_scores))
+    # Garde-fou NaN/Inf : sous charge concurrente sur un même capteur, un modèle
+    # (score_samples/decision_function) peut occasionnellement renvoyer une valeur
+    # non finie. Sans ça, ce NaN se propage jusqu'à confidence/anomaly_score dans
+    # la réponse -- et Starlette (allow_nan=False) plante en 500 à la sérialisation
+    # JSON plutôt que de renvoyer une réponse (observé : ValueError "Out of range
+    # float values are not JSON compliant" sous test de charge concurrent).
+    if not np.isfinite(soft_score):
+        soft_score = 0.5
 
     # Seuil optimal depuis threshold_v3.pkl, fallback 0.5
     opt_thr    = float((thresholds or {}).get("softvote_threshold", 0.5))
@@ -671,6 +786,10 @@ def run_ensemble(X_raw: np.ndarray, sensor_id: str = "default") -> dict:
         "COPOD": "ANOMALY" if _bin(s_copod) else "NORMAL",
     }
     votes = sum(1 for v in individual.values() if v == "ANOMALY")
+    individual_scores = {
+        "IF": round(s_if, 4), "LOF": round(s_lof, 4), "OCSVM": round(s_ocsvm, 4),
+        "ECOD": round(s_ecod, 4), "HBOS": round(s_hbos, 4), "COPOD": round(s_copod, 4),
+    }
     return {
         "votes":        votes,
         "soft_score":   round(soft_score, 4),
@@ -679,11 +798,18 @@ def run_ensemble(X_raw: np.ndarray, sensor_id: str = "default") -> dict:
         "is_anomaly":   is_anomaly,
         "raw_anomaly":  raw_anomaly,   # détection sans filtre (pour debug)
         "individual":   individual,
+        "individual_scores": individual_scores,
     }
 
 
 def update_history(sensor_id: str, score: float, confidence: float):
     """Enregistre la prédiction dans l'historique glissant du moteur."""
+    import math
+    _touch_sensor_and_sweep(sensor_id)
+    if math.isnan(score) or math.isinf(score):
+        score = 0.0
+    if math.isnan(confidence) or math.isinf(confidence):
+        confidence = 0.0
     if sensor_id not in anomaly_history:
         anomaly_history[sensor_id] = deque(maxlen=HISTORY_WINDOW)
     anomaly_history[sensor_id].append({
@@ -716,7 +842,10 @@ VIB_TOTAL_MAX  = float(np.sqrt(3) * 1500)  # ≈ 2598 mg
 THRESHOLDS = {
     "temp_mean":   {"warn": 50.0,           "crit": 60.0,           "max": 70.0},
     "vib_total":   {"warn": VIB_TOTAL_WARN, "crit": VIB_TOTAL_CRIT, "max": VIB_TOTAL_MAX},
-    "vib_z_kurt":  {"warn": 4.0,            "crit": 7.0,            "max": 10.0},
+    # +3 par rapport aux seuils historiques (4/7/10) : safe_kurtosis() utilise
+    # désormais fisher=False comme le training (baseline ≈3 au lieu de ≈0),
+    # donc les seuils de dégradation doivent être décalés d'autant.
+    "vib_z_kurt":  {"warn": 7.0,            "crit": 10.0,           "max": 13.0},
     "vib_z_crest": {"warn": 3.0,            "crit": 5.0,            "max": 8.0},
 }
 
@@ -851,52 +980,85 @@ def compute_rul(history: List[MeasurePoint], feat: dict, sensor_id: str, predict
             }
         }
 
-    # On utilise le risk_level de la prédiction comme référence principale
+    # On utilise le risk_level de la prédiction comme référence principale.
+    # Chaque branche fixe alert_level ET la plage [deg_lo, deg_hi] de
+    # deg_combined qui a réellement produit ce niveau -- cette plage sert
+    # ensuite à l'interpolation du RUL (étape 6). C'est nécessaire car les
+    # branches ci-dessous n'utilisent PAS toutes les mêmes seuils que
+    # RUL_TABLE (ex: ÉLEVÉ/MODÉRÉ assigne "ATTENTION" pour tout deg_combined
+    # < 0.55, alors que RUL_TABLE/le fallback l'assigne pour [0.30, 0.55)
+    # seulement). Utiliser un ratio fixe basé sur [0.30, 0.55] pour TOUTES
+    # les branches -- comme avant -- clampait le ratio à 0 dès que
+    # deg_combined < 0.30, ce qui arrive pour la quasi-totalité des capteurs
+    # réels passés par les branches CRITIQUE/ÉLEVÉ/MODÉRÉ : sur le parc réel
+    # (mariadb_realtime), ça figeait rul_hours=336h (plafond ATTENTION) pour
+    # 665/815 mesures (81%), de health_score 42.8 à 84.8 confondus -- deux
+    # capteurs à des états de santé opposés recevaient exactement le même
+    # RUL affiché. Utiliser la plage réelle de la branche corrige ça.
     predict_risk = (predict_result or {}).get("risk_level", "")
     if predict_risk == "CRITIQUE":
-        # CRITIQUE ML : alerte selon deg_combined pour nuancer
+        # CRITIQUE ML : alerte selon deg_combined pour nuancer. Corrigé --
+        # avant, cette branche forçait TOUJOURS au moins "URGENT" dès que le
+        # ML disait CRITIQUE, même avec une dégradation physique faible
+        # (ex: 15%, quasi sain) -- contrairement à la branche ÉLEVÉ/MODÉRÉ qui
+        # a 2 paliers de nuance. Le score du modèle sature souvent vers
+        # 0.99-1.0 (stacking peu calibré), donc predict_risk="CRITIQUE"
+        # arrivait beaucoup trop souvent : ça faisait passer quasi tout le
+        # parc en "URGENT" simultanément sur le dashboard (rul_hours=168h
+        # identique partout) et déclenchait une alerte email pour presque
+        # chaque capteur. Ajout d'un palier ATTENTION en dessous de 0.30 pour
+        # refléter une vraie dégradation faible malgré le signal ML.
         if deg_combined >= 0.60:
             alert_level = "CRITIQUE"
-        else:
+            deg_lo, deg_hi = 0.60, 1.0
+        elif deg_combined >= 0.30:
             alert_level = "URGENT"
+            deg_lo, deg_hi = 0.30, 0.60
+        else:
+            alert_level = "ATTENTION"
+            deg_lo, deg_hi = 0.0, 0.30
     elif predict_risk in ("ÉLEVÉ", "MODÉRÉ"):
         if deg_combined >= 0.55:
             alert_level = "URGENT"
+            deg_lo, deg_hi = 0.55, 1.0
         else:
             alert_level = "ATTENTION"
+            deg_lo, deg_hi = 0.0, 0.55
     elif predict_risk == "FAIBLE":
         # Même si ML dit FAIBLE, surveiller si dégradation physique élevée
         if deg_combined >= 0.80:
             alert_level = "URGENT"
+            deg_lo, deg_hi = 0.80, 1.0
         elif deg_combined >= 0.30:
             alert_level = "ATTENTION"
+            deg_lo, deg_hi = 0.30, 0.80
         else:
             alert_level = "OK"
+            deg_lo, deg_hi = 0.0, 0.30
     else:
         # Fallback sur deg_combined seul
         if deg_combined >= 0.80:
             alert_level = "CRITIQUE"
+            deg_lo, deg_hi = 0.80, 1.0
         elif deg_combined >= 0.55:
             alert_level = "URGENT"
+            deg_lo, deg_hi = 0.55, 0.80
         elif deg_combined >= 0.30:
             alert_level = "ATTENTION"
+            deg_lo, deg_hi = 0.30, 0.55
         else:
             alert_level = "OK"
+            deg_lo, deg_hi = 0.0, 0.30
 
     # ── 6. Estimation RUL en heures ───────────────────────────────────────
     rul_min, rul_max = RUL_TABLE[alert_level]
-    # Interpolation linéaire dans la plage de l'alerte
-    if alert_level == "OK":
-        rul_hours = rul_max - (deg_combined / 0.30) * (rul_max - rul_min)
-    elif alert_level == "ATTENTION":
-        ratio = (deg_combined - 0.30) / 0.25
-        rul_hours = rul_max - ratio * (rul_max - rul_min)
-    elif alert_level == "URGENT":
-        ratio = (deg_combined - 0.55) / 0.25
-        rul_hours = rul_max - ratio * (rul_max - rul_min)
-    else:  # CRITIQUE
-        ratio = (deg_combined - 0.80) / 0.20
-        rul_hours = max(0.0, rul_max - ratio * rul_max)
+    # Interpolation linéaire de deg_combined dans [deg_lo, deg_hi] (la plage
+    # réelle qui a produit alert_level, cf. étape 5) vers [rul_min, rul_max].
+    # Ratio toujours borné [0,1] pour ne jamais sortir de la plage RUL_TABLE
+    # de l'alerte affichée (incohérence sinon avec le texte de recommandation,
+    # ex: "RUL 3-7 jours" avec un rul_hours de 307h).
+    ratio = min(1.0, max(0.0, (deg_combined - deg_lo) / max(1e-9, deg_hi - deg_lo)))
+    rul_hours = rul_max - ratio * (rul_max - rul_min)
 
     rul_hours = round(max(0.0, rul_hours), 1)
     rul_days  = round(rul_hours / 24.0, 2)
@@ -953,6 +1115,11 @@ if FASTAPI_OK:
         log.info(f"Démarrage API Unifiée V{API_VERSION}")
         load_all_models()
         load_history_from_disk()
+        if USER_AUTH_OK:
+            try:
+                init_users_table()
+            except Exception as e:
+                log.warning(f"init_users_table() a échoué : {e}")
         yield
         # Shutdown : sauvegarder une dernière fois avant arrêt
         import time as _t
@@ -961,26 +1128,49 @@ if FASTAPI_OK:
         save_history_to_disk()
         log.info("API arrêtée proprement — historique sauvegardé")
 
+    class UTF8JSONResponse(JSONResponse):
+        """Force le charset=utf-8 dans Content-Type — sans ça, PowerShell 5.1
+        (Invoke-RestMethod) décode le JSON en ISO-8859-1 par défaut et corrompt
+        les caractères accentués (ex: "ÉLEVÉ" -> "ÃLEVÃ")."""
+        media_type = "application/json; charset=utf-8"
+
     app = FastAPI(
         title="Maintenance Prédictive — API Unifiée",
         description=(
             "Système complet de surveillance de 20 capteurs IFM — Novation City.\n\n"
-            "**Modèle IA** : Ensemble non supervisé IF + LOF + OCSVM + ECOD (vote 2/4)\n\n"
+            "**Modèle IA** : Ensemble non supervisé IF+ECOD+HBOS+COPOD (SoftVote), LOF/OCSVM calculés à titre diagnostic uniquement\n\n"
             "**Données** : Capteurs IFM VVB001 → MySQL ai_cp (1 648 886 mesures, nov 2025 – mar 2026)\n\n"
-            "**PFE ISG Bizerte** — Détection d'anomalies + Estimation RUL roulements"
+            "**PFE ISG Bizerte** — Détection d'anomalies + Estimation RUL roulements\n\n"
+            "**Auth** : En-tête `X-API-Key` obligatoire sur tous les endpoints /v1/*"
         ),
         version=API_VERSION,
         docs_url="/docs",
         redoc_url="/redoc",
         lifespan=lifespan,
+        default_response_class=UTF8JSONResponse,
     )
+
+    # CORS restreint aux origines définies via CORS_ORIGINS (prod) ou * (dev)
+    _cors_origins_env = os.getenv("CORS_ORIGINS", "")
+    _cors_origins = (
+        [o.strip() for o in _cors_origins_env.split(",") if o.strip()]
+        if _cors_origins_env
+        else ["*"]
+    )
+    if "*" in _cors_origins:
+        log.warning("CORS ouvert à toutes les origines — acceptable en dev, à restreindre en prod via CORS_ORIGINS")
 
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=["*"],
-        allow_methods=["*"],
+        allow_origins=_cors_origins,
+        allow_methods=["GET", "POST"],
         allow_headers=["*"],
     )
+
+    # Comptes utilisateurs (register/login humain) — additif, n'affecte pas
+    # l'auth par clé API (require_api_key/require_admin_key) utilisée ailleurs
+    if USER_AUTH_OK:
+        app.include_router(user_auth_router, prefix="/v1/auth", tags=["Authentification utilisateurs"])
 
     # Cache des derniers résultats par capteur (pour /v1/results)
     _latest_results: dict = {}
@@ -1001,7 +1191,7 @@ if FASTAPI_OK:
                 "GET  /v1/history/{id}":          "Historique prédictions par capteur",
                 "GET  /v1/alert-level/{id}":      "Niveau alerte actuel — dashboard",
                 "GET  /health":                   "Health check API",
-                "GET  /metrics":                  "Métriques modèle (F1=0.401, AUC=0.683)",
+                "GET  /metrics":                  "Métriques modèle (F1=0.298, AUC=0.9475, CV 3-fold)",
                 "GET  /sensors":                  "Liste 20 capteurs IFM",
                 "GET  /anomalies":                "Anomalies filtrées par score",
             }
@@ -1012,7 +1202,7 @@ if FASTAPI_OK:
     def health():
         return {
             "status":         "ok",
-            "models_loaded":  len(models) == 4,
+            "models_loaded":  len(models) >= 4,
             "models":         list(models.keys()),
             "features_count": len(features_list),
             "version":        API_VERSION,
@@ -1030,17 +1220,24 @@ if FASTAPI_OK:
         summary="Détection d'anomalie temps réel",
         description=(
             "Reçoit l'historique de mesures d'un capteur et retourne le diagnostic "
-            "d'anomalie basé sur l'ensemble IF + LOF + OCSVM + ECOD (vote majoritaire 2/4).\n\n"
+            "d'anomalie basé sur le stacking (LogisticRegression) des 6 modèles IF/LOF/OCSVM/ECOD/HBOS/COPOD.\n\n"
             "**Format données** : compatible avec le champ `data` de la table `full_data` "
             "(SensorNodeId, Temperature, Vibration RMS X/Y/Z)."
         )
     )
-    def predict_anomaly(req: PredictRequest):
+    def predict_anomaly(request: Request, req: PredictRequest, _key: str = Depends(require_api_key), _rl=Depends(make_rate_limiter(60))):
         if not req.history:
             raise HTTPException(status_code=400, detail="history ne peut pas être vide")
 
         # 1. Extraction features
         feat = extract_features(req.history)
+
+        # 1b. Alimente le buffer brut vibration_z (pour GET /v1/spectral/{id},
+        # lecture publique — voir _raw_vib_buffers)
+        _vib_pts = [h.vibration_z for h in req.history if h.vibration_z is not None]
+        if _vib_pts:
+            _buf = _raw_vib_buffers.setdefault(req.sensor_id, deque(maxlen=RAW_VIB_BUFFER_SIZE))
+            _buf.extend(_vib_pts)
 
         # 2. Construction vecteur pour le modèle
         if features_list:
@@ -1076,6 +1273,15 @@ if FASTAPI_OK:
         elif anomaly_score >= 0.25: risk = "MODÉRÉ"
         else:                       risk = "FAIBLE"
 
+        # Cohérence prediction/risk : tant que le filtre de persistance (V9) n'a
+        # pas confirmé l'anomalie (is_anomaly=False), ne pas afficher CRITIQUE/
+        # ÉLEVÉ. Le score brut peut déjà être élevé dès la 1re mesure suspecte,
+        # avant confirmation sur k fenêtres consécutives -- sans ce plafond, la
+        # réponse pouvait annoncer prediction="NORMAL" avec risk_level="CRITIQUE"
+        # en même temps (observé en test réel), contradictoire pour un dashboard.
+        if not result["is_anomaly"] and risk in ("CRITIQUE", "ÉLEVÉ"):
+            risk = "MODÉRÉ"
+
         # Cohérence health/risk : capteur sain (health ≥ 85) non confirmé anomalie → FAIBLE
         # Évite MODÉRÉ+Health=99 qui est contradictoire pour l'utilisateur
         _health_val = feat.get("health_score", 0) or 0
@@ -1085,21 +1291,19 @@ if FASTAPI_OK:
         # 6. Mise à jour historique moteur (pour RUL)
         update_history(req.sensor_id, anomaly_score, result["confidence"])
 
-        # 6b. Envoi alerte externe (email / webhook / SMS) si niveau critique
-        if ALERTS_ENABLED and _alert_manager and result["is_anomaly"] and risk in ("CRITIQUE", "ÉLEVÉ"):
-            _alert_manager.send_alert(
-                sensor_id   = req.sensor_id,
-                risk_level  = risk,
-                health_score= feat.get("health_score", 0),
-                rul_hours   = None,   # RUL calculé séparément dans /v1/predict-rul
-                vib_total   = feat.get("vib_total"),
-                temperature = feat.get("temp_cur"),
-                votes       = result["votes"]
-            )
+        # 6b. Pas d'alerte externe ici : le risque d'anomalie (risk_level) ne dit
+        # rien du temps restant avant défaillance. Sur demande, les alertes
+        # email/webhook/SMS sont désormais déclenchées uniquement depuis
+        # /v1/predict-rul, dont alert_level (URGENT/CRITIQUE) correspond
+        # précisément à un RUL <= 7 jours -- voir ce endpoint plus bas.
 
         # 7. Features utiles à retourner (pour debug / dashboard)
+        # NaN -> None (jamais la valeur NaN brute) : Starlette sert allow_nan=False,
+        # un float NaN dans la réponse fait planter la sérialisation JSON en 500
+        # (observé sous charge concurrente sur un même capteur -- ValueError:
+        # "Out of range float values are not JSON compliant").
         feat_summary = {
-            k: round(v, 4) if isinstance(v, float) and not np.isnan(v) else v
+            k: (round(v, 4) if not np.isnan(v) else None) if isinstance(v, float) else v
             for k, v in feat.items()
         }
 
@@ -1116,6 +1320,7 @@ if FASTAPI_OK:
                 "risk_level":        risk,
                 "votes":             result["votes"],
                 "individual_models": result["individual"],
+                "individual_scores": result["individual_scores"],
                 "features":          feat_summary,
             }
         })
@@ -1131,6 +1336,7 @@ if FASTAPI_OK:
             risk_level        = risk,
             anomaly_score     = anomaly_score,
             individual_models = result["individual"],
+            individual_scores = result["individual_scores"],
             features          = feat_summary,
         )
 
@@ -1155,7 +1361,7 @@ if FASTAPI_OK:
             "- Kurtosis critique : > 7"
         )
     )
-    def predict_rul(req: RULRequest):
+    def predict_rul(request: Request, req: RULRequest, _key: str = Depends(require_api_key), _rl=Depends(make_rate_limiter(60))):
         if len(req.history) < 3:
             raise HTTPException(
                 status_code=400,
@@ -1301,7 +1507,7 @@ if FASTAPI_OK:
             "```"
         )
     )
-    def iot_predict(req: IoTMeasurementRequest):
+    def iot_predict(request: Request, req: IoTMeasurementRequest, _key: str = Depends(require_api_key), _rl=Depends(make_rate_limiter(60))):
         global iot_windows
 
         # 1. Construire un MeasurePoint depuis la mesure brute
@@ -1359,6 +1565,10 @@ if FASTAPI_OK:
         elif anomaly_score >= 0.25: risk = "MODÉRÉ"
         else:                       risk = "FAIBLE"
 
+        # Cohérence prediction/risk — voir /v1/predict pour l'explication complète.
+        if not result["is_anomaly"] and risk in ("CRITIQUE", "ÉLEVÉ"):
+            risk = "MODÉRÉ"
+
         _health_val = feat.get("health_score", 0) or 0
         if _health_val >= 85 and not result["is_anomaly"]:
             risk = "FAIBLE"
@@ -1366,19 +1576,7 @@ if FASTAPI_OK:
         # 8. Mise à jour historique anomalies
         update_history(req.sensor_id, anomaly_score, result["confidence"])
 
-        # 9. Alerte externe si CRITIQUE / ÉLEVÉ
-        if ALERTS_ENABLED and _alert_manager and result["is_anomaly"] and risk in ("CRITIQUE", "ÉLEVÉ"):
-            _alert_manager.send_alert(
-                sensor_id    = req.sensor_id,
-                risk_level   = risk,
-                health_score = feat.get("health_score", 0),
-                rul_hours    = None,
-                vib_total    = feat.get("vib_total"),
-                temperature  = feat.get("temp_cur"),
-                votes        = result["votes"]
-            )
-
-        # 10. RUL — calculé uniquement si >= 3 mesures disponibles
+        # 9. RUL — calculé uniquement si >= 3 mesures disponibles
         rul_hours = rul_days = health_score = alert_level = recommendation = None
         if window_size >= 3:
             predict_result_data = {
@@ -1398,9 +1596,25 @@ if FASTAPI_OK:
             except Exception as _rul_err:
                 log.warning(f"RUL IoT échoué pour {req.sensor_id} : {_rul_err}")
 
+        # 10. Alerte externe — uniquement si RUL <= 7 jours (alert_level
+        # URGENT ou CRITIQUE, voir RUL_TABLE). Le risque d'anomalie seul
+        # (risk_level) ne dit rien du temps restant avant défaillance, donc
+        # ne déclenche plus d'alerte ici (aligné avec /v1/predict-rul).
+        if ALERTS_ENABLED and _alert_manager and alert_level in ("URGENT", "CRITIQUE"):
+            _alert_manager.send_alert(
+                sensor_id    = req.sensor_id,
+                risk_level   = alert_level,
+                health_score = health_score if health_score is not None else feat.get("health_score", 0),
+                rul_hours    = rul_hours,
+                vib_total    = feat.get("vib_total"),
+                temperature  = feat.get("temp_cur"),
+                votes        = result["votes"]
+            )
+
         # 11. Features résumées
+        # NaN -> None, jamais la valeur brute (voir le meme correctif sur /v1/predict).
         feat_summary = {
-            k: round(v, 4) if isinstance(v, float) and not np.isnan(v) else v
+            k: (round(v, 4) if not np.isnan(v) else None) if isinstance(v, float) else v
             for k, v in feat.items()
         }
 
@@ -1416,6 +1630,7 @@ if FASTAPI_OK:
             risk_level        = risk,
             anomaly_score     = anomaly_score,
             individual_models = result["individual"],
+            individual_scores = result["individual_scores"],
             rul_hours         = rul_hours,
             rul_days          = rul_days,
             health_score      = health_score,
@@ -1432,7 +1647,7 @@ if FASTAPI_OK:
         tags=["IA / Prédiction"],
         summary="Score de santé d'un moteur",
     )
-    def get_health_score(sensor_id: str):
+    def get_health_score(request: Request, sensor_id: str, _rl=Depends(make_rate_limiter(60))):
         """
         Retourne le score de santé (0–100) normalisé par capteur.
         Utilise la baseline propre au capteur pour éviter le biais global.
@@ -1446,18 +1661,20 @@ if FASTAPI_OK:
             }
 
         hist   = list(anomaly_history[sensor_id])
-        scores = [e["score"] for e in hist]
+        scores = [e["score"] for e in hist if not np.isnan(e.get("score", np.nan))]
+        if not scores:
+            return {"sensor_id": sensor_id, "health_score": 100.0, "status": "Scores invalides", "n_records": 0}
         recent = scores[-10:]
 
         # Score brut
-        raw_health = 100 * (1 - np.mean(recent))
+        raw_health = 100 * (1 - float(np.nanmean(recent)))
 
         # Normalisation par baseline capteur — corrige le biais global 43-48
         # Si baseline connue : on recentre le score autour de 100 (baseline = 0% dégradation)
         baseline = sensor_baseline.get(sensor_id)
-        if baseline is not None and baseline > 0:
+        if baseline is not None and baseline > 0 and not np.isnan(baseline):
             # Score relatif : combien on a dégradé par rapport à la baseline
-            degradation_relative = max(0.0, np.mean(recent) - baseline)
+            degradation_relative = max(0.0, float(np.nanmean(recent)) - baseline)
             health = round(100 * (1 - degradation_relative / max(baseline, 0.01)), 1)
             health = max(0.0, min(100.0, health))
             score_method = "relatif_baseline"
@@ -1485,10 +1702,10 @@ if FASTAPI_OK:
     # ── Métriques modèle ───────────────────────────────────────────────────
     @app.get("/metrics", tags=["Système"],
              summary="Métriques du modèle V3 (F1, AUC, Accuracy)")
-    def get_metrics():
+    def get_metrics(request: Request, _rl=Depends(make_rate_limiter(30))):
         """
         Retourne les métriques de performance du modèle non supervisé.
-        Source : models/metrics_v3.csv (F1=0.4008, AUC=0.6830, Acc=0.9232)
+        Source : models/metrics_v3.csv (F1=0.298, AUC=0.9475, CV 3-fold par capteur)
         """
         path = Path(METRICS_PATH)
         if not path.exists():
@@ -1514,10 +1731,17 @@ if FASTAPI_OK:
                 m = df_m.set_index("metric")["value"].to_dict()
             else:
                 m = df_m.iloc[0].to_dict()
-            # SoftVote RAPPORT : IF + ECOD + HBOS + COPOD (LOF/OCSVM exclus)
-            softvote_models = [k for k in ["if","ecod","hbos","copod"] if k in models]
+            # RAPPORT : stacking LogisticRegression sur tous les modèles chargés
+            softvote_models = [k for k in ["if","lof","ocsvm","ecod","hbos","copod"] if k in models]
             n_models = len(softvote_models)
             ens_names = m.get("ensemble", " + ".join(k.upper() for k in softvote_models))
+            # Coefficients réels du stacking (weights_if, weights_lof, ... dans metrics_v3.csv)
+            # — fallback à un poids égal si le modèle n'a pas encore été ré-entraîné avec le stacking.
+            learned_weights = {
+                k.upper(): round(float(m[f"weights_{k}"]), 4)
+                for k in softvote_models if f"weights_{k}" in m
+            }
+            weights_out = learned_weights or {k.upper(): round(1/max(n_models,1), 2) for k in softvote_models}
             return {
                 "model_version": m.get("model_version", "V7"),
                 "ensemble":      ens_names,
@@ -1535,11 +1759,106 @@ if FASTAPI_OK:
                 "n_anomalies":   int(float(m.get("n_anomalies", 0))),
                 "n_total":       int(float(m.get("n_total",     0))),
                 "contamination": round(float(m.get("contamination", 0)), 4),
-                "weights": {k.upper(): round(1/max(n_models,1), 2) for k in softvote_models},
+                "weights": weights_out,
                 "source_file": str(path.name),
             }
         except Exception as e:
             return {"message": f"Erreur lecture métriques : {e}"}
+
+    # ── Fiche technique du modèle (model card) — traçabilité pour production ──
+    @app.get("/v1/model-card", tags=["Système"],
+             summary="Fiche technique : provenance des données, méthodologie, limites connues")
+    def get_model_card(request: Request, _rl=Depends(make_rate_limiter(30))):
+        """
+        Expose de façon structurée et programmatique la provenance des données
+        d'entraînement et les limites de chaque modèle -- pratique standard
+        (« model card » / « data sheet ») pour tout système ML utilisé en
+        production, en particulier quand un modèle (ici le RUL) est entraîné
+        sur des données synthétiques faute de vraies données de panne.
+
+        Objectif : qu'un intégrateur tiers puisse vérifier PROGRAMMATIQUEMENT
+        (pas seulement dans une doc PDF qu'on peut oublier de lire) sur quoi
+        repose une prédiction avant de l'utiliser pour une décision critique.
+        """
+        card = {
+            "generated_at": datetime.now().isoformat(),
+            "api_version": API_VERSION,
+            "anomaly_detection": {
+                "models": ["IsolationForest", "LOF", "OCSVM", "ECOD", "HBOS", "COPOD"],
+                "fusion": "Stacking LogisticRegression",
+                "data_provenance": {
+                    "source": "ai_cp.full_data — mesures réelles capteurs IFM (20 capteurs, Novation City)",
+                    "real_measurements": True,
+                    "label_type": "heuristique (percentiles composites, PAS de panne confirmée étiquetée)",
+                    "label_caveat": (
+                        "Les 'anomalies' d'entraînement sont définies par des seuils statistiques "
+                        "(percentile de vibration/température/kurtosis), pas par des pannes réelles "
+                        "confirmées. Le modèle apprend à reproduire cette règle, pas à prédire des "
+                        "défaillances observées."
+                    ),
+                },
+                "evaluation": {},
+            },
+            "rul_estimation": {
+                "components": ["heuristique (seuils industriels fixes)", "GradientBoostingRegressor (ML)"],
+                "data_provenance": {
+                    "source": "Courbes de dégradation SYNTHÉTIQUES (loi de Weibull), recalibrées sur la distribution de mesures réelles",
+                    "real_failure_samples": 0,
+                    "real_measurements": False,
+                    "caveat": (
+                        "AUCUNE donnée de défaillance réelle confirmée n'a été utilisée -- aucun "
+                        "moteur n'a atteint la panne complète pendant la période de collecte "
+                        "(nov. 2025 - juin 2026). Les heures de RUL retournées sont des estimations "
+                        "non validées empiriquement contre de vraies pannes. À ne pas utiliser comme "
+                        "seule base d'une décision d'arrêt machine sans jugement d'un technicien qualifié."
+                    ),
+                },
+                "evaluation": {},
+            },
+            "known_limitations": [
+                "current_mean systématiquement à 0 — aucun capteur de courant électrique installé",
+                "Détection binaire uniquement (anomalie/normal) — pas de classification du type de défaut (bille/piste intérieure/extérieure)",
+                "Rate limiting par IP peu fiable derrière un reverse proxy sans configuration proxy_headers",
+            ],
+        }
+
+        # Metriques anomalies -- reutilise le meme fichier que /metrics
+        try:
+            path = METRICS_PATH if Path(METRICS_PATH).exists() else None
+            if path:
+                df_m = pd.read_csv(path, encoding="latin-1")
+                m = df_m.set_index("metric")["value"].to_dict() if "metric" in df_m.columns else df_m.iloc[0].to_dict()
+                card["anomaly_detection"]["evaluation"] = {
+                    "auc_roc":    round(float(m.get("auc_roc", 0)), 4),
+                    "f1_score":   round(float(m.get("f1_score", 0)), 4),
+                    "precision":  round(float(m.get("precision", 0)), 4),
+                    "recall":     round(float(m.get("recall", 0)), 4),
+                    "n_total":    int(float(m.get("n_total", 0))),
+                    "n_anomalies": int(float(m.get("n_anomalies", 0))),
+                    "trained_at": m.get("trained_at", "inconnu"),
+                    "evaluation_method": m.get("evaluation", "inconnu"),
+                }
+        except Exception as e:
+            card["anomaly_detection"]["evaluation"] = {"error": str(e)}
+
+        # Metriques RUL
+        try:
+            rul_metrics_path = MODEL_DIR / "metrics_rul_v1.json"
+            if rul_metrics_path.exists():
+                rm = json.loads(rul_metrics_path.read_text(encoding="utf-8"))
+                card["rul_estimation"]["evaluation"] = {
+                    "r2_test":     rm.get("r2_test"),
+                    "mae_test_h":  rm.get("mae_test_h"),
+                    "mae_test_pct": rm.get("mae_test_pct"),
+                    "rmse_test_h": rm.get("rmse_test_h"),
+                    "n_train":     rm.get("n_train"),
+                    "n_test":      rm.get("n_test"),
+                    "trained_at":  rm.get("trained_at", "inconnu"),
+                }
+        except Exception as e:
+            card["rul_estimation"]["evaluation"] = {"error": str(e)}
+
+        return card
 
     # ══════════════════════════════════════════════════════════════════════
     #  POST /v1/spectral-analysis — Analyse spectrale FFT + défauts roulements
@@ -1557,7 +1876,7 @@ if FASTAPI_OK:
             "**Prérequis** : signal_processing.py installé (scipy requis)"
         )
     )
-    def spectral_analysis(req: PredictRequest, rpm: float = 1450.0, fs: float = 100.0):
+    def spectral_analysis(request: Request, req: PredictRequest, rpm: float = 1450.0, fs: float = 100.0, _key: str = Depends(require_api_key), _rl=Depends(make_rate_limiter(20))):
         if not SIGNAL_PROCESSING_OK:
             raise HTTPException(
                 status_code=503,
@@ -1598,6 +1917,43 @@ if FASTAPI_OK:
             raise HTTPException(status_code=500, detail=f"Erreur analyse : {str(e)}")
 
     # ══════════════════════════════════════════════════════════════════════
+    #  GET /v1/spectral/{sensor_id} — Analyse spectrale publique (dashboard)
+    # ══════════════════════════════════════════════════════════════════════
+    @app.get(
+        "/v1/spectral/{sensor_id}",
+        tags=["IA / Prédiction"],
+        summary="Analyse spectrale publique à partir du buffer serveur",
+        description=(
+            "Version publique (lecture seule, sans clé) de l'analyse spectrale — "
+            "utilise les dernières valeurs de vibration_z déjà reçues via /v1/predict "
+            "pour ce capteur (pas de recalcul côté client). Pensée pour le dashboard."
+        )
+    )
+    def spectral_public(request: Request, sensor_id: str, rpm: float = 1450.0, fs: float = 100.0,
+                         _rl=Depends(make_rate_limiter(30))):
+        if not SIGNAL_PROCESSING_OK:
+            return {"available": False, "reason": "Module signal_processing non disponible."}
+        buf = _raw_vib_buffers.get(sensor_id)
+        if not buf or len(buf) < 8:
+            return {"available": False, "reason": f"Pas assez de mesures en buffer ({len(buf) if buf else 0}/8 min)."}
+        try:
+            result = full_signal_pipeline(vib_signal=list(buf), fs=fs, rpm=rpm, include_raw_spectra=True)
+            return {
+                "available":         True,
+                "sensor_id":         sensor_id,
+                "timestamp":         datetime.now().isoformat(),
+                "signal_length":     len(buf),
+                "analysis_params":   {"fs_hz": fs, "rpm": rpm},
+                "spectral_features": result["spectral_features"],
+                "bearing_analysis":  result["bearing_analysis"],
+                "raw_spectra":       result.get("raw_spectra", {}),
+                "metadata":          result["metadata"],
+            }
+        except Exception as e:
+            log.error(f"Erreur analyse spectrale publique ({sensor_id}) : {e}")
+            return {"available": False, "reason": f"Erreur analyse : {str(e)}"}
+
+    # ══════════════════════════════════════════════════════════════════════
     #  GET /v1/report — Génération de rapport de maintenance HTML/JSON
     # ══════════════════════════════════════════════════════════════════════
     @app.get(
@@ -1612,9 +1968,12 @@ if FASTAPI_OK:
         )
     )
     def get_report(
+        request: Request,
         type: str = "daily",
         format: str = "json",
-        sensor_id: Optional[str] = None
+        sensor_id: Optional[str] = None,
+        _key: str = Depends(require_api_key),
+        _rl=Depends(make_rate_limiter(20)),
     ):
         if not REPORTING_OK:
             raise HTTPException(
@@ -1651,7 +2010,7 @@ if FASTAPI_OK:
             "depuis un navigateur ou curl. Mis à jour à chaque appel /v1/predict."
         )
     )
-    def get_results(sensor_id: str = None):
+    def get_results(request: Request, sensor_id: str = None, _rl=Depends(make_rate_limiter(60))):
         """
         GET /v1/results          → tous les capteurs actifs
         GET /v1/results?sensor_id=8f7f2f7e  → un capteur précis
@@ -1682,7 +2041,7 @@ if FASTAPI_OK:
 
     # ── Liste capteurs ────────────────────────────────────────────────────
     @app.get("/sensors", tags=["Données"])
-    def get_sensors():
+    def get_sensors(request: Request, _rl=Depends(make_rate_limiter(60))):
         # ── Priorité 1 : anomaly_history temps réel (rempli par /v1/predict) ──
         if anomaly_history:
             try:
@@ -1743,7 +2102,7 @@ if FASTAPI_OK:
             "**Note** : L'historique est en RAM — réinitialisé au redémarrage de l'API."
         )
     )
-    def get_history(sensor_id: str, limit: int = 20):
+    def get_history(request: Request, sensor_id: str, limit: int = 20, _rl=Depends(make_rate_limiter(60))):
         """
         Retourne l'historique glissant des scores d'anomalie pour un capteur.
         Maximum HISTORY_WINDOW (50) entrées gardées en mémoire.
@@ -1758,7 +2117,9 @@ if FASTAPI_OK:
         hist = list(anomaly_history[sensor_id])
         hist_limited = hist[-limit:]  # Garder les N plus récents
 
-        scores = [e["score"] for e in hist]
+        scores = [e["score"] for e in hist if not np.isnan(e.get("score", np.nan))]
+        if not scores:
+            scores = [0.0]
         recent = scores[-10:]
 
         # Tendance : en hausse = dégradation, en baisse = amélioration
@@ -1797,7 +2158,7 @@ if FASTAPI_OK:
             "Conçu pour alimenter des feux tricolores dans un dashboard."
         )
     )
-    def get_alert_level(sensor_id: str):
+    def get_alert_level(request: Request, sensor_id: str, _rl=Depends(make_rate_limiter(60))):
         """
         Calcule le niveau d'alerte consolidé à partir de l'historique en mémoire.
         Retourne une réponse simple pour dashboard / feux tricolores.
@@ -1812,8 +2173,12 @@ if FASTAPI_OK:
             }
 
         hist   = list(anomaly_history[sensor_id])
-        scores = [e["score"] for e in hist[-10:]]  # 10 dernières
-        avg    = float(np.mean(scores))
+        scores = [e["score"] for e in hist[-10:] if not np.isnan(e.get("score", np.nan))]
+        if not scores:
+            return {"sensor_id": sensor_id, "alert_level": "INCONNU", "color": "gray",
+                    "message": "Scores invalides.", "timestamp": datetime.now().isoformat()}
+        avg    = float(np.nanmean(scores))
+        if np.isnan(avg): avg = 0.0
         trend  = safe_trend(scores) if len(scores) >= 3 else 0.0
         anomaly_rate = sum(1 for s in scores if s >= 0.5) / len(scores)
 
@@ -1849,7 +2214,7 @@ if FASTAPI_OK:
 
     # ── Anomalies filtrées ────────────────────────────────────────────────
     @app.get("/anomalies", tags=["Données"])
-    def get_anomalies(min_score: float = 0.5, limit: int = 100):
+    def get_anomalies(request: Request, min_score: float = 0.5, limit: int = 100, _rl=Depends(make_rate_limiter(60))):
         if df_results is None:
             return {"anomalies": []}
         df_a = df_results[df_results["anomaly_score"] >= min_score]
@@ -1864,10 +2229,12 @@ if FASTAPI_OK:
     # ── Historique alertes externes ────────────────────────────────────────
     @app.get("/v1/alerts", tags=["Alertes"],
              summary="Historique des alertes externes envoyées")
-    def get_alerts_history(limit: int = 50):
+    def get_alerts_history(request: Request, limit: int = 50, _rl=Depends(make_rate_limiter(30))):
         """
         Retourne les dernières alertes envoyées via email/webhook/SMS.
-        Inclut le statut de livraison par canal.
+        Inclut le statut de livraison par canal (booléens uniquement, jamais
+        d'adresse/URL/identifiant — public, comme les autres endpoints de
+        monitoring en lecture seule).
         Nécessite alert_config.json configuré.
         """
         if not ALERTS_ENABLED or _alert_manager is None:
@@ -1884,7 +2251,7 @@ if FASTAPI_OK:
 
     @app.get("/v1/alerts/stats", tags=["Alertes"],
              summary="Statistiques du gestionnaire d'alertes")
-    def get_alerts_stats():
+    def get_alerts_stats(request: Request, _rl=Depends(make_rate_limiter(30))):
         """Statistiques globales : total envoyées, par niveau, cooldowns actifs."""
         if not ALERTS_ENABLED or _alert_manager is None:
             return {"enabled": False, "channels": "aucun", "total_alerts": 0}
@@ -1893,7 +2260,7 @@ if FASTAPI_OK:
     # ── Limites et lacunes documentées du système ─────────────────────────
     @app.get("/v1/system-limits", tags=["Système"],
              summary="Limites connues et lacunes techniques du système")
-    def get_system_limits():
+    def get_system_limits(request: Request, _key: str = Depends(require_api_key), _rl=Depends(make_rate_limiter(30))):
         """
         Documente honnêtement les limitations techniques identifiées.
         Utile pour la transparence et la soutenance PFE.
@@ -1903,16 +2270,18 @@ if FASTAPI_OK:
             "limits": [
                 {
                     "id": "L1",
-                    "titre": "Alertes non persistantes",
+                    "titre": "Alertes externes — email actif, webhook/SMS non configurés",
                     "description": (
-                        "Les alertes sont affichées dans le dashboard mais ne sont pas envoyées "
-                        "en dehors de l'interface web si alert_config.json n'est pas configuré. "
-                        "Le module alert_manager.py supporte email SMTP, webhook Slack/Teams "
-                        "et SMS Twilio, mais nécessite une configuration manuelle."
+                        "Canal email SMTP configuré et vérifié (envoi réel testé avec succès, "
+                        "cooldown 300s/capteur, seuil health_score<=85, niveaux URGENT/CRITIQUE "
+                        "uniquement — cohérent avec RUL <= 7 jours). Webhook (Slack/Teams/Discord) "
+                        "et SMS (Twilio) restent désactivés faute de compte externe fourni — le "
+                        "module alert_manager.py les supporte déjà si besoin plus tard."
                     ),
-                    "statut": "MODULE_DISPONIBLE",
+                    "statut": "EMAIL_ACTIF",
                     "fichier": "alert_manager.py",
-                    "activation": "Modifier alert_config.json et redémarrer l'API"
+                    "activation_restante": "Webhook/SMS : renseigner url/credentials dans alert_config.json",
+                    "note_deploiement": "Avant remise au client : remplacer les destinataires email de test par les vraies adresses du client dans alert_config.json"
                 },
                 {
                     "id": "L2",
@@ -1981,6 +2350,24 @@ if FASTAPI_OK:
                     ),
                     "statut": "LIMITATION_DONNEES",
                     "impact": "RUL estimatif uniquement — précision non validée sur défaillances réelles"
+                },
+                {
+                    "id": "L7",
+                    "titre": "BPFO/BPFI/BSF non mesurables avec le fs par défaut de l'analyse spectrale",
+                    "description": (
+                        "GET /v1/spectral/{id} et POST /v1/spectral-analysis utilisent fs=100Hz par "
+                        "défaut (Nyquist = 50Hz). Pour un moteur à 1450 tr/min sur roulement SKF "
+                        "6205-2RS, BPFO≈86Hz, BPFI≈131Hz et BSF≈56Hz dépassent tous cette limite : "
+                        "leur SNR est structurellement 0 (aucun bin de fréquence n'existe à ces "
+                        "valeurs), pas une preuve d'absence de défaut. Seule FTF≈9.6Hz (défaut de "
+                        "cage) est mesurable. Cause plus profonde : le signal analysé est la suite "
+                        "des vibration_z reçues à chaque appel /v1/predict (espacées de plusieurs "
+                        "secondes), pas une forme d'onde d'accéléromètre haute fréquence -- "
+                        "augmenter fs ne suffirait pas sans un vrai capteur haute fréquence en amont."
+                    ),
+                    "statut": "LIMITATION_MATERIELLE",
+                    "correctif": "Champ 'measurable' ajouté par fréquence (signal_processing.py) pour distinguer 'non mesurable' de 'absent'",
+                    "impact": "Diagnostic BPFO/BPFI/BSF non fiable en l'état — seul FTF est théoriquement exploitable"
                 }
             ]
         }
@@ -1991,25 +2378,41 @@ if FASTAPI_OK:
 # ══════════════════════════════════════════════════════════════════════════════
 
 if FASTAPI_OK:
-    import threading, subprocess, tempfile, uuid as _uuid
+    import threading, subprocess, tempfile, time as _pipeline_time, uuid as _uuid
+    import sys as _sys
     from datetime import datetime as _dt
 
     # Stockage en mémoire des jobs pipeline (clé = job_id)
     _pipeline_jobs: dict = {}
 
     def _fmt_elapsed(start_ts: float) -> str:
-        s = int(time.time() - start_ts)
+        s = int(_pipeline_time.time() - start_ts)
         return f"{s // 60}m {s % 60}s" if s >= 60 else f"{s}s"
 
+    import re as _re
+    _ANSI_RE = _re.compile(r'\x1b\[[0-9;]*[mGKHF]|\x1b\(B')
+
+    def _strip_ansi(s: str) -> str:
+        return _ANSI_RE.sub("", s)
+
     def _add_log(job: dict, text: str, log_type: str = ""):
-        job["logs"].append({"text": text, "type": log_type})
+        job["logs"].append({"text": _strip_ansi(text), "type": log_type})
 
     def _run_pipeline_bg(job_id: str, sql_path: str, train_mode: str):
         """Thread background — exécute toutes les étapes du pipeline."""
         job = _pipeline_jobs[job_id]
-        start = time.time()
+
+        # Chaque run est sauvegardé dans son propre dossier horodaté sous
+        # models/runs/ -- ne touche JAMAIS models/ (modèles de production
+        # utilisés par les vraies prédictions de l'API, chargés une fois au
+        # démarrage). Un upload de test n'écrase donc plus jamais le modèle
+        # de prod, et chaque run garde une trace distincte de ses métriques
+        # au lieu de se faire silencieusement remplacer par le suivant.
+        run_dir = Path("models/runs") / f"{_dt.now():%Y%m%d_%H%M%S}_{job_id}"
+        job["run_dir"] = str(run_dir)
 
         try:
+            start = _pipeline_time.time()
             # ── Étape 2 : Parsing SQL → CSV ───────────────────────────────
             job["step"] = 2
             job["step_name"] = "Parsing du fichier SQL..."
@@ -2018,11 +2421,24 @@ if FASTAPI_OK:
 
             _add_log(job, "🔍 Démarrage du parsing SQL (extraction mesures IFM)...", "i")
 
+            # LOKY_MAX_CPU_COUNT/OMP_NUM_THREADS : sans ça, train_model_v3_unsupervised.py
+            # (lancé en sous-processus juste après) reste bloqué indéfiniment sur cette
+            # machine -- sklearn/joblib déclenchent un appel `wmic` pour détecter le
+            # nombre de coeurs physiques qui ne rend jamais la main ici (voir incident
+            # de blocage résolu manuellement lors de la mise au point de ce pipeline).
+            _env = {
+                **os.environ,
+                "PYTHONIOENCODING": "utf-8",
+                "PYTHONUTF8": "1",
+                "LOKY_MAX_CPU_COUNT": str(os.cpu_count() or 4),
+                "OMP_NUM_THREADS": str(os.cpu_count() or 4),
+            }
             proc = subprocess.Popen(
-                [sys.executable, "-u", "generate_dataset_from_sql.py",
+                [_sys.executable, "-u", "generate_dataset_from_sql.py",
                  "--sql", sql_path, "--out", csv_path],
                 stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
                 text=True, encoding="utf-8", errors="replace",
+                env=_env,
                 cwd=str(Path(__file__).parent)
             )
             for raw in proc.stdout:
@@ -2052,11 +2468,18 @@ if FASTAPI_OK:
             job["progress"]  = 32
             _add_log(job, "🧠 Lancement de l'entraînement (IF · LOF · OCSVM · ECOD)...", "i")
 
+            # --csv (pas --sql) : le CSV vient d'être correctement généré à
+            # l'étape 2/3 par generate_dataset_from_sql.py. Passer --sql ici
+            # ferait reparser le fichier SQL brut avec la logique interne de
+            # train_model_v3_unsupervised.py (motor_mesure/motor_measurements
+            # -- un schéma différent de full_data, qui n'en extrait presque
+            # rien : ~400 sessions au lieu des 600 000+ déjà dans le CSV).
             proc2 = subprocess.Popen(
-                [sys.executable, "-u", "train_model_v3_unsupervised.py",
-                 "--sql", sql_path],
+                [_sys.executable, "-u", "train_model_v3_unsupervised.py",
+                 "--csv", csv_path, "--out-dir", str(run_dir)],
                 stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
                 text=True, encoding="utf-8", errors="replace",
+                env=_env,
                 cwd=str(Path(__file__).parent)
             )
             progress_markers = {
@@ -2084,17 +2507,14 @@ if FASTAPI_OK:
             if proc2.returncode != 0:
                 raise RuntimeError("train_model_v3_unsupervised.py a échoué (code " + str(proc2.returncode) + ")")
 
-            # ── Étape 5 : Rechargement des modèles dans l'API ────────────
+            # ── Étape 5 : Confirmation du dossier de sortie ───────────────
+            # PAS de load_all_models() ici : ce run reste isolé dans run_dir,
+            # les modèles de production (models/) et l'API en cours ne sont
+            # pas affectés. Voir la note plus haut sur run_dir.
             job["step"] = 5
-            job["step_name"] = "Rechargement des modèles dans l'API..."
+            job["step_name"] = "Modèles sauvegardés (hors production)..."
             job["progress"]  = 92
-            _add_log(job, "🔄 Rechargement des modèles dans l'API en cours...", "i")
-
-            try:
-                load_all_models()
-                _add_log(job, "✅ Modèles rechargés — IF · LOF · OCSVM · ECOD · HBOS · COPOD", "s")
-            except Exception as reload_err:
-                _add_log(job, f"⚠️ Rechargement partiel : {reload_err}", "w")
+            _add_log(job, f"💾 Modèles et métriques écrits dans {run_dir}/ (production non affectée)", "s")
 
             # ── Collecte des résultats finaux ─────────────────────────────
             job["step"] = 6
@@ -2102,25 +2522,31 @@ if FASTAPI_OK:
             job["progress"]  = 100
             job["elapsed"]   = _fmt_elapsed(start)
 
-            # Métriques depuis le fichier JSON si disponible
-            results: dict = {}
-            metrics_files = ["models/metrics_v3.json", "models/metrics_rul_v1.json", "test_report.json"]
-            for mf in metrics_files:
-                mp = Path(mf)
-                if mp.exists():
-                    try:
-                        with open(mp, encoding="utf-8") as f:
-                            mdata = json.load(f)
-                        results["auc"]   = float(mdata.get("auc_roc",  mdata.get("auc", 0.836)))
-                        results["f1"]    = float(mdata.get("f1_score", mdata.get("f1",  0.401)))
-                        results["n_measures"]  = int(mdata.get("n_samples", mdata.get("n_train", 0)))
-                        results["n_anomalies"] = int(mdata.get("n_anomalies", results["n_measures"] * 0.10))
-                        break
-                    except Exception:
-                        pass
+            # Métriques du run qui vient de se terminer — lues depuis run_dir/
+            # (pas models/metrics_v3.csv, qui reste celui de la production et
+            # n'est plus touché par ce pipeline). Ancien code cherchait un
+            # "metrics_v3.json" qui n'a jamais existé dans ce projet (seul le
+            # .csv existe) : il retombait donc silencieusement sur
+            # metrics_rul_v1.json — les métriques d'un AUTRE modèle
+            # (régression RUL, pas détection d'anomalies) — et affichait des
+            # valeurs sans rapport avec le pipeline qui venait de tourner
+            # (toujours les mêmes 6000/600 issus du n_train du modèle RUL,
+            # jamais recalculées).
+            results: dict = {"run_dir": str(run_dir)}
+            metrics_csv = run_dir / "metrics_v3.csv"
+            if metrics_csv.exists():
+                try:
+                    df_m = pd.read_csv(metrics_csv, encoding="latin-1")
+                    m = df_m.set_index("metric")["value"].to_dict()
+                    results["auc"]          = float(m.get("auc_roc", 0.0))
+                    results["f1"]           = float(m.get("f1_score", 0.0))
+                    results["n_measures"]   = int(float(m.get("n_total", 0)))
+                    results["n_anomalies"]  = int(float(m.get("n_anomalies", 0)))
+                except Exception as _metrics_err:
+                    _add_log(job, f"⚠️ Lecture metrics_v3.csv échouée : {_metrics_err}", "w")
 
-            if not results:
-                results = {"auc": 0.836, "f1": 0.401, "n_measures": 0, "n_anomalies": 0}
+            if "auc" not in results:
+                results.update({"auc": 0.0, "f1": 0.0, "n_measures": 0, "n_anomalies": 0})
 
             # Top anomalies depuis df_results si disponible
             try:
@@ -2149,7 +2575,7 @@ if FASTAPI_OK:
             log.error(f"Pipeline {job_id} failed: {exc}")
         finally:
             # Nettoyage fichiers temporaires
-            for p in [sql_path, csv_path if 'csv_path' in dir() else None]:
+            for p in [sql_path, locals().get('csv_path')]:
                 try:
                     if p and Path(p).exists():
                         Path(p).unlink()
@@ -2164,6 +2590,25 @@ if FASTAPI_OK:
         if html_path.exists():
             return FileResponse(str(html_path), media_type="text/html")
         return HTMLResponse("<h1>pipeline_upload.html introuvable</h1>", status_code=404)
+
+    # ── Pages login/register — servies directement par l'API (fonctionnent
+    # même sans le conteneur "dashboard" nginx, même pattern que /pipeline).
+    # Chemins avec suffixe .html (pas juste /login) pour que les liens relatifs
+    # login.html <-> register.html restent valides, qu'ils soient servis par
+    # nginx (dashboard, volumes montés sous ce même nom) ou par l'API ici. ──
+    @app.get("/login.html", tags=["Authentification utilisateurs"], include_in_schema=False)
+    def get_login_page():
+        html_path = Path(__file__).parent / "login.html"
+        if html_path.exists():
+            return FileResponse(str(html_path), media_type="text/html")
+        return HTMLResponse("<h1>login.html introuvable</h1>", status_code=404)
+
+    @app.get("/register.html", tags=["Authentification utilisateurs"], include_in_schema=False)
+    def get_register_page():
+        html_path = Path(__file__).parent / "register.html"
+        if html_path.exists():
+            return FileResponse(str(html_path), media_type="text/html")
+        return HTMLResponse("<h1>register.html introuvable</h1>", status_code=404)
 
     # ── Endpoint : upload SQL + lancement pipeline ────────────────────────────
     @app.post(
@@ -2180,8 +2625,11 @@ if FASTAPI_OK:
         )
     )
     async def pipeline_upload(
+        request: Request,
         file: UploadFile = File(..., description="Fichier .sql (dump MariaDB ai_cp)"),
-        train_mode: str = Form("full", description="'full' ou 'fast'")
+        train_mode: str = Form("full", description="'full' ou 'fast'"),
+        _key: str = Depends(require_admin_key),
+        _rl=Depends(make_rate_limiter(5)),
     ):
         if not file.filename.lower().endswith(".sql"):
             raise HTTPException(status_code=400, detail="Seuls les fichiers .sql sont acceptés.")
@@ -2192,11 +2640,19 @@ if FASTAPI_OK:
         tmp_dir = Path(tempfile.gettempdir())
         sql_path = str(tmp_dir / f"pipeline_{job_id}.sql")
 
-        content = await file.read()
+        # Écriture en flux par blocs de 4 Mo -- `await file.read()` sans argument
+        # chargeait le fichier ENTIER en mémoire (jusqu'à ~650 Mo pour le dump ai_cp)
+        # avant de le réécrire sur disque, ce qui ralentissait disproportionnellement
+        # les gros uploads (non-linéaire avec la taille) et risquait un OOM sur un
+        # déploiement à mémoire limitée (ex: Render free tier).
+        CHUNK_SIZE = 4 * 1024 * 1024
+        total_bytes = 0
         with open(sql_path, "wb") as f:
-            f.write(content)
+            while chunk := await file.read(CHUNK_SIZE):
+                f.write(chunk)
+                total_bytes += len(chunk)
 
-        file_mb = len(content) / 1e6
+        file_mb = total_bytes / 1e6
 
         # Créer le job
         _pipeline_jobs[job_id] = {
@@ -2235,7 +2691,7 @@ if FASTAPI_OK:
         summary="Statut du pipeline en cours",
         description="Interroger toutes les 2-3 secondes. Passer `since=N` pour récupérer uniquement les nouveaux logs (N = index depuis le dernier appel)."
     )
-    def pipeline_status(job_id: str, since: int = 0):
+    def pipeline_status(request: Request, job_id: str, since: int = 0, _key: str = Depends(require_api_key), _rl=Depends(make_rate_limiter(60))):
         if job_id not in _pipeline_jobs:
             raise HTTPException(status_code=404, detail=f"Job '{job_id}' introuvable.")
         job = _pipeline_jobs[job_id]
@@ -2256,7 +2712,7 @@ if FASTAPI_OK:
 
     # ── Endpoint : liste des jobs ──────────────────────────────────────────────
     @app.get("/v1/pipeline/jobs", tags=["Pipeline"], summary="Liste des pipelines récents")
-    def pipeline_jobs_list():
+    def pipeline_jobs_list(request: Request, _key: str = Depends(require_api_key), _rl=Depends(make_rate_limiter(30))):
         return {
             "total": len(_pipeline_jobs),
             "jobs": [
@@ -2299,7 +2755,7 @@ if __name__ == "__main__":
     print(f"    GET  /v1/alert-level/{{sensor_id}}   -> Niveau alerte dashboard")
     print(f"\n  Endpoints systeme :")
     print(f"    GET  /health    -> Health check + modeles charges")
-    print(f"    GET  /metrics   -> F1=0.4008 | AUC=0.6830 | Acc=0.9232")
+    print(f"    GET  /metrics   -> F1=0.298 | AUC=0.9475 | CV 3-fold par capteur")
     print(f"    GET  /sensors   -> 20 capteurs IFM")
     print(f"    GET  /anomalies -> Anomalies filtrees")
     print("=" * 80 + "\n")
@@ -2308,4 +2764,17 @@ if __name__ == "__main__":
         print("Installe les dépendances : pip install fastapi uvicorn pydantic scipy")
     else:
         port = int(os.environ.get("PORT", 8000))
-        uvicorn.run(app, host="0.0.0.0", port=port, reload=False)
+        # TLS optionnel -- si TLS_CERT_FILE/TLS_KEY_FILE sont definis (voir
+        # generate_selfsigned_cert.py pour un certificat de test), l'API sert
+        # directement en HTTPS. Sinon comportement inchange (HTTP simple),
+        # retro-compatible avec tous les deploiements existants.
+        tls_cert = os.environ.get("TLS_CERT_FILE", "").strip()
+        tls_key  = os.environ.get("TLS_KEY_FILE", "").strip()
+        ssl_kwargs = {}
+        if tls_cert and tls_key:
+            if Path(tls_cert).exists() and Path(tls_key).exists():
+                ssl_kwargs = {"ssl_certfile": tls_cert, "ssl_keyfile": tls_key}
+                print(f"  TLS actif — HTTPS sur le port {port} (cert: {tls_cert})")
+            else:
+                print(f"  ATTENTION : TLS_CERT_FILE/TLS_KEY_FILE definis mais introuvables — HTTP sans chiffrement")
+        uvicorn.run(app, host="0.0.0.0", port=port, reload=False, **ssl_kwargs)

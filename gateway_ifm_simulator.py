@@ -62,6 +62,7 @@ CAPTEURS = {
     17: {"id": "d9508e77", "model": "VVB001", "temp_moy": 35.7, "temp_std": 1.8, "vib_x": 487, "vib_y": 370, "vib_z": 307, "vib_std": 85,  "statut": "normal"},
     18: {"id": "eb084747", "model": "VVB001", "temp_moy": 40.2, "temp_std": 6.2, "vib_x": 201, "vib_y": 203, "vib_z": 675, "vib_std": 607, "statut": "critique"},
     19: {"id": "f48c25f9", "model": "VSE002", "temp_moy": 34.0, "temp_std": 4.7, "vib_x": 79,  "vib_y": 73,  "vib_z": 60,  "vib_std": 67,  "statut": "normal"},
+    20: {"id": "ed6fa322", "model": "VSE002", "temp_moy": 29.1, "temp_std": 6.8, "vib_x": 95,  "vib_y": 106, "vib_z": 83,  "vib_std": 63,  "statut": "normal"},
 }
 
 GATEWAY_ID = "6f85d70d"

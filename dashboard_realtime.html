@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>VectraScale Control — Maintenance Prédictive</title>
+<title>Maintenance Prédictive — ISG Bizerte</title>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
 <style>
   @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap');
@@ -57,19 +57,16 @@
   .logo-icon {
     width: 34px; height: 34px;
     background: linear-gradient(135deg, var(--teal), var(--blue));
-    border-radius: 7px;
+    border-radius: 9px;
     display: flex; align-items: center; justify-content: center;
-    font-size: 17px;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.25);
   }
+  .logo-icon svg { width: 19px; height: 19px; }
 
   .logo-text h1 {
     font-size: 0.9rem; font-weight: 700; letter-spacing: 1px; color: var(--text);
   }
   .logo-text h1 span { color: var(--teal); }
-  .logo-text p {
-    font-size: 0.58rem; color: var(--text2);
-    letter-spacing: 2.5px; font-family: var(--mono); margin-top: 1px;
-  }
 
   .header-right { display:flex; align-items:center; gap:18px; }
 
@@ -98,6 +95,23 @@
   }
   .json-toggle-btn:hover { background: rgba(0,212,180,0.08); border-color: var(--teal); }
   .json-toggle-btn.active { background: rgba(0,212,180,0.15); border-color: var(--teal); color: var(--teal); }
+
+  /* ── NAV LINK (header — vers les autres pages du projet) ── */
+  .nav-link {
+    display: flex; align-items: center; gap: 5px;
+    padding: 4px 10px;
+    background: transparent;
+    border: 1px solid var(--border);
+    border-radius: 5px;
+    color: var(--text2);
+    font-family: var(--mono);
+    font-size: 0.63rem;
+    font-weight: 600;
+    text-decoration: none;
+    cursor: pointer;
+    transition: all .2s;
+  }
+  .nav-link:hover { background: rgba(88,166,255,0.08); border-color: var(--blue); color: var(--blue); }
 
   /* ── JSON PANEL — remplace charts-grid dans .center ── */
   .json-panel {
@@ -212,6 +226,64 @@
     100% { background: #0a0d12; }
   }
   .json-col-body.updated { animation: jsonPulse 0.6s ease-out; }
+
+  /* ── SPECTRAL PANEL — remplace charts-grid dans .center ── */
+  .spectral-panel {
+    display: none;
+    flex: 1;
+    overflow: hidden;
+    flex-direction: column;
+    border-top: 1px solid var(--border);
+  }
+  .spectral-panel.open { display: flex; }
+
+  .spectral-bar {
+    display: flex; align-items: center; gap: 10px;
+    padding: 6px 14px;
+    background: var(--bg3);
+    border-bottom: 1px solid var(--border);
+    flex-shrink: 0;
+    font-family: var(--mono); font-size: 0.62rem; color: var(--text2);
+  }
+  .spectral-severity {
+    padding: 2px 9px; border-radius: 10px; font-weight: 700; font-size: 0.6rem;
+    margin-left: auto;
+  }
+  .spectral-severity.OK       { background: rgba(63,185,80,0.15);  color: var(--green); }
+  .spectral-severity.FAIBLE   { background: rgba(240,165,0,0.12);  color: var(--amber); }
+  .spectral-severity.MODÉRÉ   { background: rgba(240,165,0,0.22);  color: var(--amber); }
+  .spectral-severity.CRITIQUE { background: rgba(248,81,73,0.18);  color: var(--red); }
+
+  .spectral-body {
+    display: grid;
+    grid-template-columns: 1.6fr 1fr;
+    flex: 1;
+    overflow: hidden;
+    gap: 1px;
+    background: var(--border);
+  }
+  .spectral-chart-wrap { background: var(--bg2); padding: 10px 14px; position: relative; overflow: hidden; }
+  .spectral-side { background: var(--bg2); padding: 10px 14px; overflow-y: auto; }
+
+  .fault-row {
+    display: flex; align-items: center; gap: 8px;
+    padding: 7px 0; border-bottom: 1px solid var(--border2);
+    font-family: var(--mono); font-size: 0.65rem;
+  }
+  .fault-row:last-child { border-bottom: none; }
+  .fault-name { font-weight: 700; min-width: 42px; color: var(--text); }
+  .fault-freq { color: var(--text2); flex: 1; }
+  .fault-snr  { color: var(--text2); }
+  .fault-dot  { width: 7px; height: 7px; border-radius: 50%; background: var(--text3); }
+  .fault-row.detected .fault-dot { background: var(--red); }
+  .fault-row.detected .fault-name { color: var(--red); }
+  .fault-row.unmeasurable { opacity: 0.5; }
+  .fault-row.unmeasurable .fault-snr { font-style: italic; }
+
+  .spectral-empty {
+    display: flex; align-items: center; justify-content: center;
+    height: 100%; color: var(--text2); font-size: 0.7rem; text-align: center; padding: 20px;
+  }
 
   .api-dot {
     width: 7px; height: 7px; border-radius: 50%;
@@ -461,6 +533,67 @@
   .gauge-den { font-size:0.58rem; color:var(--text2); font-family:var(--mono); }
   .gauge-weights { font-size:0.55rem; color:var(--text2); margin-top:6px; }
 
+  /* Explicabilité (contribution des facteurs au score de santé) */
+  .explain-wrap { margin-top:12px; text-align:left; }
+  .explain-row { display:flex; align-items:center; gap:6px; margin-bottom:5px; }
+  .explain-name { width:56px; flex-shrink:0; font-size:0.56rem; color:var(--text2); }
+  .explain-bar { flex:1; height:5px; background:var(--bg4); border-radius:2px; overflow:hidden; }
+  .explain-fill { height:100%; border-radius:2px; transition:width .5s; }
+  .explain-fill.temp { background:var(--blue); }
+  .explain-fill.vib  { background:var(--amber); }
+  .explain-fill.kurt { background:var(--red); }
+  .explain-pct { width:30px; flex-shrink:0; text-align:right; font-family:var(--mono); font-size:0.56rem; color:var(--text2); }
+  .explain-dominant { margin-top:7px; font-size:0.58rem; color:var(--text2); text-align:center; }
+  .explain-dominant b { color:var(--text); }
+
+  /* Résumé intelligent (narratif automatique) */
+  .smart-card {
+    background: linear-gradient(135deg, rgba(0,212,180,0.07), var(--bg3));
+    border: 1px solid rgba(0,212,180,0.28); border-radius: var(--r);
+    padding: 12px 16px; margin: 0 14px 10px 14px;
+    display:flex; align-items:flex-start; gap:11px;
+  }
+  .smart-icon { font-size:1.2rem; line-height:1.3; flex-shrink:0; }
+  .smart-body { flex:1; min-width:0; }
+  .smart-lbl {
+    font-size:0.56rem; text-transform:uppercase; letter-spacing:2px;
+    color:var(--teal); margin-bottom:4px; font-weight:600;
+  }
+  .smart-text { font-size:0.76rem; line-height:1.6; color:var(--text); }
+  .smart-text b { color:var(--teal); }
+  .smart-text .warn { color:var(--amber); font-weight:600; }
+  .smart-text .crit { color:var(--red); font-weight:600; }
+
+  /* Liste priorisée d'actions */
+  .priority-card {
+    background: var(--bg3); border: 1px solid var(--border);
+    border-radius: var(--r); padding: 9px 11px;
+  }
+  .priority-item {
+    display:flex; align-items:center; gap:7px; padding:6px 2px;
+    border-bottom:1px solid var(--border); cursor:pointer;
+  }
+  .priority-item:hover { background:var(--bg4); border-radius:5px; }
+  .priority-item:last-child { border-bottom:none; }
+  .priority-rank { font-family:var(--mono); font-size:0.58rem; color:var(--text3); width:12px; flex-shrink:0; }
+  .priority-id { font-family:var(--mono); font-size:0.62rem; font-weight:600; color:var(--text); width:60px; flex-shrink:0; }
+  .priority-action { flex:1; min-width:0; color:var(--text2); font-size:0.56rem; line-height:1.35; }
+  .priority-badge {
+    font-size:0.5rem; font-weight:700; padding:2px 6px;
+    border-radius:4px; flex-shrink:0; white-space:nowrap;
+  }
+  .priority-badge.crit { background:rgba(248,81,73,0.15);  color:var(--red); }
+  .priority-badge.warn { background:rgba(240,165,0,0.15);  color:var(--amber); }
+  .priority-badge.ok   { background:rgba(63,185,80,0.12);  color:var(--green); }
+  .priority-empty { color:var(--text3); font-size:0.6rem; text-align:center; padding:10px; }
+
+  /* Projection RUL */
+  .rul-proj-lbl {
+    font-size:0.54rem; color:var(--text3); margin-top:9px;
+    display:flex; justify-content:space-between;
+  }
+  .rul-proj-wrap { height:46px; margin-top:3px; position:relative; }
+
   /* Measures */
   .measures-card {
     background: var(--bg3); border: 1px solid var(--border);
@@ -505,6 +638,16 @@
   .vote-status.normal  { color:var(--green); }
   .vote-status.anomaly { color:var(--red); }
 
+  .vote-score-bar-wrap {
+    flex:1; height:3px; background:var(--bg4); border-radius:2px;
+    margin:0 8px; overflow:hidden; min-width:40px;
+  }
+  .vote-score-bar-fill { height:100%; border-radius:2px; transition:width .4s; background:var(--text2); }
+  .vote-score-val {
+    font-family:var(--mono); font-size:0.6rem; color:var(--text2);
+    min-width:32px; text-align:right;
+  }
+
   /* Diagnostics signal */
   .diag-row {
     display:flex; align-items:center; justify-content:space-between;
@@ -535,6 +678,32 @@
   .alert-event .ae-score  { color:var(--text2); flex:1; }
   .alert-event .ae-time   { color:var(--text3); flex-shrink:0; }
 
+  /* Alertes externes envoyées (email/webhook/SMS) */
+  .ext-alert-card {
+    background: var(--bg3); border: 1px solid var(--border);
+    border-radius: var(--r); padding: 9px 11px;
+  }
+  .ext-alert-stats {
+    display:flex; gap:10px; margin:6px 0 8px;
+    font-family:var(--mono); font-size:0.6rem; color:var(--text2);
+  }
+  .ext-alert-stats b { color:var(--text); }
+  .ext-alert-list { display:flex; flex-direction:column; gap:3px; max-height:110px; overflow-y:auto; }
+  .ext-alert-list::-webkit-scrollbar { width:2px; }
+  .ext-alert-list::-webkit-scrollbar-thumb { background:var(--bg4); }
+  .ext-alert-item {
+    display:flex; align-items:center; gap:6px;
+    font-family:var(--mono); font-size:0.57rem;
+    background:var(--bg4); border-radius:4px; padding:3px 6px;
+  }
+  .ext-alert-item .ea-level { font-weight:700; min-width:58px; }
+  .ext-alert-item .ea-level.CRITIQUE { color:var(--red); }
+  .ext-alert-item .ea-level.URGENT   { color:var(--amber); }
+  .ext-alert-item .ea-level.ATTENTION{ color:var(--amber); }
+  .ext-alert-item .ea-sensor { color:var(--text); font-weight:600; }
+  .ext-alert-item .ea-chan { color:var(--text2); flex:1; text-align:right; }
+  .ext-alert-item .ea-time { color:var(--text3); flex-shrink:0; }
+
   .m-val.c-red { color: var(--red); }
 
   /* Loading */
@@ -555,6 +724,19 @@
 </head>
 <body>
 
+<script>
+  // ── GARDE D'ACCÈS ── Redirection immédiate vers login.html si aucun token
+  // n'est présent, AVANT que le reste de la page ne s'affiche (évite un
+  // flash du dashboard pour un visiteur non connecté). La vérification
+  // complète (token valide/pas expiré, via GET /v1/auth/me) se fait plus
+  // bas dans init() -- ce garde-ci ne teste que la présence du token, pour
+  // rester synchrone et ne pas retarder l'affichage d'un seul aller-retour
+  // réseau.
+  if (!localStorage.getItem('access_token')) {
+    window.location.replace('login.html');
+  }
+</script>
+
 <!-- LOADING -->
 <div class="loading" id="loading">
   <div class="spinner"></div>
@@ -565,19 +747,26 @@
 <!-- HEADER -->
 <header>
   <div class="logo">
-    <div class="logo-icon">📊</div>
+    <div class="logo-icon">
+      <svg viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+        <polyline points="2 14 7 14 9 8 13 20 16 4 18 14 22 14"/>
+      </svg>
+    </div>
     <div class="logo-text">
       <h1><span>MAINTENANCE PRÉDICTIVE</span> EN TEMPS RÉEL</h1>
-      <p>SYSTÈME IoT · ISG BIZERTE · V3.1.0</p>
     </div>
   </div>
   <div class="header-right">
-    <div class="models-badge">Modèles <b>IF·LOF·OCSVM·ECOD</b></div>
+    <a href="pipeline_upload.html" class="nav-link" title="Importer de nouvelles données (pipeline SQL)">📤 Pipeline Upload</a>
+    <a href="dashboard_predictive.html" class="nav-link" title="Vue flotte complète (19 capteurs)">🗂️ Vue Flotte</a>
+    <div class="models-badge">Modèles <b>IF·LOF·OCSVM·ECOD·HBOS·COPOD</b></div>
     <div class="api-badge">
       <div class="api-dot" id="apiDot"></div>
       <span id="apiStatus">API — OK</span>
     </div>
     <div class="clock" id="clock">--/--/---- · --:--:--</div>
+    <span class="nav-link" id="userBadge" title="Utilisateur connecté">👤 --</span>
+    <a href="#" class="nav-link" id="logoutLink" title="Se déconnecter">🚪 Déconnexion</a>
   </div>
 </header>
 
@@ -615,6 +804,15 @@
   </div>
 </div>
 
+<!-- RÉSUMÉ INTELLIGENT -->
+<div class="smart-card">
+  <div class="smart-icon">🧠</div>
+  <div class="smart-body">
+    <div class="smart-lbl">Résumé intelligent — analyse automatique du parc</div>
+    <div class="smart-text" id="smartSummaryText">Analyse en cours...</div>
+  </div>
+</div>
+
 <!-- MAIN -->
 <div class="main">
 
@@ -637,8 +835,9 @@
       <div class="badge faible" id="confBadge">--</div>
       <div class="sh-right">
         <span id="iterBadge">Itération --</span>
-        <span id="votesBadge">--/4 votes · --%</span>
+        <span id="votesBadge">--/6 votes · --%</span>
       </div>
+      <button class="json-toggle-btn" id="specToggleBtn" onclick="toggleSpectralPanel()">🔬 Analyse spectrale</button>
       <button class="json-toggle-btn" id="jsonToggleBtn" onclick="toggleJsonPanel()">&lt;/&gt; JSON Live</button>
     </div>
 
@@ -713,6 +912,30 @@
       </div>
     </div>
 
+    <!-- SPECTRAL ANALYSIS VIEW (remplace les graphiques quand actif) -->
+    <div class="spectral-panel" id="spectralPanel">
+      <div class="spectral-bar">
+        <div class="json-panel-bar-dot"></div>
+        <span class="json-panel-bar-title">Analyse spectrale — FFT + défauts roulements (SKF 6205-2RS)</span>
+        <span class="json-panel-ts">Capteur : <b id="specSensorId">--</b></span>
+        <span class="spectral-severity OK" id="specSeverity">--</span>
+      </div>
+      <div class="spectral-body">
+        <div class="spectral-chart-wrap">
+          <canvas id="spectralChart"></canvas>
+          <div class="spectral-empty" id="spectralEmpty" style="display:none">En attente de mesures suffisantes...</div>
+        </div>
+        <div class="spectral-side">
+          <div class="sec-lbl" style="margin-bottom:6px">Fréquences caractéristiques de défaut</div>
+          <div id="faultList">
+            <div style="color:var(--text3);font-size:0.62rem;font-family:var(--mono)">--</div>
+          </div>
+          <div class="sec-lbl" style="margin:12px 0 6px">Diagnostic</div>
+          <div id="specDominant" style="font-family:var(--mono);font-size:0.68rem;color:var(--text2)">--</div>
+        </div>
+      </div>
+    </div>
+
   </div>
 
   <!-- RIGHT PANEL -->
@@ -731,6 +954,16 @@
         <div class="alert-stat" id="alertStat">ALERTE · OK</div>
       </div>
       <div class="deg-bar"><div class="deg-fill" id="degFill" style="width:0%"></div></div>
+      <div class="rul-proj-lbl"><span>Projection RUL — 10 prochains jours</span><span id="rulProjEnd">--</span></div>
+      <div class="rul-proj-wrap"><canvas id="rulProjChart"></canvas></div>
+    </div>
+
+    <!-- Actions prioritaires -->
+    <div class="priority-card">
+      <div class="sec-lbl">Actions prioritaires</div>
+      <div id="priorityList">
+        <div class="priority-empty">Analyse en cours...</div>
+      </div>
     </div>
 
     <!-- Health gauge -->
@@ -747,6 +980,24 @@
         </div>
       </div>
       <div class="gauge-weights">35% Temp · 35% Vib3D · 30% Kurt</div>
+      <div class="explain-wrap">
+        <div class="explain-row">
+          <div class="explain-name">Température</div>
+          <div class="explain-bar"><div class="explain-fill temp" id="expTempBar" style="width:0%"></div></div>
+          <div class="explain-pct" id="expTempPct">--%</div>
+        </div>
+        <div class="explain-row">
+          <div class="explain-name">Vibration</div>
+          <div class="explain-bar"><div class="explain-fill vib" id="expVibBar" style="width:0%"></div></div>
+          <div class="explain-pct" id="expVibPct">--%</div>
+        </div>
+        <div class="explain-row">
+          <div class="explain-name">Kurtosis</div>
+          <div class="explain-bar"><div class="explain-fill kurt" id="expKurtBar" style="width:0%"></div></div>
+          <div class="explain-pct" id="expKurtPct">--%</div>
+        </div>
+        <div class="explain-dominant" id="expDominant">Facteur dominant : --</div>
+      </div>
     </div>
 
     <!-- Measures -->
@@ -826,24 +1077,57 @@
       </div>
     </div>
 
+    <!-- Alertes externes envoyées (email/webhook/SMS) -->
+    <div class="ext-alert-card">
+      <div class="sec-lbl">Alertes envoyées (email/webhook/SMS)</div>
+      <div class="ext-alert-stats" id="extAlertStats">
+        <span>Total : <b id="eaTotal">--</b></span>
+        <span>Critique : <b id="eaCrit">--</b></span>
+        <span>Urgent : <b id="eaUrg">--</b></span>
+      </div>
+      <div class="ext-alert-list" id="extAlertList">
+        <div style="color:var(--text3);font-size:0.6rem;font-family:var(--mono)">Aucune alerte externe envoyée</div>
+      </div>
+    </div>
+
     <!-- ML Votes -->
     <div class="votes-card">
-      <div class="sec-lbl">Votes des 4 modèles ML</div>
+      <div class="sec-lbl">Votes des 6 modèles ML</div>
       <div class="vote-row">
         <div class="vote-name">Isolation Forest</div>
+        <div class="vote-score-bar-wrap"><div class="vote-score-bar-fill" id="vIF_bar" style="width:0%"></div></div>
+        <div class="vote-score-val" id="vIF_val">--%</div>
         <div class="vote-status normal" id="vIF"><div class="v-dot"></div><span>NORMAL</span></div>
       </div>
       <div class="vote-row">
         <div class="vote-name">LOF</div>
+        <div class="vote-score-bar-wrap"><div class="vote-score-bar-fill" id="vLOF_bar" style="width:0%"></div></div>
+        <div class="vote-score-val" id="vLOF_val">--%</div>
         <div class="vote-status normal" id="vLOF"><div class="v-dot"></div><span>NORMAL</span></div>
       </div>
       <div class="vote-row">
         <div class="vote-name">OCSVM</div>
+        <div class="vote-score-bar-wrap"><div class="vote-score-bar-fill" id="vOCSVM_bar" style="width:0%"></div></div>
+        <div class="vote-score-val" id="vOCSVM_val">--%</div>
         <div class="vote-status normal" id="vOCSVM"><div class="v-dot"></div><span>NORMAL</span></div>
       </div>
       <div class="vote-row">
         <div class="vote-name">ECOD</div>
+        <div class="vote-score-bar-wrap"><div class="vote-score-bar-fill" id="vECOD_bar" style="width:0%"></div></div>
+        <div class="vote-score-val" id="vECOD_val">--%</div>
         <div class="vote-status normal" id="vECOD"><div class="v-dot"></div><span>NORMAL</span></div>
+      </div>
+      <div class="vote-row">
+        <div class="vote-name">HBOS</div>
+        <div class="vote-score-bar-wrap"><div class="vote-score-bar-fill" id="vHBOS_bar" style="width:0%"></div></div>
+        <div class="vote-score-val" id="vHBOS_val">--%</div>
+        <div class="vote-status normal" id="vHBOS"><div class="v-dot"></div><span>NORMAL</span></div>
+      </div>
+      <div class="vote-row">
+        <div class="vote-name">COPOD</div>
+        <div class="vote-score-bar-wrap"><div class="vote-score-bar-fill" id="vCOPOD_bar" style="width:0%"></div></div>
+        <div class="vote-score-val" id="vCOPOD_val">--%</div>
+        <div class="vote-status normal" id="vCOPOD"><div class="v-dot"></div><span>NORMAL</span></div>
       </div>
     </div>
 
@@ -854,14 +1138,44 @@
 // ══════════════════════════════════════════════════════════
 // CONFIG
 // ══════════════════════════════════════════════════════════
-const API = 'http://localhost:8000';
+// Hostname dérivé de l'URL de la page (pas codé en dur) : "localhost" cassait
+// tout accès distant (le client verrait localhost:8000 = SON PROPRE poste,
+// pas le serveur) -- avec window.location.hostname, ça pointe toujours vers
+// le bon serveur, en local ou depuis un autre poste du réseau.
+// Le schéma (http/https) est détecté automatiquement plutôt que fixé en dur :
+// en déploiement Docker (docker-compose.yml), l'API est TLS-only derrière un
+// certificat auto-signé -- mais en exécution locale native (LANCER.bat, sans
+// certs/ présents), l'API bascule automatiquement en HTTP simple (voir
+// api_unified_pythagore.py, ATTENTION TLS_CERT_FILE introuvable). Fixer
+// https:// en dur cassait donc tout ce dashboard en local (health check en
+// échec => net::ERR_CONNECTION_REFUSED => tout fetchAll() avortait avant
+// même de lire realtime_results.json). detectApiScheme() essaie https puis
+// http au démarrage et mémorise celui qui répond.
+let API = `https://${window.location.hostname}:8000`;
+
+async function detectApiScheme() {
+  for (const scheme of ['https', 'http']) {
+    try {
+      const candidate = `${scheme}://${window.location.hostname}:8000`;
+      const res = await fetchWithTimeout(`${candidate}/health`, {}, 2500);
+      if (res.ok) { API = candidate; return; }
+    } catch (e) { /* essaie le schéma suivant */ }
+  }
+  // aucun des deux n'a répondu -- on garde https par défaut, fetchAll()
+  // réessaiera au prochain cycle (l'API a pu démarrer entre-temps).
+}
+// Plus de cle API necessaire ici : ce dashboard n'appelle que des endpoints
+// publics (/health, /v1/alert-level, /v1/health-score) et lit realtime_results.json
+// en local -- la prediction/RUL affichees sont celles deja calculees par le moteur
+// (realtime_mariadb.py), pas un recalcul depuis le navigateur.
 const REFRESH_MS = 5000;
 const HIST_MAX = 14;
 const SENSORS = [
   '8f7f2f7e','0ff416d2','b2acdf45','6e0c1740','07da47b8',
   'aa7b02a1','eb084747','2c6254af','53cb61b2','a6a46be1',
   'bc59bf5f','d9508e77','f48c25f9','68c11f06',
-  '4b5e4b32','3a782f1b','718fd2af','91d92804','99695e98'
+  '4b5e4b32','3a782f1b','718fd2af','91d92804','99695e98',
+  'ed6fa322'
 ];
 
 let activeSensor = SENSORS[5]; // aa7b02a1 par défaut
@@ -885,6 +1199,10 @@ function toggleJsonPanel() {
   btn.classList.toggle('active', isOpen);
   btn.textContent = isOpen ? '✕ Dashboard' : '</> JSON Live';
   if (isOpen) {
+    // Fermer le panneau spectral si ouvert (un seul panneau alternatif à la fois)
+    document.getElementById('spectralPanel').classList.remove('open');
+    document.getElementById('specToggleBtn').classList.remove('active');
+    _spectralOpen = false;
     if (!_scrollSynced) {
       syncJsonScroll('jsonBodyPredict');
       syncJsonScroll('jsonBodyRul');
@@ -1099,6 +1417,208 @@ const fleetChart = new Chart(fleetCtx, {
   }
 });
 
+// Projection RUL — extrapolation linéaire depuis le RUL courant et la
+// vitesse de dégradation (degradation_rate), sur 10 jours (10 points)
+const rulProjCtx = document.getElementById('rulProjChart').getContext('2d');
+const rulProjChart = new Chart(rulProjCtx, {
+  type: 'line',
+  data: {
+    labels: Array.from({length:11}, (_, i) => i === 0 ? 'auj.' : `J+${i}`),
+    datasets: [
+      {
+        data: [],
+        borderColor: '#58a6ff', borderWidth: 1.6, borderDash: [4,3],
+        pointRadius: 0, tension: 0, fill: false,
+      },
+      {
+        // Ligne seuil CRITIQUE (72h) pour repère visuel
+        data: Array(11).fill(72),
+        borderColor: 'rgba(248,81,73,0.5)', borderWidth: 1, borderDash: [2,2],
+        pointRadius: 0, tension: 0, fill: false,
+      }
+    ]
+  },
+  options: {
+    animation: { duration: 200 },
+    responsive: true, maintainAspectRatio: false,
+    plugins: {
+      legend: { display: false },
+      tooltip: { enabled: true, callbacks: { label: c => c.datasetIndex === 1 ? 'Seuil critique 72h' : ` ${Math.round(c.parsed.y)}h` } }
+    },
+    scales: {
+      x: { display:false },
+      y: { display:false, min:0 }
+    }
+  }
+});
+
+function updateRulProjection(rulHours, degradationRate) {
+  if (rulHours == null) return;
+  // Vitesse de dégradation approximative en h/jour : on suppose que
+  // degradation_rate (%) atteint 100% en ~ (rulHours / (degradationRate||1))
+  // -> pente = rulHours perdues sur l'horizon estimé, plafonnée pour rester lisible.
+  const rate = Math.max(0.5, degradationRate ?? 2);   // % — évite pente nulle
+  const hoursLostPerDay = Math.min(rulHours, (rate / 100) * rulHours * 3);
+  const points = [];
+  for (let d = 0; d <= 10; d++) {
+    points.push(Math.max(0, Math.round(rulHours - hoursLostPerDay * d)));
+  }
+  rulProjChart.data.datasets[0].data = points;
+  rulProjChart.data.datasets[0].borderColor = points[10] <= 72 ? '#f85149' : (points[10] <= 168 ? '#f0a500' : '#58a6ff');
+  rulProjChart.update();
+
+  const zeroIdx = points.findIndex(p => p <= 72);
+  document.getElementById('rulProjEnd').textContent =
+    zeroIdx === -1 ? `> J+10 : ${points[10]}h` : (zeroIdx === 0 ? 'déjà critique' : `seuil ~J+${zeroIdx}`);
+}
+
+// ── ANALYSE SPECTRALE (FFT + défauts roulements) ──
+const spectralChart = new Chart(document.getElementById('spectralChart').getContext('2d'), {
+  type: 'line',
+  data: {
+    labels: [],
+    datasets: [{
+      data: [],
+      borderColor: '#58a6ff', borderWidth: 1.4,
+      pointRadius: 0, tension: 0.15, fill: false,
+    }]
+  },
+  options: {
+    animation: { duration: 200 },
+    responsive: true, maintainAspectRatio: false,
+    plugins: {
+      legend: { display: false },
+      tooltip: { enabled: true, callbacks: { label: c => `${c.parsed.y?.toFixed(3)}` } }
+    },
+    scales: {
+      x: { title: { display: true, text: 'Fréquence (Hz)', font: { size: 8 }, color: '#8b949e' },
+           ticks: { maxTicksLimit: 8, font: { size: 7 } }, grid: { color: 'rgba(255,255,255,0.035)' } },
+      y: { title: { display: true, text: 'Amplitude', font: { size: 8 }, color: '#8b949e' },
+           ticks: { maxTicksLimit: 5, font: { size: 7 } }, grid: { color: 'rgba(255,255,255,0.035)' } }
+    }
+  }
+});
+
+let _spectralOpen = false;
+function toggleSpectralPanel() {
+  const panel  = document.getElementById('spectralPanel');
+  const charts = document.getElementById('chartsGrid');
+  const btn    = document.getElementById('specToggleBtn');
+  const isOpen = panel.classList.toggle('open');
+  _spectralOpen = isOpen;
+  charts.style.display = isOpen ? 'none' : '';
+  btn.classList.toggle('active', isOpen);
+  if (isOpen) {
+    // Fermer le panneau JSON si ouvert (un seul panneau alternatif à la fois)
+    document.getElementById('jsonPanel').classList.remove('open');
+    document.getElementById('jsonToggleBtn').classList.remove('active');
+    document.getElementById('jsonToggleBtn').textContent = '</> JSON Live';
+    fetchSpectralAnalysis();
+  }
+}
+
+async function fetchSpectralAnalysis() {
+  document.getElementById('specSensorId').textContent = activeSensor;
+  try {
+    const res = await fetchWithTimeout(`${API}/v1/spectral/${activeSensor}`, {}, 6000);
+    const d = await res.json();
+    const emptyEl = document.getElementById('spectralEmpty');
+    if (!d.available) {
+      emptyEl.style.display = 'flex';
+      emptyEl.textContent = d.reason || 'Analyse indisponible.';
+      spectralChart.data.labels = []; spectralChart.data.datasets[0].data = [];
+      spectralChart.update();
+      document.getElementById('specSeverity').textContent = '--';
+      document.getElementById('faultList').innerHTML = '<div style="color:var(--text3);font-size:0.62rem;font-family:var(--mono)">--</div>';
+      document.getElementById('specDominant').textContent = '--';
+      return;
+    }
+    emptyEl.style.display = 'none';
+
+    // Spectre FFT (freqs/amplitudes bruts)
+    const raw = d.raw_spectra || {};
+    const freqs = raw.freqs || [];
+    const amps  = raw.amplitudes || [];
+    // Limiter à la moitié basse (plus lisible, l'essentiel de l'énergie roulement y est)
+    const n = Math.min(freqs.length, 80);
+    spectralChart.data.labels = freqs.slice(0, n).map(f => f.toFixed(1));
+    spectralChart.data.datasets[0].data = amps.slice(0, n);
+    spectralChart.update();
+
+    // Sévérité
+    const bearing = d.bearing_analysis || {};
+    const sevEl = document.getElementById('specSeverity');
+    sevEl.textContent = bearing.severity || '--';
+    sevEl.className = `spectral-severity ${bearing.severity || 'OK'}`;
+
+    // Fréquences de défaut (BPFO/BPFI/BSF/FTF)
+    const matches = bearing.fault_matches || {};
+    // measurable=false : la fréquence dépasse fs/2 (Nyquist), son SNR est
+    // structurellement 0 -- ce n'est pas une absence de défaut confirmée,
+    // juste une valeur qu'on ne peut pas voir avec l'échantillonnage actuel.
+    // Voir /v1/system-limits (L7) pour le détail.
+    document.getElementById('faultList').innerHTML = Object.entries(matches).map(([name, m]) => {
+      const unmeasurable = m.measurable === false;
+      const rowCls = `fault-row${m.detected ? ' detected' : ''}${unmeasurable ? ' unmeasurable' : ''}`;
+      const snrTxt = unmeasurable ? 'non mesurable (> fs/2)' : `SNR ${m.cumulative_snr?.toFixed(2) ?? '--'}`;
+      return `
+      <div class="${rowCls}" title="${unmeasurable ? 'Fréquence au-delà de la limite de Nyquist (fs/2) — non détectable avec cet échantillonnage' : ''}">
+        <div class="fault-dot"></div>
+        <div class="fault-name">${name}</div>
+        <div class="fault-freq">${m.base_freq_hz?.toFixed(1) ?? '--'} Hz</div>
+        <div class="fault-snr">${snrTxt}</div>
+      </div>`;
+    }).join('');
+
+    document.getElementById('specDominant').innerHTML =
+      `Défaut dominant : <b style="color:${bearing.dominant_fault === 'AUCUN' ? 'var(--green)' : 'var(--red)'}">${bearing.dominant_fault ?? '--'}</b><br>` +
+      `Fréquence de rotation : ${((matches.BPFO?.base_freq_hz ?? 0) > 0 ? (d.analysis_params?.rpm ?? '--') : '--')} tr/min` +
+      ` · fs analyse : ${d.analysis_params?.fs_hz ?? '--'} Hz · ${d.signal_length ?? 0} points`;
+  } catch (e) {
+    console.warn('spectral fetch:', e.message);
+  }
+}
+
+// ── ALERTES EXTERNES ENVOYÉES (email/webhook/SMS) ──
+async function fetchExternalAlerts() {
+  try {
+    const res = await fetchWithTimeout(`${API}/v1/alerts?limit=8`, {}, 5000);
+    const d = await res.json();
+    if (!d.enabled) {
+      document.getElementById('extAlertList').innerHTML =
+        '<div style="color:var(--text3);font-size:0.6rem;font-family:var(--mono)">AlertManager non configuré</div>';
+      document.getElementById('eaTotal').textContent = '0';
+      document.getElementById('eaCrit').textContent  = '0';
+      document.getElementById('eaUrg').textContent   = '0';
+      return;
+    }
+    const stats = d.stats || {};
+    document.getElementById('eaTotal').textContent = stats.total_alerts ?? 0;
+    document.getElementById('eaCrit').textContent  = stats.by_level?.CRITIQUE ?? 0;
+    document.getElementById('eaUrg').textContent   = stats.by_level?.URGENT ?? 0;
+
+    const alerts = (d.alerts || []).slice().reverse();
+    if (!alerts.length) {
+      document.getElementById('extAlertList').innerHTML =
+        '<div style="color:var(--text3);font-size:0.6rem;font-family:var(--mono)">Aucune alerte externe envoyée</div>';
+      return;
+    }
+    document.getElementById('extAlertList').innerHTML = alerts.map(a => {
+      const t = a.timestamp ? new Date(a.timestamp).toLocaleTimeString('fr-FR', { hour:'2-digit', minute:'2-digit', second:'2-digit' }) : '--';
+      const deliv = a.delivery || {};
+      const chans = Object.entries(deliv).map(([ch, ok]) => `${ch[0].toUpperCase()}${ok ? '✔' : '✘'}`).join(' ');
+      return `<div class="ext-alert-item">
+        <span class="ea-level ${a.risk_level ?? ''}">${a.risk_level ?? '--'}</span>
+        <span class="ea-sensor">${a.sensor_id ?? '--'}</span>
+        <span class="ea-chan">${chans || '--'}</span>
+        <span class="ea-time">${t}</span>
+      </div>`;
+    }).join('');
+  } catch (e) {
+    console.warn('alerts fetch:', e.message);
+  }
+}
+
 // ── CHART UPDATE ──
 function pushToChart(chart, buf, val, max) {
   buf.push(val);
@@ -1132,15 +1652,74 @@ function updateGauge(health) {
   document.getElementById('gaugeNum').textContent = Math.round(health);
 }
 
+// ── EXPLICABILITÉ (contribution réelle de chaque facteur au score de santé) ──
+// Reproduit côté navigateur la formule du backend (extract_features() dans
+// api_unified_pythagore.py) : health = 100*(1 - .35*temp_n - .35*vib_n - .30*kurt_n)
+// pour montrer, pour CE capteur, quel facteur pèse le plus dans le score actuel
+// (plutôt que les poids statiques 35/35/30 qui sont les mêmes pour tout le monde).
+const VIB_TOTAL_MAX = Math.sqrt(3) * 1500;
+function norm01(x, lo, hi) {
+  if (x == null || Number.isNaN(x)) return 0.5;
+  return Math.max(0, Math.min(1, (x - lo) / (hi - lo + 1e-9)));
+}
+function updateExplainability(feats) {
+  if (!feats) return;
+  const tempN = norm01(feats.temp_mean,  25, 65);
+  const vibN  = norm01(feats.vib_total,  0,  VIB_TOTAL_MAX);
+  const kurtN = norm01(feats.vib_z_kurt, 0,  10);
+
+  const tempLoss = 35 * tempN, vibLoss = 35 * vibN, kurtLoss = 30 * kurtN;
+  const totalLoss = tempLoss + vibLoss + kurtLoss;
+
+  const set = (barId, pctId, val) => {
+    document.getElementById(barId).style.width = `${Math.round(val)}%`;
+    document.getElementById(pctId).textContent  = `${Math.round(val)}%`;
+  };
+
+  if (totalLoss < 1) {
+    set('expTempBar','expTempPct', 0); set('expVibBar','expVibPct', 0); set('expKurtBar','expKurtPct', 0);
+    document.getElementById('expDominant').innerHTML = 'Aucun facteur significatif — capteur au repère';
+    return;
+  }
+
+  const tempPct = tempLoss / totalLoss * 100;
+  const vibPct  = vibLoss  / totalLoss * 100;
+  const kurtPct = kurtLoss / totalLoss * 100;
+  set('expTempBar','expTempPct', tempPct);
+  set('expVibBar', 'expVibPct',  vibPct);
+  set('expKurtBar','expKurtPct', kurtPct);
+
+  const names = [['Température', tempPct], ['Vibration', vibPct], ['Kurtosis', kurtPct]];
+  names.sort((a, b) => b[1] - a[1]);
+  document.getElementById('expDominant').innerHTML =
+    `Facteur dominant : <b>${names[0][0]}</b> (${Math.round(names[0][1])}% de la dégradation)`;
+}
+
 // ── ML VOTES ──
-function updateVotes(models) {
-  const map = { IF:'vIF', LOF:'vLOF', OCSVM:'vOCSVM', ECOD:'vECOD' };
+function updateVotes(models, scores) {
+  const map = { IF:'vIF', LOF:'vLOF', OCSVM:'vOCSVM', ECOD:'vECOD', HBOS:'vHBOS', COPOD:'vCOPOD' };
+  scores = scores || {};
   Object.entries(map).forEach(([m, id]) => {
     const raw = models[m] || 'NORMAL';
     const isAnom = raw.startsWith('ANOMALY');
     const el = document.getElementById(id);
     el.className = `vote-status ${isAnom ? 'anomaly' : 'normal'}`;
     el.innerHTML = `<div class="v-dot"></div><span>${isAnom ? 'ANOMALIE' : 'NORMAL'}</span>`;
+
+    const s = scores[m];
+    const bar = document.getElementById(`${id}_bar`);
+    const val = document.getElementById(`${id}_val`);
+    if (bar && val) {
+      if (typeof s === 'number') {
+        const pct = Math.round(s * 100);
+        bar.style.width = `${pct}%`;
+        bar.style.background = isAnom ? 'var(--red)' : (pct > 50 ? 'var(--amber)' : 'var(--green)');
+        val.textContent = `${pct}%`;
+      } else {
+        bar.style.width = '0%';
+        val.textContent = '--%';
+      }
+    }
   });
 }
 
@@ -1230,11 +1809,16 @@ function renderSensorList() {
   el.innerHTML = sensors.map(sid => {
     const s = sensorStates[sid];
     const risk = s.risk || 'OK';
-    let dotCls = 'ok', riskCls = 'faible', riskTxt = 'FAIBLE';
+    // riskTxt affiche le vrai niveau (ATTENTION/MODÉRÉ/URGENT n'étaient
+    // auparavant pas distingués, tous affichés "MODÉRÉ" — incohérent avec
+    // la liste "Actions prioritaires" qui, elle, distingue bien URGENT).
+    let dotCls = 'ok', riskCls = 'faible', riskTxt = risk;
     if (risk === 'CRITIQUE' || risk === 'ÉLEVÉ') {
-      dotCls = 'crit'; riskCls = 'eleve'; riskTxt = 'ÉLEVÉ';
+      dotCls = 'crit'; riskCls = 'eleve';
     } else if (risk === 'ATTENTION' || risk === 'MODÉRÉ' || risk === 'URGENT') {
-      dotCls = 'warn'; riskCls = 'modere'; riskTxt = 'MODÉRÉ';
+      dotCls = 'warn'; riskCls = 'modere';
+    } else if (risk === 'OK' || risk === 'FAIBLE') {
+      riskTxt = 'FAIBLE';
     }
 
     const pct  = s.anomalyPct ?? 0;
@@ -1259,6 +1843,15 @@ function selectSensor(sid) {
   activeSensor = sid;
   anomalyBuf = []; vibXBuf = []; vibYBuf = []; vibZBuf = []; tempBuf = [];
   iterCount = 0; prevVibVal = null;
+  // aCount doit repartir à 0 en même temps que iterCount (dont il est le
+  // numérateur, voir plus bas anomalyPct = aCount/iterCount*100) -- sans ce
+  // reset, aCount restait accumulé depuis la dernière fois que ce capteur
+  // était actif tandis qu'iterCount repartait de 0, donnant des pourcentages
+  // aberrants (>1000%) dès la première mesure suivant un changement de capteur.
+  if (sensorStates[sid]) {
+    sensorStates[sid].aCount = 0;
+    sensorStates[sid].anomalyPct = 0;
+  }
   [anomalyChart, tempChart].forEach(ch => {
     ch.data.labels = []; ch.data.datasets[0].data = []; ch.update();
   });
@@ -1268,6 +1861,7 @@ function selectSensor(sid) {
   document.getElementById('activeSensorId').textContent = sid;
   renderSensorList();
   updateFleetChart();
+  if (_spectralOpen) fetchSpectralAnalysis();
 }
 
 // ── KPIs ──
@@ -1309,6 +1903,83 @@ function updateKPIs() {
     document.getElementById('kpiVibMax').innerHTML = `${Math.round(maxV[1].vib)} <small>mg</small>`;
     document.getElementById('kpiVibSensor').textContent = maxV[0];
   }
+
+  generateFleetNarrative(states, withData, anomalies, avg);
+  renderPriorityList();
+}
+
+// ── SÉVÉRITÉ (ordre de priorité commun au narratif et à la liste d'actions) ──
+// OK/FAIBLE < ATTENTION/MODÉRÉ < URGENT/ÉLEVÉ < CRITIQUE
+const SEVERITY_RANK = {
+  CRITIQUE: 3, 'ÉLEVÉ': 2, URGENT: 2, ATTENTION: 1, 'MODÉRÉ': 1, OK: 0, FAIBLE: 0, INCONNU: -1,
+};
+const ACTION_TEXT = {
+  CRITIQUE:  'Arrêt immédiat recommandé — risque de défaillance imminente',
+  'ÉLEVÉ':   'Intervention requise sous 72h — commander les pièces',
+  URGENT:    'Intervention requise sous 72h — commander les pièces',
+  ATTENTION: 'Inspection préventive à planifier sous 7 jours',
+  'MODÉRÉ':  'Inspection préventive à planifier sous 7 jours',
+  OK:        'Fonctionnement normal — surveillance de routine',
+  FAIBLE:    'Fonctionnement normal — surveillance de routine',
+};
+
+// ── RÉSUMÉ INTELLIGENT (narratif automatique, généré depuis les données réelles) ──
+function generateFleetNarrative(states, withData, anomalies, avg) {
+  const el = document.getElementById('smartSummaryText');
+  if (!withData.length) { el.textContent = 'En attente des premières mesures du parc...'; return; }
+
+  const bySeverity = Object.entries(sensorStates)
+    .filter(([, s]) => s.hasData)
+    .sort((a, b) => (SEVERITY_RANK[b[1].risk] ?? -1) - (SEVERITY_RANK[a[1].risk] ?? -1) || (a[1].health ?? 100) - (b[1].health ?? 100));
+
+  const critical = bySeverity.filter(([, s]) => SEVERITY_RANK[s.risk] >= 2);
+  const watch    = bySeverity.filter(([, s]) => SEVERITY_RANK[s.risk] === 1);
+  const degrading = Object.entries(sensorStates).filter(([, s]) => s.trend === 'DÉGRADATION');
+
+  const parts = [];
+  parts.push(`<b>${withData.length}</b> capteurs surveillés, santé moyenne <b>${avg != null ? avg.toFixed(0) : '--'}/100</b>.`);
+
+  if (critical.length) {
+    const [sid, s] = critical[0];
+    parts.push(`<span class="crit">${critical.length} capteur${critical.length > 1 ? 's' : ''} en alerte ${s.risk}</span> — priorité : <b>${sid}</b> (santé ${s.health != null ? Math.round(s.health) : '?'}/100). ${ACTION_TEXT[s.risk] ?? ''}.`);
+  } else if (watch.length) {
+    const [sid, s] = watch[0];
+    parts.push(`<span class="warn">${watch.length} capteur${watch.length > 1 ? 's' : ''} en surveillance renforcée</span>, dont <b>${sid}</b> (santé ${s.health != null ? Math.round(s.health) : '?'}/100).`);
+  } else {
+    parts.push(`Aucune anomalie critique détectée — <b>parc entièrement sain</b>.`);
+  }
+
+  if (degrading.length) {
+    parts.push(`<b>${degrading.length}</b> capteur${degrading.length > 1 ? 's' : ''} en tendance de dégradation active (${degrading.slice(0,3).map(([sid]) => sid).join(', ')}${degrading.length > 3 ? '…' : ''}) — à surveiller dans les prochains cycles.`);
+  }
+
+  el.innerHTML = parts.join(' ');
+}
+
+// ── LISTE PRIORISÉE D'ACTIONS ──
+function renderPriorityList() {
+  const el = document.getElementById('priorityList');
+  // Seuls URGENT/CRITIQUE (RUL <= 7 jours, SEVERITY_RANK >= 2) apparaissent
+  // ici -- ATTENTION (7-14j) et OK ne sont plus mélangés dans cette liste
+  // "Actions prioritaires", pour ne pas diluer les cas réellement urgents.
+  const entries = Object.entries(sensorStates).filter(([, s]) => s.hasData && (SEVERITY_RANK[s.risk] ?? -1) >= 2);
+  if (!entries.length) { el.innerHTML = '<div class="priority-empty">Aucun capteur à RUL ≤ 7 jours — parc sous contrôle.</div>'; return; }
+
+  const sorted = entries
+    .sort((a, b) => (SEVERITY_RANK[b[1].risk] ?? -1) - (SEVERITY_RANK[a[1].risk] ?? -1) || (a[1].health ?? 100) - (b[1].health ?? 100))
+    .slice(0, 5);
+
+  el.innerHTML = sorted.map(([sid, s], i) => {
+    const rank = SEVERITY_RANK[s.risk] ?? 0;
+    const badgeCls = rank >= 2 ? 'crit' : rank === 1 ? 'warn' : 'ok';
+    const action = ACTION_TEXT[s.risk] ?? 'Surveillance de routine';
+    return `<div class="priority-item" onclick="selectSensor('${sid}')">
+      <div class="priority-rank">${i + 1}</div>
+      <div class="priority-id">${sid}</div>
+      <div class="priority-action">${action}</div>
+      <div class="priority-badge ${badgeCls}">${s.risk ?? 'OK'}</div>
+    </div>`;
+  }).join('');
 }
 
 // ── FETCH ──
@@ -1321,13 +1992,31 @@ function fetchWithTimeout(url, options = {}, ms = 5000) {
 let _failCount = 0;
 
 async function fetchAll() {
+  // 1. Health check -- dans son propre try/catch : un échec ici (API pas
+  // encore levée, protocole pas encore détecté, etc.) ne doit PAS empêcher
+  // la lecture de realtime_results.json plus bas (étape 3), qui contient les
+  // prédictions déjà calculées par le moteur et ne dépend pas de l'API.
   try {
-    // 1. Health check
     const hRes  = await fetchWithTimeout(`${API}/health`);
     const hData = await hRes.json();
     _failCount  = 0;
     document.getElementById('apiStatus').textContent = `API ${hData.version || ''} — OK`;
     document.getElementById('apiDot').style.background = '#3fb950';
+    fetchExternalAlerts();
+  } catch (err) {
+    _failCount++;
+    if (_failCount >= 3) {
+      document.getElementById('apiStatus').textContent = 'API Hors Ligne';
+      document.getElementById('apiDot').style.background = '#f85149';
+    }
+    console.warn(`Health check error (${_failCount}/3):`, err.message ?? err);
+    // Un protocole qui ne répond plus (ex: certificat expiré, API redémarrée
+    // sans TLS) -- retente l'auto-détection au prochain cycle plutôt que de
+    // rester bloqué sur un schéma mort.
+    if (_failCount >= 3) detectApiScheme();
+  }
+
+  try {
 
     // 2. Alert levels + health scores for all sensors (background)
     SENSORS.forEach(async sid => {
@@ -1345,8 +2034,10 @@ async function fetchAll() {
         if (hsRes.ok) {
           const d = await hsRes.json();
           const hs = d.health_score ?? 0;
-          sensorStates[sid].health  = hs;
-          fleetHealthScores[sid]    = hs;
+          sensorStates[sid].health      = hs;
+          sensorStates[sid].trend       = d.trend ?? 'STABLE';
+          sensorStates[sid].anomalyRate = d.anomaly_rate ?? 0;
+          fleetHealthScores[sid]        = hs;
         }
         renderSensorList();
         updateFleetChart();
@@ -1355,13 +2046,20 @@ async function fetchAll() {
     });
 
     // 3. Read realtime_results.json
-    let realHistory = [];
+    let forSensor2 = [];
     try {
       const rjRes = await fetchWithTimeout('realtime_results.json', {}, 4000);
       if (rjRes.ok) {
         const allResults = await rjRes.json();
 
-        // Update per-sensor temp/vib for KPI & sidebar
+        // Update per-sensor temp/vib/rul/health for KPI & sidebar -- pour TOUS
+        // les capteurs a chaque tick, pas seulement le capteur actif. Avant,
+        // sensorStates[sid].rul/.health n'etaient ecrits que dans le bloc
+        // "Active sensor data" plus bas, gate par `r.sensor_id === activeSensor` :
+        // des qu'un capteur n'etait plus selectionne, sa valeur RUL/sante restait
+        // figee pour toujours (jusqu'a ce qu'il redevienne actif), ce qui donnait
+        // un widget "RUL minimum" et un panneau detail perimes des qu'on ne
+        // cliquait pas sur CHAQUE capteur a chaque cycle.
         const latestBySensor = {};
         allResults.filter(r => r.measurement).forEach(r => {
           latestBySensor[r.sensor_id] = r;
@@ -1374,6 +2072,14 @@ async function fetchAll() {
           const vz = r.measurement.vibration_z ?? 0;
           const vt = vx || vy ? Math.sqrt(vx*vx + vy*vy + vz*vz) : Math.abs(vz);
           if (vt > 0) sensorStates[sid].vib = vt;
+          const rulInfo = r.rul;
+          if (rulInfo) {
+            if (rulInfo.rul_hours != null)        sensorStates[sid].rul          = rulInfo.rul_hours;
+            if (rulInfo.health_score != null)     sensorStates[sid].health       = rulInfo.health_score;
+            if (rulInfo.alert_level != null)      sensorStates[sid].risk         = rulInfo.alert_level;
+            if (rulInfo.degradation_rate != null) sensorStates[sid].degradation  = rulInfo.degradation_rate;
+            fleetHealthScores[sid] = sensorStates[sid].health;
+          }
         });
         renderSensorList();
         updateKPIs();
@@ -1397,51 +2103,41 @@ async function fetchAll() {
           }
         }
 
-        if (forSensor.length) {
-          realHistory = forSensor.map(r => ({
-            temperature: r.measurement.temperature  ?? null,
-            vibration_x: r.measurement.vibration_x ?? r.measurement.vibration_total ?? null,
-            vibration_y: r.measurement.vibration_y ?? null,
-            vibration_z: r.measurement.vibration_z ?? null,
-            current:     r.measurement.current     ?? null,
-          })).filter(m => m.temperature !== null || m.vibration_z !== null);
-        }
-
-        // Extraire les features calculées du dernier enregistrement (vib_z_kurt, crest, entropy…)
-        const lastWithFeats = [...forSensor].reverse().find(r => r.predict?.features);
-        window._lastFeatures = lastWithFeats?.predict?.features ?? {};
+        forSensor2 = forSensor;
       }
     } catch(e) { console.warn('realtime_results.json:', e.message); }
 
-    if (!realHistory.length) return;
+    if (!forSensor2.length) return;
 
-    // 4. Predict
-    const predRes = await fetchWithTimeout(`${API}/v1/predict`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ sensor_id: activeSensor, motor_id: `Motor_${activeSensor}`, history: realHistory })
-    });
-
-    if (!predRes.ok) return;
-    const pd = await predRes.json();
+    // Prediction + RUL : on affiche directement ce que le moteur (realtime_mariadb.py)
+    // a deja calcule et sauvegarde dans realtime_results.json, plutot que de refaire un
+    // appel /v1/predict + /v1/predict-rul depuis le navigateur. Raison : le moteur seul
+    // dispose des vibration_x/vibration_y bruts au moment du calcul ; realtime_results.json
+    // ne persiste que vibration_z + vibration_total (pour alleger le fichier). Un recalcul
+    // cote navigateur devait donc reconstituer vibration_x depuis vibration_total (une
+    // magnitude 3D deja combinee) faute de mieux -> features de vibration totalement
+    // faussees (ex: vib_total gonfle x10) et valeurs divergentes de dashboard_predictive.html
+    // qui, lui, affiche deja la valeur correcte calculee par le moteur.
+    const latest = forSensor2[forSensor2.length - 1];
+    const pd = latest.predict || {};
+    const rd = latest.rul     || {};
     _lastJsonPredict = pd;
+    _lastJsonRul     = rd;
     predCount++;
     iterCount++;
 
-    const lastM = realHistory[realHistory.length - 1];
-    const vx = lastM.vibration_x ?? 0;
-    const vy = lastM.vibration_y ?? 0;
-    const vz = lastM.vibration_z ?? 0;
-    const vib3d = (vx || vy) ? Math.sqrt(vx*vx + vy*vy + vz*vz) : Math.abs(vz);
+    const lastM = latest.measurement || {};
+    const feats = pd.features || {};
+    window._lastFeatures = feats;
 
-    // Features calculées (depuis realtime_results.json)
-    const feats = window._lastFeatures ?? {};
+    const vz = lastM.vibration_z ?? 0;
+    const vib3d = feats.vib_total ?? lastM.vibration_total ?? Math.abs(vz);
 
     // Charts
     pushToChart(anomalyChart, anomalyBuf, pd.anomaly_score ?? 0, HIST_MAX);
     pushVibAxes(
-      feats.vib_x_rms_w ?? Math.abs(vx),
-      feats.vib_y_rms_w ?? Math.abs(vy),
+      feats.vib_x_rms_w ?? 0,
+      feats.vib_y_rms_w ?? 0,
       feats.vib_z_rms_w ?? Math.abs(vz)
     );
     pushToChart(tempChart, tempBuf, parseFloat((lastM.temperature ?? 0).toFixed(1)), HIST_MAX);
@@ -1457,16 +2153,16 @@ async function fetchAll() {
     pb.textContent = isAnom ? 'ANOMALIE' : 'NORMAL';
     pb.className   = `badge ${isAnom ? 'anomaly' : 'normal'}`;
 
-    document.getElementById('iterBadge').textContent  = `Itération ${iterCount}`;
+    document.getElementById('iterBadge').textContent  = `Itération ${latest.iteration ?? iterCount}`;
     const nVotes = pd.votes ?? 0;
-    const totalPossible = 4;
+    const totalPossible = 6;
     document.getElementById('votesBadge').textContent = `${nVotes}/${totalPossible} votes · ${Math.round(nVotes / totalPossible * 100)}%`;
 
     // Mesures capteur — valeurs réelles depuis features
     document.getElementById('mTemp').textContent  = `${(lastM.temperature ?? 0).toFixed(1)}°C`;
     document.getElementById('mVibZ').textContent  = `${(feats.vib_z_rms_w ?? Math.abs(vz)).toFixed(0)} mg`;
-    document.getElementById('mVibX').textContent  = `${(feats.vib_x_rms_w ?? Math.abs(vx)).toFixed(0)} mg`;
-    document.getElementById('mVibY').textContent  = `${(feats.vib_y_rms_w ?? Math.abs(vy)).toFixed(0)} mg`;
+    document.getElementById('mVibX').textContent  = `${(feats.vib_x_rms_w ?? 0).toFixed(0)} mg`;
+    document.getElementById('mVibY').textContent  = `${(feats.vib_y_rms_w ?? 0).toFixed(0)} mg`;
     document.getElementById('mVib3D').textContent = `${vib3d.toFixed(0)} mg`;
 
     // Kurtosis réel (depuis features, plus le proxy anomaly_score)
@@ -1491,6 +2187,7 @@ async function fetchAll() {
 
     // Diagnostics signal
     updateDiagnostics(feats);
+    updateExplainability(feats);
 
     // Alarmes récentes
     pushAlertEvent(activeSensor, pd.anomaly_score ?? 0, isAnom);
@@ -1500,28 +2197,10 @@ async function fetchAll() {
     sensorStates[activeSensor].aCount = (sensorStates[activeSensor].aCount ?? 0) + (isAnom ? 1 : 0);
     sensorStates[activeSensor].anomalyPct = Math.round(sensorStates[activeSensor].aCount / iterCount * 100);
 
-    updateVotes(pd.individual_models ?? {});
+    updateVotes(pd.individual_models ?? {}, pd.individual_scores ?? {});
     renderSensorList();
 
-    // 5. RUL
-    const rulRes = await fetchWithTimeout(`${API}/v1/predict-rul`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        sensor_id:    activeSensor,
-        motor_id:    `Motor_${activeSensor}`,
-        prediction:   pd.prediction,
-        votes:        pd.votes,
-        confidence:   pd.confidence,
-        risk_level:   pd.risk_level,
-        anomaly_score:pd.anomaly_score,
-        history:      realHistory,
-      })
-    });
-
-    if (!rulRes.ok) return;
-    const rd = await rulRes.json();
-    _lastJsonRul = rd;
+    // 5. RUL — deja disponible dans `rd` (extrait de latest.rul plus haut, calcule par le moteur)
     renderJsonPanels();
 
     document.getElementById('rulHours').textContent = rd.rul_hours?.toFixed(1) ?? '--';
@@ -1547,9 +2226,12 @@ async function fetchAll() {
       updateFleetChart();
       updateKPIs();
     }
+    updateRulProjection(rd.rul_hours, rd.degradation_rate);
 
     sensorStates[activeSensor].rul = rd.rul_hours;
     updateKPIs();
+
+    if (_spectralOpen) fetchSpectralAnalysis();
 
   } catch(err) {
     _failCount++;
@@ -1562,7 +2244,38 @@ async function fetchAll() {
 }
 
 // ── INIT ──
+function logout() {
+  localStorage.removeItem('access_token');
+  localStorage.removeItem('user');
+  window.location.replace('login.html');
+}
+
+// Vérification serveur du token (le garde en haut du <body> ne teste que sa
+// présence, pas sa validité) -- un token expiré/invalide renvoie 401 ici,
+// et on renvoie l'utilisateur se reconnecter plutôt que de le laisser sur
+// un dashboard dont les futurs appels échoueraient silencieusement.
+async function checkAuth() {
+  await detectApiScheme();
+  const token = localStorage.getItem('access_token');
+  try {
+    const res = await fetchWithTimeout(`${API}/v1/auth/me`, {
+      headers: { 'Authorization': `Bearer ${token}` }
+    }, 5000);
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const me = await res.json();
+    document.getElementById('userBadge').textContent = `👤 ${me.username}`;
+    return true;
+  } catch (e) {
+    console.warn('Session invalide ou expirée :', e.message ?? e);
+    logout();
+    return false;
+  }
+}
+
 async function init() {
+  document.getElementById('logoutLink').addEventListener('click', (e) => { e.preventDefault(); logout(); });
+  if (!(await checkAuth())) return; // redirection déjà lancée par logout()
+
   document.getElementById('activeSensorId').textContent = activeSensor;
   SENSORS.forEach(sid => { sensorStates[sid] = { hasData: false }; });
   renderSensorList();

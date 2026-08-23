@@ -1,7 +1,14 @@
 # docker-compose.yml — Maintenance Prédictive
-# Usage : docker compose up
-# Docs  : http://localhost:8000/docs
-# Dashboard : http://localhost:3000/dashboard_predictive.html
+#
+# Usage (commande unique) :
+#   1. cp .env.example .env               → remplir les valeurs (API_KEYS, MARIADB_PASSWORD...)
+#   2. cp alert_config.example.json alert_config.json   (IMPORTANT sur un clone neuf :
+#      alert_config.json est dans .gitignore ; sans cette étape Docker monte un
+#      RÉPERTOIRE vide à sa place et AlertManager échoue silencieusement à le lire/écrire)
+#   3. docker compose up --build
+#
+# Docs      : http://localhost:8000/docs
+# Dashboard : http://localhost:3000/  (ou /dashboard_realtime.html — vue flotte : /dashboard_predictive.html)
 
 version: "3.9"
 
@@ -14,24 +21,93 @@ services:
     container_name: maintenance-api
     ports:
       - "8000:8000"
+    # Secrets injectés via .env uniquement — jamais hardcodés ici
+    env_file:
+      - .env
+    environment:
+      - PYTHONIOENCODING=utf-8
     volumes:
-      # Modèles persistants (ne pas re-build à chaque changement de modèle)
-      - ./models:/app/models:ro
+      # Modèles persistants (ne pas re-build à chaque changement de modèle).
+      # PAS en lecture seule : /v1/pipeline/upload réentraîne et réécrit ces
+      # .pkl depuis l'intérieur du conteneur (save_models() dans
+      # train_model_v3_unsupervised.py) -- avec :ro l'entraînement tournait
+      # jusqu'au bout (parfois 15-20 min) puis échouait à la toute dernière
+      # étape (OSError: Read-only file system), tout le calcul perdu.
+      - ./models:/app/models
       # Données persistantes (résultats, historique alertes)
       - ./data:/app/data
-      # Config alertes (email/webhook)
-      - ./alert_config.json:/app/alert_config.json
-    environment:
-      - IFM_GATEWAY_HOST=${IFM_GATEWAY_HOST:-192.168.1.50}
-      - IFM_GATEWAY_PORT=${IFM_GATEWAY_PORT:-80}
-      - PYTHONIOENCODING=utf-8
+      # Historique persistant (chemin relatif écrit par l'API à la racine de
+      # /app) — sans ce montage direct, le fichier vit dans le conteneur
+      # éphémère et l'historique est perdu à chaque recréation
+      - ./anomaly_history_persist.json:/app/anomaly_history_persist.json
+      # Config alertes (email/webhook) — pas de credentials, juste la config
+      - ./alert_config.json:/app/alert_config.json:ro
+      # Certificat TLS auto-signé (voir generate_selfsigned_cert.py) — chemins
+      # référencés par TLS_CERT_FILE/TLS_KEY_FILE dans .env
+      - ./certs:/app/certs:ro
+      # Résultats temps réel écrits par le conteneur "moteur" — sans ce
+      # montage, reporting_module.py (GET /v1/report) ne voit jamais aucune
+      # donnée depuis le conteneur API (fichier absent dans son propre
+      # système de fichiers éphémère) : le rapport HTML plantait en 500.
+      - ./realtime_results.json:/app/realtime_results.json:ro
     restart: unless-stopped
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      # -k : certificat auto-signé, pas de CA publique à vérifier ici (même
+      # logique que verify=False côté client Python -- voir APIClient)
+      test: ["CMD", "curl", "-fk", "https://localhost:8000/health"]
       interval: 30s
       timeout: 10s
       retries: 3
       start_period: 60s
+    # Limiter les ressources pour éviter qu'un bug ne sature le serveur.
+    # 1G était trop bas : le pipeline d'entraînement (6 modèles sklearn sur
+    # des centaines de milliers de lignes -- IF/LOF/OCSVM/ECOD/HBOS/COPOD +
+    # pandas/numpy en mémoire) se faisait tuer par l'OOM killer (SIGKILL,
+    # code -9) dès l'étape ECOD, sans message d'erreur clair côté client.
+    deploy:
+      resources:
+        limits:
+          memory: 4G
+
+  # ── Moteur temps réel (polling MariaDB → POST /v1/iot-predict) ────────────
+  moteur:
+    build: .
+    image: maintenance-predictive:latest
+    container_name: maintenance-moteur
+    # REPLAY_N (voir .env) : 0 = temps réel pur (attend de vraies mesures IFM
+    # live insérées dans MariaDB -- comportement production). > 0 = rejoue les
+    # N dernières lignes réelles de full_data au démarrage (utile démo/test).
+    # Pour repasser en production : REPLAY_N=0 dans .env puis `docker compose up -d`.
+    entrypoint: ["python", "-u", "realtime_mariadb.py", "--api-host", "api", "--api-port", "8000", "--replay", "${REPLAY_N:-0}"]
+    # Désactive le HEALTHCHECK hérité de l'image (Dockerfile) : il teste
+    # curl sur localhost:8000, pertinent pour le service "api" qui écoute
+    # ce port, mais "moteur" ne fait qu'appeler l'API à distance -- rien
+    # n'écoute sur ce port ici, le healthcheck échouait donc à tort à
+    # chaque fois (statut "unhealthy" trompeur, sans impact réel puisque
+    # rien ne dépend de la santé de ce service).
+    healthcheck:
+      disable: true
+    env_file:
+      - .env
+    environment:
+      - PYTHONIOENCODING=utf-8
+      # L'API sert HTTPS (certificat auto-signé) — voir APIClient dans
+      # realtime_mariadb.py pour le verify=False associé (trajet interne
+      # au réseau Docker, non exposé au LAN)
+      - API_USE_TLS=true
+    volumes:
+      - ./data:/app/data
+      # Chemin relatif écrit par realtime_mariadb.py à la racine de /app —
+      # montage direct pour que le dashboard (service ci-dessous) voie les
+      # résultats à jour au lieu du fichier figé du conteneur éphémère
+      - ./realtime_results.json:/app/realtime_results.json
+    depends_on:
+      api:
+        condition: service_healthy
+    restart: unless-stopped
+    # Si MARIADB_HOST pointe vers "localhost" dans .env (poste de dev), le
+    # conteneur ne pourra pas joindre la base — utiliser l'IP réseau réelle
+    # du serveur MariaDB (ex: 192.168.120.58) ou host.docker.internal.
 
   # ── Dashboard HTML statique ────────────────────────────────────────────────
   dashboard:
@@ -40,8 +116,14 @@ services:
     ports:
       - "3000:80"
     volumes:
-      - ./dashboard_predictive.html:/usr/share/nginx/html/dashboard_predictive.html:ro
+      # dashboard_realtime.html est le dashboard principal du projet — monté aussi
+      # en index.html pour que http://localhost:3000/ l'affiche directement.
+      - ./dashboard_realtime.html:/usr/share/nginx/html/index.html:ro
       - ./dashboard_realtime.html:/usr/share/nginx/html/dashboard_realtime.html:ro
+      - ./dashboard_predictive.html:/usr/share/nginx/html/dashboard_predictive.html:ro
+      - ./login.html:/usr/share/nginx/html/login.html:ro
+      - ./register.html:/usr/share/nginx/html/register.html:ro
+      - ./pipeline_upload.html:/usr/share/nginx/html/pipeline_upload.html:ro
       - ./realtime_results.json:/usr/share/nginx/html/realtime_results.json:ro
     depends_on:
       api:

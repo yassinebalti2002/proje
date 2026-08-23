@@ -1,0 +1,233 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Connexion — Maintenance Prédictive</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap');
+
+  :root {
+    --bg:     #0d1117;
+    --bg2:    #161b22;
+    --bg3:    #1c2128;
+    --bg4:    #21262d;
+    --teal:   #00d4b4;
+    --red:    #f85149;
+    --green:  #3fb950;
+    --blue:   #58a6ff;
+    --text:   #e6edf3;
+    --text2:  #8b949e;
+    --text3:  #484f58;
+    --border: rgba(255,255,255,0.08);
+    --font:   'Inter', sans-serif;
+    --mono:   'JetBrains Mono', monospace;
+    --r:      8px;
+  }
+
+  * { margin:0; padding:0; box-sizing:border-box; }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--font);
+    min-height: 100vh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 20px;
+  }
+
+  .card {
+    width: 100%;
+    max-width: 380px;
+    background: var(--bg2);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 32px 28px;
+    box-shadow: 0 8px 28px rgba(0,0,0,0.35);
+  }
+
+  .logo { display:flex; align-items:center; gap:12px; margin-bottom: 26px; }
+
+  .logo-icon {
+    width: 34px; height: 34px; flex-shrink: 0;
+    background: linear-gradient(135deg, var(--teal), var(--blue));
+    border-radius: 9px;
+    display: flex; align-items: center; justify-content: center;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.25);
+  }
+  .logo-icon svg { width: 19px; height: 19px; }
+
+  .logo-text h1 {
+    font-size: 0.85rem; font-weight: 700; letter-spacing: 0.5px; color: var(--text);
+    line-height: 1.3;
+  }
+  .logo-text h1 span { color: var(--teal); }
+
+  h2 { font-size: 1.3rem; font-weight: 700; margin-bottom: 4px; }
+  .subtitle { color: var(--text2); font-size: 0.85rem; margin-bottom: 24px; }
+
+  label {
+    display: block; font-size: 0.72rem; font-weight: 600; color: var(--text2);
+    text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 6px;
+  }
+
+  .field { margin-bottom: 16px; }
+
+  input {
+    width: 100%;
+    background: var(--bg3);
+    border: 1px solid var(--border);
+    border-radius: var(--r);
+    padding: 10px 12px;
+    color: var(--text);
+    font-family: var(--font);
+    font-size: 0.9rem;
+    outline: none;
+    transition: border-color 0.15s;
+  }
+  input:focus { border-color: var(--teal); }
+
+  button[type="submit"] {
+    width: 100%;
+    margin-top: 6px;
+    padding: 11px;
+    border: none;
+    border-radius: var(--r);
+    background: linear-gradient(135deg, var(--teal), var(--blue));
+    color: #04110d;
+    font-family: var(--font);
+    font-weight: 700;
+    font-size: 0.9rem;
+    cursor: pointer;
+    transition: opacity 0.15s;
+  }
+  button[type="submit"]:hover { opacity: 0.9; }
+  button[type="submit"]:disabled { opacity: 0.5; cursor: not-allowed; }
+
+  .msg {
+    margin-top: 14px;
+    padding: 9px 12px;
+    border-radius: var(--r);
+    font-size: 0.82rem;
+    display: none;
+  }
+  .msg.error   { display:block; background: rgba(248,81,73,0.12);  color: var(--red);   border: 1px solid rgba(248,81,73,0.3); }
+  .msg.success { display:block; background: rgba(63,185,80,0.12);  color: var(--green); border: 1px solid rgba(63,185,80,0.3); }
+
+  .footer-link {
+    margin-top: 20px;
+    text-align: center;
+    font-size: 0.82rem;
+    color: var(--text2);
+  }
+  .footer-link a { color: var(--teal); text-decoration: none; font-weight: 600; }
+  .footer-link a:hover { text-decoration: underline; }
+</style>
+</head>
+<body>
+
+<div class="card">
+  <div class="logo">
+    <div class="logo-icon">
+      <svg viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+        <polyline points="2 14 7 14 9 8 13 20 16 4 18 14 22 14"/>
+      </svg>
+    </div>
+    <div class="logo-text">
+      <h1><span>MAINTENANCE PRÉDICTIVE</span><br>EN TEMPS RÉEL</h1>
+    </div>
+  </div>
+
+  <h2>Connexion</h2>
+  <p class="subtitle">Accédez à votre espace de surveillance</p>
+
+  <form id="login-form">
+    <div class="field">
+      <label for="username">Nom d'utilisateur</label>
+      <input type="text" id="username" name="username" autocomplete="username" required>
+    </div>
+    <div class="field">
+      <label for="password">Mot de passe</label>
+      <input type="password" id="password" name="password" autocomplete="current-password" required>
+    </div>
+    <button type="submit" id="submit-btn">Se connecter</button>
+    <div id="msg" class="msg"></div>
+  </form>
+
+  <div class="footer-link">
+    Pas encore de compte ? <a href="register.html">Créer un compte</a>
+  </div>
+</div>
+
+<script>
+  // Base API — le protocole de la page ne dit rien de celui de l'API : en
+  // Docker (docker-compose.yml) le dashboard nginx est en http:// alors que
+  // l'API est HTTPS-only (TLS auto-signé), alors qu'en local natif
+  // (LANCER.bat, sans certs/) l'API est en http:// simple. Détection auto :
+  // essaie https puis http, garde celui qui répond (voir même logique dans
+  // dashboard_realtime.html).
+  let API_BASE = `https://${window.location.hostname}:8000`;
+  async function detectApiBase() {
+    for (const scheme of ['https', 'http']) {
+      try {
+        const candidate = `${scheme}://${window.location.hostname}:8000`;
+        const ctrl = new AbortController();
+        const timer = setTimeout(() => ctrl.abort(), 2500);
+        const res = await fetch(`${candidate}/health`, { signal: ctrl.signal });
+        clearTimeout(timer);
+        if (res.ok) { API_BASE = candidate; return; }
+      } catch (e) { /* essaie le schéma suivant */ }
+    }
+  }
+  const _apiReady = detectApiBase();
+
+  const form = document.getElementById('login-form');
+  const msg = document.getElementById('msg');
+  const submitBtn = document.getElementById('submit-btn');
+
+  function showMsg(text, type) {
+    msg.textContent = text;
+    msg.className = 'msg ' + type;
+  }
+
+  form.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    msg.className = 'msg';
+    submitBtn.disabled = true;
+    submitBtn.textContent = 'Connexion...';
+
+    try {
+      await _apiReady;
+      const res = await fetch(`${API_BASE}/v1/auth/login`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          username: document.getElementById('username').value,
+          password: document.getElementById('password').value,
+        }),
+      });
+      const data = await res.json();
+
+      if (!res.ok) {
+        showMsg(data.detail || 'Échec de connexion.', 'error');
+        submitBtn.disabled = false;
+        submitBtn.textContent = 'Se connecter';
+        return;
+      }
+
+      localStorage.setItem('access_token', data.access_token);
+      localStorage.setItem('user', JSON.stringify(data.user));
+      showMsg('Connexion réussie — redirection...', 'success');
+      setTimeout(() => { window.location.href = 'dashboard_realtime.html'; }, 600);
+    } catch (err) {
+      showMsg('Impossible de contacter le serveur.', 'error');
+      submitBtn.disabled = false;
+      submitBtn.textContent = 'Se connecter';
+    }
+  });
+</script>
+
+</body>
+</html>

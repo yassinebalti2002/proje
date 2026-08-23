@@ -33,6 +33,7 @@
 # ═══════════════════════════════════════════════════════════════════════════════
 # IMPORTS
 # ═══════════════════════════════════════════════════════════════════════════════
+import os
 import re
 import sys
 import json
@@ -44,11 +45,18 @@ import pandas as pd
 from pathlib import Path
 from datetime import datetime
 
+try:
+    from dotenv import load_dotenv
+    load_dotenv()
+except ImportError:
+    pass
+
 import joblib
 from scipy.stats import kurtosis, entropy as sp_entropy
 from sklearn.ensemble import IsolationForest
 from sklearn.neighbors import LocalOutlierFactor
 from sklearn.svm import OneClassSVM
+from sklearn.linear_model import LogisticRegression
 from sklearn.preprocessing import RobustScaler
 from sklearn.decomposition import PCA
 from sklearn.model_selection import train_test_split, StratifiedKFold, cross_val_score
@@ -84,12 +92,13 @@ MODEL_DIR = Path("models")  # relatif au dossier du script
 MODEL_DIR.mkdir(parents=True, exist_ok=True)
 
 # Connexion MySQL (pour lire full_data directement — meilleure source d'entraînement)
-MYSQL_HOST     = "localhost"
-MYSQL_PORT     = 3306
-MYSQL_USER     = "root"
-MYSQL_PASSWORD = "yassine2019"
-MYSQL_DATABASE = "ai_cp"
-MYSQL_TABLE    = "full_data"
+# Mot de passe lu depuis l'environnement (.env) — jamais en dur dans le code.
+MYSQL_HOST     = os.getenv("MYSQL_HOST", "localhost")
+MYSQL_PORT     = int(os.getenv("MYSQL_PORT", "3306"))
+MYSQL_USER     = os.getenv("MYSQL_USER", "root")
+MYSQL_PASSWORD = os.getenv("MYSQL_PASSWORD", "")
+MYSQL_DATABASE = os.getenv("MYSQL_DATABASE", "ai_cp")
+MYSQL_TABLE    = os.getenv("MYSQL_TABLE", "full_data")
 MYSQL_SAMPLE_N = 25000   # sessions à extraire (1 session = 3 lignes full_data)
 
 # Paramètres des modèles
@@ -98,6 +107,17 @@ WINDOW_SIZE     = 20
 RANDOM_STATE    = 42
 AUGMENT_FACTOR  = 3
 VOTE_THRESHOLD  = 2      # Vote majoritaire 2/4
+
+# n_jobs=-1 (tous les coeurs) pour IF/LOF/COPOD/etc. fait spawn un pool loky
+# de 12 workers à CHAQUE fit()/predict() — répété des dizaines de fois sur
+# ce script (3 folds GroupKFold x plusieurs modèles x train+test eval x
+# CV interne 5-fold). Sur cette machine, l'accumulation de spawns/teardowns
+# de pools finit par épuiser les ressources systeme Windows (pipes/handles) :
+# observé en pratique -- OSError WinError 1450 "Ressources systeme
+# insuffisantes" après plusieurs dizaines de pools créés durant le run.
+# Un nombre de workers borné réduit l'empreinte par pool et évite l'épuisement,
+# au prix d'un peu de parallélisme (12 coeurs disponibles mais non tous utilisés).
+N_JOBS_SAFE     = 2
 
 # Seuils — calculés dynamiquement sur les données réelles dans build_feature_matrix
 # Ces valeurs sont des fallbacks uniquement
@@ -369,9 +389,35 @@ def trend(arr):
     return float(p[0])
 
 def signal_entropy(arr: np.ndarray) -> float:
-    """Entropie de Shannon du signal — mesure l'irregularite/complexite."""
+    """Entropie de Shannon du signal — mesure l'irregularite/complexite.
+
+    Calcul manuel plutôt que scipy.stats.entropy : sur des fenêtres de 20
+    valeurs appelées ~600K fois (dataset ai_cp complet), le wrapper générique
+    axis_nan_policy de scipy (broadcasting/validation à chaque appel) coûte
+    ~480µs/appel contre ~24µs en calcul direct — mesuré au profilage, ce
+    seul wrapper explique l'essentiel du blocage de plusieurs dizaines de
+    minutes observé à l'étape 2 sur le nouveau volume de données (608K lignes
+    vs 5K avant la correction de generate_dataset_from_sql.py)."""
     counts, _ = np.histogram(arr, bins=10)
-    return float(sp_entropy(counts + 1e-9))
+    p = counts.astype(float) + 1e-9
+    p = p / p.sum()
+    return float(-np.sum(p * np.log(p)))
+
+
+def fast_kurtosis(x: np.ndarray) -> float:
+    """Kurtosis de Pearson (biaisée, normale=3) — équivalent numérique exact
+    de scipy.stats.kurtosis(x, fisher=False) mais ~9x plus rapide en évitant
+    le wrapper axis_nan_policy (mêmes raisons que signal_entropy ci-dessus).
+    Retourne 3.0 si l'écart-type est nul (fenêtre constante), comme le garde-fou
+    appelant historique (kurtosis(...) if len(x)>3 else 3.0)."""
+    if len(x) <= 3:
+        return 3.0
+    d = x - x.mean()
+    m2 = float(np.mean(d ** 2))
+    if m2 < 1e-10:
+        return 3.0
+    m4 = float(np.mean(d ** 4))
+    return m4 / (m2 ** 2)
 
 
 def fft_dominant_freq_ratio(arr: np.ndarray) -> float:
@@ -412,20 +458,40 @@ def extract_features_from_window(window: pd.DataFrame) -> dict:
     # Norme vectorielle 3D à chaque instant : √(X²+Y²+Z²)
     VT = np.sqrt(VX**2 + VY**2 + VZ**2)
 
+    # Kurtosis calculées une seule fois par axe (VZ était recalculée 2x : ici
+    # pour health_score et plus bas pour vib_z_kurt) et via fast_kurtosis()
+    # (voir sa docstring — évite le wrapper scipy coûteux sur 600K appels).
+    vz_kurt = fast_kurtosis(VZ)
+    vx_kurt = fast_kurtosis(VX)
+    vy_kurt = fast_kurtosis(VY)
+
     # Health score V6 : formule alignée avec l'API
     VIB_TOTAL_MAX = float(np.sqrt(3) * 1500)
     temp_n  = max(0.0, min(1.0, (np.mean(T)  - 25) / (65 - 25 + 1e-9)))
     vib_n   = max(0.0, min(1.0, np.mean(VT)         / (VIB_TOTAL_MAX + 1e-9)))
-    kurt_n  = max(0.0, min(1.0, (kurtosis(VZ, fisher=False) if len(VZ)>3 else 3.0) / 10.0))
+    kurt_n  = max(0.0, min(1.0, vz_kurt / 10.0))
     cur_n   = max(0.0, min(1.0, np.mean(I)           / (200 + 1e-9)))
     health  = round(100 * (1 - 0.35*temp_n - 0.35*vib_n - 0.30*kurt_n), 1)
 
-    # Accélération estimée depuis vib_z (dérivée approx)
-    acc = np.diff(VZ, prepend=VZ[0])
-    acc_p2p = float(np.max(acc) - np.min(acc))
-    acc_z2p = float(np.max(np.abs(acc)))
-    acc_c   = crest_factor(acc + 1e-9)
-    acc_r   = rms(acc)
+    # Accélération — valeurs réelles IFM (acc_p2p/z2p/crest/rms, colonne CSV
+    # déjà forward-fillée par capteur dans load_dataframe_from_csv) quand
+    # disponibles ; sinon dérivée approx depuis vib_z (source MySQL/live sans
+    # ces colonnes, ou capteur n'ayant encore reçu aucune mesure on-demand).
+    has_real_acc = (
+        "acc_p2p" in window.columns
+        and bool((window["acc_p2p"].fillna(0) != 0).any())
+    )
+    if has_real_acc:
+        acc_p2p = float(window["acc_p2p"].mean())
+        acc_z2p = float(window["acc_z2p"].mean())
+        acc_c   = float(window["acc_crest"].mean())
+        acc_r   = float(window["acc_rms"].mean())
+    else:
+        acc = np.diff(VZ, prepend=VZ[0])
+        acc_p2p = float(np.max(acc) - np.min(acc))
+        acc_z2p = float(np.max(np.abs(acc)))
+        acc_c   = crest_factor(acc + 1e-9)
+        acc_r   = rms(acc)
 
     # ── V6 : nouvelles features ──────────────────────────────────────────
     # Delta inter-fenetres : variation entre premiere et deuxieme moitie
@@ -454,7 +520,7 @@ def extract_features_from_window(window: pd.DataFrame) -> dict:
         'vib_z_mean':   float(np.mean(VZ)),
         'vib_z_std':    float(np.std(VZ)),
         'vib_z_rms_w':  rms(VZ),
-        'vib_z_kurt':   float(kurtosis(VZ, fisher=False) if len(VZ)>3 else 3.0),
+        'vib_z_kurt':   float(vz_kurt),
         'vib_z_crest':  crest_factor(VZ + 1e-9),
         'vib_z_cur':    float(VZ[-1]),
 
@@ -462,13 +528,13 @@ def extract_features_from_window(window: pd.DataFrame) -> dict:
         'vib_x_mean':   float(np.mean(VX)),
         'vib_x_std':    float(np.std(VX)),
         'vib_x_rms_w':  rms(VX),
-        'vib_x_kurt':   float(kurtosis(VX, fisher=False) if len(VX)>3 else 3.0),
+        'vib_x_kurt':   float(vx_kurt),
 
         # ── Vibration Y (4 features) ──────────────────────────────────────
         'vib_y_mean':   float(np.mean(VY)),
         'vib_y_std':    float(np.std(VY)),
         'vib_y_rms_w':  rms(VY),
-        'vib_y_kurt':   float(kurtosis(VY, fisher=False) if len(VY)>3 else 3.0),
+        'vib_y_kurt':   float(vy_kurt),
 
         # ── Combinées (2 features) ────────────────────────────────────────
         'vib_total':    float(np.mean(VT)),
@@ -494,13 +560,17 @@ def extract_features_from_window(window: pd.DataFrame) -> dict:
     return feats
 
 
-def build_feature_matrix(df: pd.DataFrame) -> tuple:
+def build_feature_matrix(df: pd.DataFrame, augment: bool = True) -> tuple:
     """
     Construit la matrice de features X depuis le DataFrame.
 
     Stratégie : fenêtre glissante par capteur.
     Pour chaque capteur, on prend des fenêtres de WINDOW_SIZE mesures
     consécutives et on calcule les 31 features de chaque fenêtre.
+
+    augment=False : désactive la data augmentation — à utiliser pour un jeu
+    de test tenu à l'écart (évaluer sur des données bruitées artificiellement
+    n'a pas de sens et rapprocherait encore plus le test de l'entraînement).
 
     Retourne : (X, feature_names, labels_heuristiques)
     """
@@ -521,6 +591,7 @@ def build_feature_matrix(df: pd.DataFrame) -> tuple:
 
     all_features = []
     heuristic_labels = []
+    sensor_ids_out = []   # capteur d'origine de chaque ligne — permet un split train/test par groupe (par capteur), pas par ligne
 
     # ── V7 : Seuils dynamiques basés sur les percentiles réels des données ────
     # Résout le problème des seuils production (783 mg) vs données SQL (max 149 mg)
@@ -564,6 +635,7 @@ def build_feature_matrix(df: pd.DataFrame) -> tuple:
                 )
                 is_anomaly = anom_score_h >= 2   # anomalie confirmée = au moins 2 signaux
                 heuristic_labels.append(1 if is_anomaly else 0)
+                sensor_ids_out.append(sid)
             except Exception as e:
                 continue
 
@@ -593,9 +665,11 @@ def build_feature_matrix(df: pd.DataFrame) -> tuple:
                        row['vibration_z'] > SEUIL_VIB_MAX or
                        row['current'] > SEUIL_COURANT)
             heuristic_labels.append(1 if is_anom else 0)
+            sensor_ids_out.append(row.get('sensor_id', 'unknown'))
 
     X = np.array(all_features, dtype=np.float32)
     y = np.array(heuristic_labels, dtype=int)
+    sensor_ids_arr = np.array(sensor_ids_out)
     X = np.nan_to_num(X, nan=0.0, posinf=999.0, neginf=-999.0)
 
     # ── V10 : Labels basés sur score composite normalisé — cible 4.5% anomalies ──
@@ -629,9 +703,31 @@ def build_feature_matrix(df: pd.DataFrame) -> tuple:
     n_new = int(y.sum())
     info(f"Labels V10 (composite score P90) : {n_new} anomalies ({n_new/len(y)*100:.1f}%) — V8 avait {n_old} ({n_old/len(y)*100:.1f}%)")
 
+    n_orig_rows = X.shape[0]
+
     # ── V6 : Data augmentation (×AUGMENT_FACTOR) ─────────────────────────
     # Ajoute du bruit gaussien faible (2%) sur chaque échantillon normal
-    # pour enrichir le dataset et améliorer la généralisation
+    # pour enrichir le dataset et améliorer la généralisation.
+    # Désactivée si augment=False (jeu de test tenu à l'écart — évaluer sur
+    # des données bruitées synthétiquement n'a pas de sens et biaiserait
+    # encore les métriques rapportées).
+    if augment:
+        X, y = augment_data(X, y)
+        sensor_ids_arr = np.tile(sensor_ids_arr, AUGMENT_FACTOR)
+
+    n_anom = int(y.sum())
+    ok(f"Matrice originale  : {n_orig_rows} sessions × {len(FEATURES_ORDER)} features")
+    if augment:
+        ok(f"Après augmentation : {X.shape[0]} sessions × {X.shape[1]} features (×{AUGMENT_FACTOR})")
+    ok(f"Anomalies heuristiques : {n_anom} ({n_anom/len(y)*100:.1f}%)")
+    info(f"Features ({len(FEATURES_ORDER)}) : {FEATURES_ORDER}")
+
+    return X, FEATURES_ORDER, y, sensor_ids_arr
+
+
+def augment_data(X: np.ndarray, y: np.ndarray) -> tuple:
+    """Data augmentation (×AUGMENT_FACTOR) par bruit gaussien faible (2%).
+    Factorisée pour n'être appliquée qu'au split train (jamais au test)."""
     rng = np.random.default_rng(RANDOM_STATE)
     X_aug_list = [X]
     y_aug_list = [y]
@@ -640,17 +736,10 @@ def build_feature_matrix(df: pd.DataFrame) -> tuple:
         X_noisy = np.clip(X + X * noise, 0, None)
         X_aug_list.append(X_noisy)
         y_aug_list.append(y)
-    X = np.vstack(X_aug_list)
-    y = np.concatenate(y_aug_list)
-    X = np.nan_to_num(X, nan=0.0, posinf=999.0, neginf=-999.0)
-
-    n_anom = int(y.sum())
-    ok(f"Matrice originale  : {len(all_features)} sessions × {len(FEATURES_ORDER)} features")
-    ok(f"Après augmentation : {X.shape[0]} sessions × {X.shape[1]} features (×{AUGMENT_FACTOR})")
-    ok(f"Anomalies heuristiques : {n_anom} ({n_anom/len(y)*100:.1f}%)")
-    info(f"Features ({len(FEATURES_ORDER)}) : {FEATURES_ORDER}")
-
-    return X, FEATURES_ORDER, y
+    X_out = np.vstack(X_aug_list)
+    y_out = np.concatenate(y_aug_list)
+    X_out = np.nan_to_num(X_out, nan=0.0, posinf=999.0, neginf=-999.0)
+    return X_out, y_out
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -733,7 +822,7 @@ def train_models(X_pca: np.ndarray, y_heuristic: np.ndarray = None, X_scaled: np
         contamination = CONTAMINATION,
         max_samples   = 'auto',
         random_state  = RANDOM_STATE,
-        n_jobs        = -1,
+        n_jobs        = N_JOBS_SAFE,
     )
     model_if.fit(X_unsup)
     preds_if = model_if.predict(X_unsup)
@@ -748,20 +837,31 @@ def train_models(X_pca: np.ndarray, y_heuristic: np.ndarray = None, X_scaled: np
     t0 = time.time()
     try:
         from pyod.models.lof import LOF
+        # Sous-échantillon — même garde-fou que OCSVM ci-dessous. LOF interroge
+        # les k plus proches voisins de CHAQUE point d'entraînement : sur
+        # 74K lignes (ancien dataset) c'était tolérable, mais sur les 1,25M
+        # lignes du nouveau dataset (608K mesures réelles x augmentation x
+        # folds) le fit sur X_unsup complet reste bloqué de longues minutes
+        # (observé : >30 min sans terminer). Un sous-échantillon aléatoire
+        # représentatif donne un LOF de qualité équivalente en pratique, à
+        # un coût constant quelle que soit la taille du dataset.
+        n_sub_lof = min(20000, len(X_unsup))
+        idx_sub_lof = np.random.RandomState(RANDOM_STATE + 5).choice(len(X_unsup), n_sub_lof, replace=False)
+        X_lof = X_unsup[idx_sub_lof]
         model_lof = LOF(
             n_neighbors   = 20,
             contamination = CONTAMINATION,
-            n_jobs        = -1,
+            n_jobs        = N_JOBS_SAFE,
         )
-        model_lof.fit(X_unsup)
+        model_lof.fit(X_lof)
         preds_lof = model_lof.predict(X_unsup)
         n_anom = int((preds_lof == 1).sum())
-        ok(f"LOF (pyod) entraîné en {time.time()-t0:.2f}s | {n_anom} anomalies ({n_anom/len(preds_lof)*100:.1f}%)")
+        ok(f"LOF (pyod) entraîné en {time.time()-t0:.2f}s (sous-éch. {n_sub_lof}) | {n_anom} anomalies ({n_anom/len(preds_lof)*100:.1f}%)")
         trained['lof'] = model_lof
     except Exception as e:
         warn(f"LOF échoué : {e} → fallback IsolationForest variant")
         model_lof = IsolationForest(n_estimators=150, contamination=CONTAMINATION,
-                                    max_features=0.6, random_state=RANDOM_STATE+10, n_jobs=-1)
+                                    max_features=0.6, random_state=RANDOM_STATE+10, n_jobs=N_JOBS_SAFE)
         model_lof.fit(X_unsup)
         trained['lof'] = model_lof
         trained['lof_type'] = 'if_fallback'
@@ -785,7 +885,7 @@ def train_models(X_pca: np.ndarray, y_heuristic: np.ndarray = None, X_scaled: np
     except Exception as e:
         warn(f"OCSVM échoué : {e} → fallback IsolationForest variant")
         model_ocsvm = IsolationForest(n_estimators=100, contamination=CONTAMINATION,
-                                      max_features=0.5, random_state=RANDOM_STATE+20, n_jobs=-1)
+                                      max_features=0.5, random_state=RANDOM_STATE+20, n_jobs=N_JOBS_SAFE)
         model_ocsvm.fit(X_unsup)
         trained['ocsvm'] = model_ocsvm
         trained['ocsvm_type'] = 'if_fallback'
@@ -795,18 +895,29 @@ def train_models(X_pca: np.ndarray, y_heuristic: np.ndarray = None, X_scaled: np
     t0 = time.time()
     try:
         from pyod.models.ecod import ECOD
+        # Sous-échantillon — même raison que LOF plus haut, mais ici l'enjeu
+        # n'est pas le temps d'ENTRAÎNEMENT mais celui de PRÉDICTION : ECOD est
+        # non-paramétrique et garde tout X_unsup en mémoire (self.X_train) pour
+        # recalculer les CDF empiriques à CHAQUE appel predict(), même pour un
+        # seul échantillon. Sur les 1,8M lignes du dataset complet (vs ~74K
+        # avant), ça donnait un fichier .pkl de ~2 Go et un temps de réponse
+        # >30s par prédiction unitaire côté API -- inutilisable en temps réel.
+        # Un sous-échantillon donne une estimation de CDF quasi identique
+        # (elle se stabilise bien avant plusieurs millions de points).
+        n_sub_ecod = min(20000, len(X_unsup))
+        idx_sub_ecod = np.random.RandomState(RANDOM_STATE + 6).choice(len(X_unsup), n_sub_ecod, replace=False)
         model_ecod = ECOD(contamination=CONTAMINATION)
-        model_ecod.fit(X_unsup)
+        model_ecod.fit(X_unsup[idx_sub_ecod])
         preds_ecod = model_ecod.predict(X_unsup)
         n_anom = int((preds_ecod == 1).sum())
-        ok(f"ECOD (pyod) entraîné en {time.time()-t0:.2f}s | {n_anom} anomalies")
+        ok(f"ECOD (pyod) entraîné en {time.time()-t0:.2f}s (sous-éch. {n_sub_ecod}) | {n_anom} anomalies")
         trained['ecod'] = model_ecod
         trained['ecod_type'] = 'pyod'
     except ImportError:
         warn("pyod non disponible → ECOD remplacé par IsolationForest clone")
         model_ecod = IsolationForest(
             n_estimators=150, contamination=CONTAMINATION,
-            max_features=0.8, random_state=RANDOM_STATE+1, n_jobs=-1,
+            max_features=0.8, random_state=RANDOM_STATE+1, n_jobs=N_JOBS_SAFE,
         )
         model_ecod.fit(X_unsup)
         preds_ecod = model_ecod.predict(X_unsup)
@@ -839,14 +950,20 @@ def train_models(X_pca: np.ndarray, y_heuristic: np.ndarray = None, X_scaled: np
     t0 = time.time()
     try:
         from pyod.models.copod import COPOD
+        # Sous-échantillon — même raison que ECOD ci-dessus (COPOD est lui
+        # aussi non-paramétrique, garde tout X_unsup en mémoire pour les CDF
+        # par copule et recalcule contre cet ensemble complet à chaque appel
+        # predict()).
+        n_sub_copod = min(20000, len(X_unsup))
+        idx_sub_copod = np.random.RandomState(RANDOM_STATE + 7).choice(len(X_unsup), n_sub_copod, replace=False)
         model_copod = COPOD(
             contamination = CONTAMINATION,
-            n_jobs        = -1,
+            n_jobs        = N_JOBS_SAFE,
         )
-        model_copod.fit(X_unsup)
+        model_copod.fit(X_unsup[idx_sub_copod])
         preds_copod = model_copod.predict(X_unsup)
         n_anom = int((preds_copod == 1).sum())
-        ok(f"COPOD entraîné en {time.time()-t0:.2f}s | {n_anom} anomalies ({n_anom/len(preds_copod)*100:.1f}%)")
+        ok(f"COPOD entraîné en {time.time()-t0:.2f}s (sous-éch. {n_sub_copod}) | {n_anom} anomalies ({n_anom/len(preds_copod)*100:.1f}%)")
         trained['copod'] = model_copod
     except Exception as e:
         warn(f"COPOD échoué : {e}")
@@ -859,12 +976,22 @@ def train_models(X_pca: np.ndarray, y_heuristic: np.ndarray = None, X_scaled: np
 # ═══════════════════════════════════════════════════════════════════════════════
 
 def evaluate_models(trained: dict, X_pca: np.ndarray, y_true: np.ndarray,
-                    scaler, pca, feature_names: list, X_scaled: np.ndarray = None) -> dict:
+                    scaler, pca, feature_names: list, X_scaled: np.ndarray = None,
+                    X_test_scaled: np.ndarray = None, y_test: np.ndarray = None) -> dict:
     """
     Évalue chaque modèle (seuil fixe + seuil optimal) et le soft-voting ensemble.
     Labels de référence = étiquettes heuristiques industrielles.
-    V9 : évaluation sur données originales + filtre de persistance temporelle (k=3)
-         + contrainte precision >= 0.70 sur le SoftVote.
+    V9 : filtre de persistance temporelle (k=3) + contrainte precision >= 0.70 sur le SoftVote.
+
+    IMPORTANT — X_pca/X_scaled/y_true ici sont le jeu d'ENTRAÎNEMENT (déjà
+    augmenté) : ils servent uniquement à sélectionner les seuils optimaux
+    (dont le seuil SoftVote sous contrainte precision >= 0.70), jamais à
+    rapporter les métriques finales. Si X_test_scaled/y_test sont fournis
+    (jeu tenu à l'écart, capteurs jamais vus pendant le fit), la métrique
+    SoftVote officiellement rapportée (sauvegardée dans metrics_v3.csv) est
+    recalculée sur ce jeu de test avec le seuil figé choisi sur le train —
+    c'est la seule façon d'obtenir un F1/AUC/Recall qui reflète la
+    généralisation plutôt que de la resubstitution.
     """
     from sklearn.preprocessing import MinMaxScaler as MMS
 
@@ -967,42 +1094,116 @@ def evaluate_models(trained: dict, X_pca: np.ndarray, y_true: np.ndarray,
     opt_hbos,  f1_opt_hbos  = best_threshold_f1(scores_hbos,  y_orig) if scores_hbos  is not None else (None, 0)
     opt_copod, f1_opt_copod = best_threshold_f1(scores_copod, y_orig) if scores_copod is not None else (None, 0)
 
-    def norm(s): return MMS().fit_transform(s.reshape(-1,1)).flatten()
+    # norm() garde le MinMaxScaler fitté (sur le TRAIN) pour pouvoir transformer
+    # les scores du jeu de TEST avec la même échelle plus loin (jamais un fit
+    # sur le test, qui serait une fuite de données supplémentaire).
+    def norm_fit(s):
+        mms = MMS()
+        normed = mms.fit_transform(s.reshape(-1, 1)).flatten()
+        return normed, mms
 
-    # ── Soft-vote RAPPORT : IF + ECOD + HBOS + COPOD (4 meilleurs modèles) ──────
-    # LOF (AUC<0.58) et OCSVM (AUC<0.62) exclus du SoftVote : ils ajoutent du bruit
-    # Seuls les modèles avec AUC>0.75 contribuent au score d'ensemble
-    unsup_scores_best = [norm(scores_if), norm(scores_ecod)]
-    unsup_names_best  = ['IF', 'ECOD']
-    if scores_hbos is not None:
-        unsup_scores_best.append(norm(scores_hbos))
-        unsup_names_best.append('HBOS')
-    if scores_copod is not None:
-        unsup_scores_best.append(norm(scores_copod))
-        unsup_names_best.append('COPOD')
-    avg_score_best = np.mean(unsup_scores_best, axis=0)
+    scores_if_n,    mms_if    = norm_fit(scores_if)
+    scores_lof_n,   mms_lof   = norm_fit(scores_lof)
+    scores_ocsvm_n, mms_ocsvm = norm_fit(scores_ocsvm)
+    scores_ecod_n,  mms_ecod  = norm_fit(scores_ecod)
+    scores_hbos_n,  mms_hbos  = norm_fit(scores_hbos)  if scores_hbos  is not None else (None, None)
+    scores_copod_n, mms_copod = norm_fit(scores_copod) if scores_copod is not None else (None, None)
 
-    # SoftVote complet (6 modèles) pour comparaison dans le tableau
-    unsup_scores = [norm(scores_if), norm(scores_lof), norm(scores_ocsvm), norm(scores_ecod)]
+    # ── Stacking : méta-modèle LogisticRegression sur les 6 scores normalisés ──
+    # Remplace la moyenne manuelle à poids fixes (qui excluait LOF/OCSVM en
+    # tout-ou-rien faute d'AUC individuel suffisant) par une combinaison
+    # apprise : la régression logistique découvre elle-même le poids de
+    # chaque détecteur, y compris un poids quasi nul pour un modèle bruité,
+    # au lieu d'un seuil manuel (AUC<0.58/0.62). Fit UNIQUEMENT sur le train
+    # (y_orig de ce fold) — même garde-fou anti-fuite que le reste du pipeline.
+    meta_order    = ['if', 'lof', 'ocsvm', 'ecod']
+    meta_scores_n = {'if': scores_if_n, 'lof': scores_lof_n, 'ocsvm': scores_ocsvm_n, 'ecod': scores_ecod_n}
+    if scores_hbos_n is not None:
+        meta_order.append('hbos');  meta_scores_n['hbos']  = scores_hbos_n
+    if scores_copod_n is not None:
+        meta_order.append('copod'); meta_scores_n['copod'] = scores_copod_n
+
+    meta_features_train = np.column_stack([meta_scores_n[k] for k in meta_order])
+    meta_lr = LogisticRegression(class_weight='balanced', max_iter=2000, random_state=RANDOM_STATE)
+    meta_lr.fit(meta_features_train, y_orig)
+    meta_score_train = meta_lr.predict_proba(meta_features_train)[:, 1]
+    info("Stacking LogisticRegression : coefs = " +
+         ", ".join(f"{k.upper()}={c:+.2f}" for k, c in zip(meta_order, meta_lr.coef_[0])))
+
+    # SoftVote complet (6 modèles, moyenne simple) — conservé pour comparaison dans le tableau
+    unsup_scores = [scores_if_n, scores_lof_n, scores_ocsvm_n, scores_ecod_n]
     unsup_names  = ['IF', 'LOF', 'OCSVM', 'ECOD']
-    if scores_hbos is not None:
-        unsup_scores.append(norm(scores_hbos))
+    if scores_hbos_n is not None:
+        unsup_scores.append(scores_hbos_n)
         unsup_names.append('HBOS')
-    if scores_copod is not None:
-        unsup_scores.append(norm(scores_copod))
+    if scores_copod_n is not None:
+        unsup_scores.append(scores_copod_n)
         unsup_names.append('COPOD')
     avg_score = np.mean(unsup_scores, axis=0)
-    info(f"Soft-vote RAPPORT : {' + '.join(unsup_names_best)} ({len(unsup_scores_best)} modèles) | données originales")
 
-    # SoftVote standard 6 modèles (pour comparaison)
+    # SoftVote standard 6 modèles, moyenne simple (pour comparaison)
     opt_soft_std, f1_opt_soft_std = best_threshold_f1(avg_score, y_orig)
 
-    # SoftVote RAPPORT : 4 meilleurs modèles, seuil optimal F1 (sans contrainte précision)
-    opt_soft, f1_opt_soft = best_threshold_f1(avg_score_best, y_orig)
-    sv_thr_precision = float(np.percentile(avg_score_best, 100 - int(opt_soft.sum()) / len(avg_score_best) * 100))
+    # RAPPORT : seuil du stacking sous contrainte precision >= 0.70
+    opt_soft, f1_opt_soft, sv_thr_precision = best_threshold_precision_f1(
+        meta_score_train, y_orig, min_prec=0.70, k_persist=3
+    )
     prec_sv = precision_score(y_orig, opt_soft, zero_division=0)
     rec_sv  = recall_score(y_orig,  opt_soft, zero_division=0)
-    info(f"SoftVote(IF+ECOD+HBOS+COPOD) : F1={f1_opt_soft:.4f}  Prec={prec_sv:.4f}  Recall={rec_sv:.4f}")
+    info(f"Stacking({'+'.join(k.upper() for k in meta_order)}) [train, precision>=0.70] : "
+         f"F1={f1_opt_soft:.4f}  Prec={prec_sv:.4f}  Recall={rec_sv:.4f}  seuil={sv_thr_precision:.4f}")
+
+    # ── Évaluation sur le jeu de TEST tenu à l'écart (capteurs jamais vus) ────
+    # C'est la métrique qui doit être rapportée comme performance réelle du
+    # système (README, /metrics, metrics_v3.csv) — pas celle calculée ci-dessus
+    # sur le train, qui ne sert qu'à sélectionner le seuil.
+    test_holdout_metrics = None
+    if X_test_scaled is not None and y_test is not None and len(y_test) > 0:
+        t_scores_if    = -trained['if'].score_samples(X_test_scaled)
+        t_scores_lof   = (-trained['lof'].score_samples(X_test_scaled) if lof_type == 'if_fallback'
+                          else trained['lof'].decision_function(X_test_scaled))
+        t_scores_ocsvm = (-trained['ocsvm'].score_samples(X_test_scaled) if ocsvm_type == 'if_fallback'
+                          else -trained['ocsvm'].decision_function(X_test_scaled))
+        t_scores_ecod  = (trained['ecod'].decision_function(X_test_scaled) if ecod_type == 'pyod'
+                          else -trained['ecod'].score_samples(X_test_scaled))
+        t_scores_hbos  = trained['hbos'].decision_function(X_test_scaled)  if 'hbos'  in trained else None
+        t_scores_copod = trained['copod'].decision_function(X_test_scaled) if 'copod' in trained else None
+
+        t_scores_raw = {'if': t_scores_if, 'lof': t_scores_lof, 'ocsvm': t_scores_ocsvm, 'ecod': t_scores_ecod}
+        t_mms        = {'if': mms_if,      'lof': mms_lof,      'ocsvm': mms_ocsvm,      'ecod': mms_ecod}
+        if t_scores_hbos is not None and mms_hbos is not None:
+            t_scores_raw['hbos'] = t_scores_hbos; t_mms['hbos'] = mms_hbos
+        if t_scores_copod is not None and mms_copod is not None:
+            t_scores_raw['copod'] = t_scores_copod; t_mms['copod'] = mms_copod
+
+        # Normalisation avec le MinMaxScaler fitté sur le TRAIN uniquement
+        # (aucun re-fit sur le test), puis passage dans le méta-modèle figé.
+        t_meta_features = np.column_stack([
+            t_mms[k].transform(t_scores_raw[k].reshape(-1, 1)).flatten() for k in meta_order
+        ])
+        t_meta_score = meta_lr.predict_proba(t_meta_features)[:, 1]
+
+        # Seuil figé sur le train — appliqué tel quel au test (aucun re-fit).
+        t_raw   = (t_meta_score >= sv_thr_precision).astype(int)
+        t_preds = persistence_filter(t_raw, k=3)
+
+        t_f1   = f1_score(y_test, t_preds, zero_division=0)
+        t_prec = precision_score(y_test, t_preds, zero_division=0)
+        t_rec  = recall_score(y_test, t_preds, zero_division=0)
+        try:
+            t_auc = roc_auc_score(y_test, t_meta_score)
+        except Exception:
+            t_auc = 0.5
+        t_acc = accuracy_score(y_test, t_preds)
+        test_holdout_metrics = {
+            'f1': t_f1, 'precision': t_prec, 'recall': t_rec,
+            'auc_roc': t_auc, 'accuracy': t_acc,
+            'n_anomalies': int(t_preds.sum()), 'n_total': len(y_test),
+        }
+        info(f"Stacking [TEST holdout, {len(y_test)} sessions, capteurs jamais vus] : "
+             f"F1={t_f1:.4f}  Prec={t_prec:.4f}  Recall={t_rec:.4f}  AUC={t_auc:.4f}")
+    else:
+        warn("Pas de jeu de test tenu à l'écart fourni — métriques ci-dessous en resubstitution (train)")
 
     # ── Prédictions binaires à contamination fixe (pour comparaison) ──────────
     def to_bin_if(p):    return (p == -1).astype(int)
@@ -1036,7 +1237,7 @@ def evaluate_models(trained: dict, X_pca: np.ndarray, y_true: np.ndarray,
             self.model_ = IsolationForest(
                 n_estimators=self.n_estimators,
                 contamination=self.contamination,
-                random_state=RANDOM_STATE, n_jobs=-1)
+                random_state=RANDOM_STATE, n_jobs=N_JOBS_SAFE)
             self.model_.fit(X)
             return self
         def predict(self, X):
@@ -1103,10 +1304,14 @@ def evaluate_models(trained: dict, X_pca: np.ndarray, y_true: np.ndarray,
         return float(np.percentile(scores, 100 - n_anom / len(scores) * 100))
 
     metrics['_opt_preds']         = opt_soft
-    metrics['_avg_score']         = avg_score_best    # 4 meilleurs modèles (IF+ECOD+HBOS+COPOD)
+    metrics['_avg_score']         = meta_score_train   # score du stacking (RAPPORT)
     metrics['_f1_softvote']       = f1_opt_soft
     metrics['_sv_thr_precision']  = sv_thr_precision
     metrics['_n_orig']            = n_orig
+    metrics['_meta_lr']           = meta_lr
+    metrics['_meta_order']        = meta_order
+    if test_holdout_metrics is not None:
+        metrics['SoftVote_test_holdout'] = test_holdout_metrics
     # Stats de normalisation par modèle (p1/p99) — utilisées par l'API pour le soft score continu
     metrics['_score_stats'] = {
         'if':    {'p1': float(np.percentile(scores_if,    1)), 'p99': float(np.percentile(scores_if,    99))},
@@ -1208,6 +1413,7 @@ def save_models(trained: dict, scaler, pca, feature_names: list, metrics: dict, 
       scaler_v3.pkl        → RobustScaler (médiane + IQR)
       pca_v3.pkl           → PCA (~5 composantes)
       features_v3.pkl      → liste ordonnée des 31 features
+      model_meta_lr.pkl    → stacking LogisticRegression (combine les scores des modèles ci-dessus)
       metrics_v3.csv       → métriques F1, AUC, etc.
     """
     head("ÉTAPE 6 — SAUVEGARDE")
@@ -1217,6 +1423,8 @@ def save_models(trained: dict, scaler, pca, feature_names: list, metrics: dict, 
     opt_thresholds     = metrics.pop('_opt_thresholds', {})
     score_stats        = metrics.pop('_score_stats', {})
     sv_thr_precision   = metrics.pop('_sv_thr_precision', None)   # seuil precision-contraint
+    meta_lr            = metrics.pop('_meta_lr', None)            # stacking LogisticRegression
+    meta_order          = metrics.pop('_meta_order', [])
     metrics.pop('_opt_preds', None)
     metrics.pop('_f1_softvote', None)
     metrics.pop('_n_orig', None)
@@ -1238,9 +1446,12 @@ def save_models(trained: dict, scaler, pca, feature_names: list, metrics: dict, 
 
     # Flag pour l'API : les modèles non-supervisés utilisent X_scaled (pas X_pca)
     threshold_data['unsupervised_input'] = 'scaled'
-    # SoftVote RAPPORT utilise uniquement IF+ECOD+HBOS+COPOD (LOF/OCSVM exclus)
-    threshold_data['n_unsup_models']     = sum(1 for k in ['if','ecod','hbos','copod'] if k in trained)
-    threshold_data['ensemble_names']     = [k.upper() for k in ['if','ecod','hbos','copod'] if k in trained]
+    # RAPPORT = stacking LogisticRegression sur tous les modèles disponibles
+    # (remplace l'ancienne exclusion manuelle de LOF/OCSVM — le méta-modèle
+    # apprend lui-même leur poids, éventuellement quasi nul).
+    threshold_data['n_unsup_models']     = len(meta_order)
+    threshold_data['ensemble_names']     = [k.upper() for k in meta_order]
+    threshold_data['meta_feature_order'] = meta_order
 
     files = {
         'model_if_v3.pkl':      trained['if'],
@@ -1254,6 +1465,7 @@ def save_models(trained: dict, scaler, pca, feature_names: list, metrics: dict, 
     }
     if 'hbos'  in trained: files['model_hbos_v3.pkl']  = trained['hbos']
     if 'copod' in trained: files['model_copod_v3.pkl'] = trained['copod']
+    if meta_lr is not None: files['model_meta_lr.pkl'] = meta_lr
 
     for fname, obj in files.items():
         path = MODEL_DIR / fname
@@ -1261,10 +1473,18 @@ def save_models(trained: dict, scaler, pca, feature_names: list, metrics: dict, 
         size_kb = path.stat().st_size / 1024
         ok(f"{fname:30s} → {size_kb:.0f} KB")
 
-    # Métriques CSV — SoftVote non-supervisé
-    soft_metrics = metrics.get('SoftVote', metrics.get('Vote2/4', {}))
-    vote_metrics = metrics.get('Vote2/4', {})
+    # Métriques CSV — SoftVote non-supervisé.
+    # Priorité au jeu de TEST tenu à l'écart (capteurs jamais vus pendant le
+    # fit) quand il est disponible : ce sont les seules métriques qui
+    # reflètent une vraie généralisation plutôt qu'une resubstitution.
+    soft_metrics = metrics.get(
+        'SoftVote_test_holdout', metrics.get('SoftVote', metrics.get('Vote2/6', {}))
+    )
+    vote_metrics = metrics.get('Vote2/6', {})
     csv_path = MODEL_DIR / "metrics_v3.csv"
+    weight_lines = "\n".join(
+        f"weights_{k},{c:.4f}" for k, c in zip(meta_order, (meta_lr.coef_[0] if meta_lr is not None else []))
+    )
     csv_content = f"""metric,value
 f1_score,{soft_metrics.get('f1', 0):.4f}
 accuracy,{soft_metrics.get('accuracy', 0):.4f}
@@ -1275,20 +1495,19 @@ f1_vote2,{vote_metrics.get('f1', 0):.4f}
 n_anomalies,{soft_metrics.get('n_anomalies', 0)}
 n_total,{n_total}
 contamination,{CONTAMINATION}
-model_version,V7
+model_version,V8
 n_features,31
-ensemble,IF + ECOD + HBOS + COPOD
-voting,SoftVote seuil optimal F1
+ensemble,{' + '.join(k.upper() for k in meta_order)} (stacking)
+voting,Stacking LogisticRegression + seuil F1-optimal sous contrainte precision>=0.70
 augmentation,x{AUGMENT_FACTOR}
 pca_variance,0.95
 window_size,{WINDOW_SIZE}
 dataset,ai_cp full_data — mesures reelles — 20 capteurs IFM — nov2025-mar2026
 ecod_type,{trained.get('ecod_type', 'unknown')}
-weights_if,0.25
-weights_ecod,0.25
-weights_hbos,0.25
-weights_copod,0.25
+{weight_lines}
+meta_intercept,{(meta_lr.intercept_[0] if meta_lr is not None else 0.0):.4f}
 trained_at,{datetime.now().isoformat()}
+evaluation,{'test_holdout_par_capteur' if 'SoftVote_test_holdout' in metrics else 'resubstitution_train'}
 """
     csv_path.write_text(csv_content, encoding="utf-8")
     ok(f"metrics_v3.csv sauvegardé")
@@ -1437,6 +1656,72 @@ def parse_full_data_from_mysql(host=MYSQL_HOST, port=MYSQL_PORT, user=MYSQL_USER
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
+# ÉTAPE 1c — CHARGEMENT D'UN CSV PRÉ-GÉNÉRÉ (pipeline API /v1/pipeline/upload)
+# ═══════════════════════════════════════════════════════════════════════════════
+
+def load_dataframe_from_csv(csv_path: str) -> pd.DataFrame:
+    """
+    Charge un DataFrame directement depuis un CSV déjà consolidé — mêmes
+    colonnes que CSV_COLUMNS dans generate_dataset_from_sql.py (sensor_id,
+    timestamp, temperature, vibration_x/y/z, acc_p2p/z2p/crest/rms).
+
+    Bypass complet de parse_sql_to_dataframe() : cette dernière cherche les
+    tables `motor_mesure`/`motor_measurements`, un schéma différent de
+    full_data (celui du dump réel du projet) et n'en extrait presque rien
+    (401 sessions au lieu de 606 000 constatées sur le dump ai_cp complet).
+    Le pipeline API génère déjà ce CSV correctement via
+    generate_dataset_from_sql.py avant d'appeler ce script — inutile de
+    reparser le SQL une 2e fois avec une logique différente et bien moins
+    efficace.
+    """
+    head("ÉTAPE 1 — LECTURE DU CSV PRÉ-GÉNÉRÉ")
+    info(f"Fichier : {csv_path}")
+
+    df = pd.read_csv(csv_path)
+    required = {"sensor_id", "timestamp", "temperature", "vibration_x", "vibration_y", "vibration_z"}
+    missing = required - set(df.columns)
+    if missing:
+        err(f"Colonnes manquantes dans le CSV : {missing}")
+        sys.exit(1)
+
+    df["timestamp"] = pd.to_datetime(df["timestamp"], errors="coerce")
+    df = df.dropna(subset=["temperature", "vibration_z"])
+    df = df.sort_values(["sensor_id", "timestamp"]).reset_index(drop=True)
+
+    df["vibration_total"] = np.sqrt(
+        df["vibration_x"].fillna(0) ** 2 + df["vibration_y"].fillna(0) ** 2 + df["vibration_z"].fillna(0) ** 2
+    )
+    # Courant non fourni par la gateway IFM sur la majorité des capteurs
+    # (voir generate_dataset_from_sql.py) — même fallback que le reste du projet.
+    df["current"] = 0.0
+    df["source"]  = "csv_pregenere"
+
+    # Accélérations réelles (acc_p2p/z2p/crest/rms) — mesure IFM "on-demand"
+    # envoyée ~1x/heure/capteur (voir generate_dataset_from_sql.py), donc
+    # présente sur une minorité de lignes seulement (~6% du CSV complet) : la
+    # grande majorité des lignes ont 0.0 en attendant la prochaine mesure.
+    # Sans forward-fill, une fenêtre glissante de WINDOW_SIZE=20 lignes ne
+    # contient quasi jamais de valeur réelle et sa moyenne serait diluée à
+    # ~valeur/20. On propage donc la dernière mesure connue par capteur
+    # jusqu'à la suivante (comportement physique correct : l'accélération
+    # mesurée reste le meilleur estimateur disponible jusqu'au prochain relevé).
+    acc_cols = [c for c in ["acc_p2p", "acc_z2p", "acc_crest", "acc_rms"] if c in df.columns]
+    if acc_cols:
+        n_real = int((df[acc_cols] != 0).any(axis=1).sum())
+        df[acc_cols] = df[acc_cols].replace(0.0, np.nan)
+        df[acc_cols] = df.groupby("sensor_id")[acc_cols].ffill()
+        df[acc_cols] = df[acc_cols].fillna(0.0)
+        info(f"Accélération réelle : {n_real:,} mesures on-demand propagées par forward-fill par capteur")
+
+    ok(f"CSV chargé : {len(df):,} lignes | {df['sensor_id'].nunique()} capteurs uniques")
+    info(f"Période  : {df['timestamp'].min()} → {df['timestamp'].max()}")
+    info(f"Température : {df['temperature'].min():.1f}°C – {df['temperature'].max():.1f}°C")
+    info(f"Vib Z       : {df['vibration_z'].min():.2f} – {df['vibration_z'].max():.2f} mg")
+
+    return df
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
 # MAIN
 # ═══════════════════════════════════════════════════════════════════════════════
 
@@ -1450,12 +1735,22 @@ def main():
 
     parser = argparse.ArgumentParser(description="Entraînement des 4 modèles non supervisés")
     parser.add_argument('--sql',      default=DEFAULT_SQL,   help="Chemin vers le fichier .sql")
+    parser.add_argument('--csv',      default=None,          help="Charger directement un CSV pré-généré (voir generate_dataset_from_sql.py) — priorité absolue, bypass MySQL/SQL")
     parser.add_argument('--db-host',  default=MYSQL_HOST,    help="Hôte MySQL")
     parser.add_argument('--db-user',  default=MYSQL_USER,    help="Utilisateur MySQL")
     parser.add_argument('--db-pass',  default=MYSQL_PASSWORD,help="Mot de passe MySQL")
     parser.add_argument('--db-name',  default=MYSQL_DATABASE,help="Base de données MySQL")
     parser.add_argument('--no-mysql', action='store_true',   help="Forcer utilisation SQL (ignorer MySQL)")
+    parser.add_argument('--out-dir',  default=None,
+                         help="Dossier de sauvegarde des .pkl/metrics_v3.csv (défaut: models/, "
+                              "utilisé par l'API en production). Passer un dossier distinct pour "
+                              "un run de test sans écraser les modèles de production.")
     args = parser.parse_args()
+
+    if args.out_dir:
+        global MODEL_DIR
+        MODEL_DIR = Path(args.out_dir)
+        MODEL_DIR.mkdir(parents=True, exist_ok=True)
 
     print(f"\n{B}{C}{'╔'+'═'*60+'╗'}")
     print(f"║  ENTRAÎNEMENT MODÈLES NON SUPERVISÉS V6                   ║")
@@ -1465,61 +1760,129 @@ def main():
 
     t_total = time.time()
 
-    # ── Priorité 1 : MySQL full_data (données production bonne échelle) ──────────
-    df_mysql = pd.DataFrame()
-    if not args.no_mysql:
-        df_mysql = parse_full_data_from_mysql(
-            host=args.db_host, user=args.db_user,
-            password=args.db_pass, database=args.db_name
-        )
+    sensor_ids = None   # groupes pour le split train/test — None si source sans capteur identifiable
 
-    if len(df_mysql) >= 200:
-        ok(f"Source MySQL full_data : {len(df_mysql)} sessions à l'échelle production")
-        X, feature_names, y_heuristic = build_feature_matrix(df_mysql)
+    if args.csv:
+        # ── Priorité 0 : CSV pré-généré explicitement fourni (pipeline API) ───────
+        # Bypass total de MySQL/realtime/SQL-fallback : le CSV a déjà été
+        # correctement consolidé par generate_dataset_from_sql.py, pas la peine
+        # de reparser le SQL une 2e fois avec la logique motor_mesure legacy.
+        df_csv = load_dataframe_from_csv(args.csv)
+        ok(f"Source CSV pré-généré : {len(df_csv):,} sessions")
+        X, feature_names, y_heuristic, sensor_ids = build_feature_matrix(df_csv, augment=False)
 
     else:
-        # ── Priorité 2 : features production depuis realtime_results.json ────────
-        X_prod, feat_names_prod, y_prod = parse_features_from_realtime(REALTIME_RESULTS)
-        if len(X_prod) >= 500 and float(y_prod.mean()) >= 0.03:
-            ok(f"Source realtime_results.json : {len(X_prod)} vecteurs × 31 features")
-            X, feature_names, y_heuristic = X_prod, feat_names_prod, y_prod
-            rng = np.random.default_rng(RANDOM_STATE)
-            X_aug, y_aug = [X], [y_heuristic]
-            for _ in range(AUGMENT_FACTOR - 1):
-                noise = rng.normal(0, 0.02, size=X.shape).astype(np.float32)
-                X_aug.append(np.clip(X + X * noise, 0, None))
-                y_aug.append(y_heuristic)
-            X = np.vstack(X_aug)
-            y_heuristic = np.concatenate(y_aug)
-            X = np.nan_to_num(X, nan=0.0, posinf=999.0, neginf=-999.0)
-        else:
-            # ── Priorité 3 : SQL file (fallback, domain gap) ──────────────────
-            warn(f"MySQL indisponible + realtime insuffisant → fallback SQL ({args.sql})")
-            df_sql = parse_sql_to_dataframe(args.sql)
-            X, feature_names, y_heuristic = build_feature_matrix(df_sql)
+        # ── Priorité 1 : MySQL full_data (données production bonne échelle) ──────
+        df_mysql = pd.DataFrame()
+        if not args.no_mysql:
+            df_mysql = parse_full_data_from_mysql(
+                host=args.db_host, user=args.db_user,
+                password=args.db_pass, database=args.db_name
+            )
 
-    # Recalibrer la contamination (clampé 5%-35%)
+        if len(df_mysql) >= 200:
+            ok(f"Source MySQL full_data : {len(df_mysql)} sessions à l'échelle production")
+            X, feature_names, y_heuristic, sensor_ids = build_feature_matrix(df_mysql, augment=False)
+
+        else:
+            # ── Priorité 2 : features production depuis realtime_results.json ────
+            X_prod, feat_names_prod, y_prod = parse_features_from_realtime(REALTIME_RESULTS)
+            if len(X_prod) >= 500 and float(y_prod.mean()) >= 0.03:
+                ok(f"Source realtime_results.json : {len(X_prod)} vecteurs × 31 features")
+                X, feature_names, y_heuristic = X_prod, feat_names_prod, y_prod
+                # Pas de sensor_id disponible ici → split aléatoire par ligne (fallback
+                # dégradé, acceptable car ce chemin n'est utilisé qu'en secours).
+                sensor_ids = np.arange(len(X)).astype(str)
+            else:
+                # ── Priorité 3 : SQL file (fallback, domain gap) ──────────────
+                warn(f"MySQL indisponible + realtime insuffisant → fallback SQL ({args.sql})")
+                df_sql = parse_sql_to_dataframe(args.sql)
+                X, feature_names, y_heuristic, sensor_ids = build_feature_matrix(df_sql, augment=False)
+
+    # Recalibrer la contamination (clampé 5%-35%) sur les données originales
     global CONTAMINATION
     CONTAMINATION = round(max(0.05, min(0.35, float(y_heuristic.mean()))), 3)
     info(f"Contamination recalibree : {CONTAMINATION:.1%} ({int(y_heuristic.sum())}/{len(y_heuristic)} sessions anormales)")
 
-    # Étape 3 : Prétraitement
-    scaler, pca, X_pca, X_scaled = preprocess(X)
+    # ── Validation croisée PAR CAPTEUR (GroupKFold, anti fuite de données) ────
+    # Un split unique 80/20 sur seulement 19 capteurs est à haute variance —
+    # un tirage malchanceux peut isoler presque toutes les anomalies d'un
+    # côté. GroupKFold partitionne les capteurs en K groupes disjoints et
+    # teste chacun exactement une fois : la moyenne sur K folds est une
+    # estimation bien plus stable de la généralisation réelle.
+    head("VALIDATION CROISÉE PAR CAPTEUR (GroupKFold, anti fuite de données)")
+    from sklearn.model_selection import GroupKFold
+    n_groups = len(np.unique(sensor_ids))
+    N_SPLITS = min(3, n_groups) if n_groups >= 3 else 0
 
-    # Étape 4 : Entraîner les 4 modèles + RF supervisé (sur 31 features)
-    trained = train_models(X_pca, y_heuristic, X_scaled)
+    fold_metrics = []
+    if N_SPLITS >= 3:
+        gkf = GroupKFold(n_splits=N_SPLITS)
+        for fold_i, (train_idx, test_idx) in enumerate(gkf.split(X, y_heuristic, groups=sensor_ids), 1):
+            head(f"FOLD {fold_i}/{N_SPLITS}")
+            X_train_orig, y_train_orig = X[train_idx], y_heuristic[train_idx]
+            X_test_orig,  y_test_orig  = X[test_idx],  y_heuristic[test_idx]
+            ok(f"Train : {len(X_train_orig)} sessions ({np.unique(sensor_ids[train_idx]).size} capteurs) | "
+               f"{int(y_train_orig.sum())} anomalies ({y_train_orig.mean()*100:.1f}%)")
+            ok(f"Test  : {len(X_test_orig)} sessions ({np.unique(sensor_ids[test_idx]).size} capteurs, jamais vus) | "
+               f"{int(y_test_orig.sum())} anomalies ({y_test_orig.mean()*100:.1f}%)")
 
-    # Étape 5 : Évaluer
-    metrics = evaluate_models(trained, X_pca, y_heuristic, scaler, pca, feature_names, X_scaled)
+            X_train_aug, y_train_aug = augment_data(X_train_orig, y_train_orig)
+            scaler_f, pca_f, X_train_pca_f, X_train_scaled_f = preprocess(X_train_aug)
+            X_test_scaled_f = scaler_f.transform(X_test_orig)
+
+            trained_f = train_models(X_train_pca_f, y_train_aug, X_train_scaled_f)
+            metrics_f = evaluate_models(
+                trained_f, X_train_pca_f, y_train_aug, scaler_f, pca_f, feature_names, X_train_scaled_f,
+                X_test_scaled=X_test_scaled_f, y_test=y_test_orig,
+            )
+            if 'SoftVote_test_holdout' in metrics_f:
+                fold_metrics.append(metrics_f['SoftVote_test_holdout'])
+
+        if fold_metrics:
+            avg_metrics = {
+                k: float(np.mean([m[k] for m in fold_metrics]))
+                for k in ['f1', 'precision', 'recall', 'auc_roc', 'accuracy']
+            }
+            avg_metrics['n_anomalies'] = int(sum(m['n_anomalies'] for m in fold_metrics))
+            avg_metrics['n_total']     = int(sum(m['n_total'] for m in fold_metrics))
+            head("MOYENNE CROSS-VALIDATION (métrique officielle rapportée)")
+            for m in fold_metrics:
+                info(f"  Fold : F1={m['f1']:.4f}  Prec={m['precision']:.4f}  Recall={m['recall']:.4f}  AUC={m['auc_roc']:.4f}")
+            ok(f"MOYENNE {N_SPLITS} folds : F1={avg_metrics['f1']:.4f}  Prec={avg_metrics['precision']:.4f}  "
+               f"Recall={avg_metrics['recall']:.4f}  AUC={avg_metrics['auc_roc']:.4f}")
+        else:
+            avg_metrics = None
+            warn("Aucun fold n'a produit de métriques de test exploitables")
+    else:
+        warn(f"Seulement {n_groups} capteur(s) distinct(s) — cross-validation par groupe impossible, "
+             f"entraînement direct sur toutes les données (métriques en resubstitution)")
+        avg_metrics = None
+
+    # ── Entraînement FINAL sur TOUTES les données (production) ───────────────
+    # La CV ci-dessus sert uniquement à estimer honnêtement la généralisation.
+    # Le modèle réellement déployé est entraîné sur l'intégralité des
+    # capteurs disponibles — c'est la pratique standard (plus de données
+    # disponibles = meilleur modèle final, la CV a déjà validé l'approche).
+    head("ENTRAÎNEMENT FINAL SUR TOUTES LES DONNÉES (modèles déployés)")
+    X_full_aug, y_full_aug = augment_data(X, y_heuristic)
+    scaler, pca, X_full_pca, X_full_scaled = preprocess(X_full_aug)
+    trained = train_models(X_full_pca, y_full_aug, X_full_scaled)
+    metrics = evaluate_models(trained, X_full_pca, y_full_aug, scaler, pca, feature_names, X_full_scaled)
+
+    # Les métriques officiellement rapportées sont celles de la CV (généralisation
+    # honnête), pas celles du modèle final (resubstitution sur toutes les données).
+    if avg_metrics is not None:
+        metrics['SoftVote_test_holdout'] = avg_metrics
 
     # Étape 6 : Sauvegarder
-    save_models(trained, scaler, pca, feature_names, metrics, n_total=len(y_heuristic))
+    save_models(trained, scaler, pca, feature_names, metrics, n_total=len(y_full_aug))
 
     # ── Résumé final ──────────────────────────────────────────────────────────
     elapsed = time.time() - t_total
     head(f"TERMINÉ EN {elapsed:.1f}s")
     ok(f"4 modèles entraînés et sauvegardés dans {MODEL_DIR}/")
-    ok(f"Vote2/4 : F1={metrics.get('Vote2/4', {}).get('f1', 0):.4f}  |  Vote3/4 : F1={metrics.get('Vote3/4', {}).get('f1', 0):.4f}")
+    ok(f"Vote2/6 : F1={metrics.get('Vote2/6', {}).get('f1', 0):.4f}  |  Vote3/6 : F1={metrics.get('Vote3/6', {}).get('f1', 0):.4f}")
     ok(f"31 features V6 : +delta_vib, +delta_temp, +vib_entropy, +fft_ratio, +vib_asym_xy, +vib_asym_xz")
     info("Relance l'API : python api_unified_pythagore.py")
 

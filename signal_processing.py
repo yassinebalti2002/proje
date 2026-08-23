@@ -324,6 +324,7 @@ class BearingFaultDetector:
 
         fault_matches = {}
         fault_severity = {}
+        nyquist = fs / 2.0
 
         for fault_name, base_freq in [
             ("BPFO", fault_freqs["bpfo_hz"]),
@@ -331,6 +332,16 @@ class BearingFaultDetector:
             ("BSF",  fault_freqs["bsf_hz"]),
             ("FTF",  fault_freqs["ftf_hz"]),
         ]:
+            # Une fréquence de défaut au-delà de fs/2 (Nyquist) ne PEUT PAS
+            # apparaître dans le spectre, quel que soit l'état réel du
+            # roulement : cumulative_snr sera toujours 0 par construction
+            # (aucun bin de env_freqs n'existe à cette fréquence). Sans ce
+            # marqueur, un SNR=0 se lit à tort comme "défaut absent" alors
+            # que c'est en réalité "non mesurable avec ce fs" -- ambiguïté
+            # observée en pratique avec fs=100Hz (Nyquist=50Hz) et un moteur
+            # à 1450 tr/min, où BPFO/BPFI/BSF dépassent tous 50Hz.
+            measurable = bool(base_freq <= nyquist)
+
             harmonic_energies = []
             for h in range(1, harmonics + 1):
                 hf = base_freq * h
@@ -348,8 +359,12 @@ class BearingFaultDetector:
                 "harmonics_snr":  [round(v, 3) for v in harmonic_energies],
                 "cumulative_snr": round(cumulative_snr, 3),
                 "detected":       cumulative_snr > 2.5,  # Seuil SNR 2.5x bruit moyen
+                "measurable":     measurable,
             }
-            fault_severity[fault_name] = cumulative_snr
+            # Une fréquence non mesurable n'entre pas en compte pour la
+            # sévérité/le défaut dominant (son SNR est structurellement 0,
+            # pas une preuve d'absence de défaut).
+            fault_severity[fault_name] = cumulative_snr if measurable else 0.0
 
         # Niveau de sévérité global
         max_snr = max(fault_severity.values()) if fault_severity else 0.0

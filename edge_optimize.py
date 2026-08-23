@@ -512,7 +512,7 @@ class EdgeInferenceEngine:
 
             return {
                 "is_anomaly":   is_anomaly,
-                "anomaly_score": round(min(1.0, score), 4),
+                "anomaly_score": round(max(0.0, min(1.0, score)), 4),
                 "prediction":   "ANOMALY" if is_anomaly else "NORMAL",
                 "source":       "edge_local",
                 "confidence":   0.5 if is_anomaly else 0.25,  # IF seul = confiance réduite
@@ -752,7 +752,7 @@ services:
       - ./data:/app/data
     environment:
       - API_URL=http://api-edge:8000
-      - IFM_GATEWAY_URL=http://192.168.1.50
+      - IFM_GATEWAY_URL=http://<IP_GATEWAY_IFM_A_RENSEIGNER>
       - POLL_INTERVAL=2
     mem_limit: 256m
 

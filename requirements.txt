@@ -9,7 +9,18 @@ joblib==1.4.2
 pyod==2.0.0
 mysql-connector-python==8.4.0
 requests==2.32.3
-scipy
+scipy==1.13.1
+
+# ── Sécurité production ────────────────────────────────────────────────────────
+python-dotenv==1.0.1
+cryptography==43.0.1   # generate_selfsigned_cert.py (TLS/HTTPS local ou reseau interne)
+bcrypt==4.2.0           # hash des mots de passe utilisateurs (user_auth.py)
+PyJWT==2.9.0            # tokens de session utilisateurs (user_auth.py)
+email-validator==2.2.0  # requis par pydantic EmailStr (user_auth.py)
+
+# ── Tests ─────────────────────────────────────────────────────────────────────
+pytest==8.3.5
+httpx==0.27.0
 
 # ── Modules optionnels pour fonctionnalités avancées ──────────────────────────
 

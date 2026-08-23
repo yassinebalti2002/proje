@@ -104,8 +104,8 @@ case $CHOICE in
         read -p "IP MariaDB [192.168.1.50] : " HOST
         HOST=${HOST:-192.168.1.50}
         
-        read -p "Utilisateur [root] : " USER
-        USER=${USER:-root}
+        read -p "Utilisateur [app_user] : " USER
+        USER=${USER:-app_user}
         
         read -p "Base de données [ai_cp] : " DB
         DB=${DB:-ai_cp}

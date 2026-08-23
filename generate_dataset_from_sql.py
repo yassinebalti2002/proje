@@ -70,13 +70,24 @@ def parse_sql_chunked(sql_path: str, max_bytes: int = None) -> list:
     Lit le fichier SQL par morceaux de 50 MB pour éviter les problèmes de RAM.
 
     Ce que fait la gateway IFM :
-      Elle envoie 3 messages séparés pour chaque mesure :
+      Elle envoie 3 messages séparés pour chaque mesure haute fréquence (gph
+      'temperature' / 'vibration_x' / 'vibration_y') :
         Ligne 1 (type Z) : {"Temperature":22.64, "Vibration":{"RMS":{"Z":3}}, "MeasDetails":{"Id":186}}
         Ligne 2 (type X) : {"Vibration":{"RMS":{"X":4}}, "MeasDetails":{"Id":186}}
         Ligne 3 (type Y) : {"Vibration":{"RMS":{"Y":2}}, "MeasDetails":{"Id":186}}
 
       Le champ MeasDetails.Id est le même pour les 3 lignes d'une même mesure.
       C'est la clé de consolidation.
+
+      En plus de ce flux, elle envoie périodiquement (~1x/heure/capteur) une
+      mesure "on-demand" séparée (gph 'acceleration' ou 'acceleration,temperature')
+      qui porte les accélérations sur l'axe Y :
+        {"Vibration":{"A-P2P":{"Y":756},"A-Z2P":{"Y":390},"Crest":{"Y":311},"A-RMS":{"Y":125}},
+         "mesure":{"x":472,"y":694,"z":577,"temperature":29.74}, ...}
+      Cette ligne a son propre horodatage (pas aligné avec le flux Z/X/Y) et
+      porte directement x/y/z/température dans "mesure" (2 formats rencontrés :
+      valeur brute, ou {"value":..., "date_server":...}) — elle forme donc sa
+      propre mesure complète plutôt que de se fusionner avec le flux principal.
 
     Ce script :
       1. Parse toutes les lignes 'res' du SQL
@@ -120,6 +131,112 @@ def parse_sql_chunked(sql_path: str, max_bytes: int = None) -> list:
     total_parsed = 0
     t0 = time.time()
 
+    def parse_block(to_parse: str) -> None:
+        """Parse toutes les lignes 'res' d'un morceau de texte SQL, met à jour
+        sessions/total_lines/total_parsed (via nonlocal)."""
+        nonlocal total_lines, total_parsed
+        for match in pattern.finditer(to_parse):
+            ts  = match.group(1)
+            raw = match.group(2)
+            total_lines += 1
+
+            try:
+                # Dé-échapper les guillemets SQL \" → "
+                raw_clean = raw.replace('\\"', '"')
+                d = json.loads(raw_clean)
+            except json.JSONDecodeError:
+                continue
+
+            sid = d.get("SensorNodeId", "")
+            mid = d.get("MeasDetails", {}).get("Id", "")
+
+            if not sid or mid == "":
+                continue
+
+            key = (sid, ts)   # CLÉ CORRIGÉE — MeasDetails.Id est cyclique
+            vib_root = d.get("Vibration", {})
+            vib = vib_root.get("RMS", {})
+            md  = d.get("MeasDetails", {})
+
+            # Température + vib_z (ligne principale)
+            if "Temperature" in d:
+                sessions[key]["sid"]  = sid
+                sessions[key]["ts"]   = ts
+                sessions[key]["temp"] = float(d["Temperature"])
+                if "Z" in vib:
+                    sessions[key]["vib_z"] = float(vib["Z"])
+
+            # Vib_x (ligne secondaire X)
+            if "X" in vib:
+                sessions[key]["vib_x"] = float(vib["X"])
+                if "sid" not in sessions[key]:
+                    sessions[key]["sid"] = sid
+                    sessions[key]["ts"]  = ts
+
+            # Vib_y (ligne secondaire Y)
+            if "Y" in vib:
+                sessions[key]["vib_y"] = float(vib["Y"])
+                if "sid" not in sessions[key]:
+                    sessions[key]["sid"] = sid
+                    sessions[key]["ts"]  = ts
+
+            # Accélérations — vivent dans Vibration.{A-P2P,A-Z2P,Crest,A-RMS}.Y
+            # (un seul axe Y transmis par la gateway), PAS dans MeasDetails ni
+            # à la racine du JSON. Repéré en inspectant "ai_cp (5).sql" : ex.
+            # {"Vibration":{"A-P2P":{"Y":756},"A-Z2P":{"Y":390},"Crest":{"Y":311},
+            # "A-RMS":{"Y":125}}, ...} — les anciens `if src_key in md / in d`
+            # ne matchaient donc jamais et laissaient acc_* à 0.0 en permanence.
+            for src_key, dst_key in [
+                ("A-P2P",  "acc_p2p"),
+                ("A-Z2P",  "acc_z2p"),
+                ("Crest",  "acc_crest"),
+                ("A-RMS",  "acc_rms"),
+            ]:
+                sub = vib_root.get(src_key)
+                if isinstance(sub, dict):
+                    val = sub.get("Y", sub.get("X", sub.get("Z")))
+                    if val is not None:
+                        sessions[key][dst_key] = float(val)
+                elif isinstance(sub, (int, float)):
+                    sessions[key][dst_key] = float(sub)
+                elif src_key in md:       # formats hérités, gardés par sécurité
+                    sessions[key][dst_key] = float(md[src_key])
+                elif src_key in d:
+                    sessions[key][dst_key] = float(d[src_key])
+
+            # Lignes "acceleration" — mesure on-demand autonome, envoyée avec
+            # son propre horodatage (pas aligné avec le flux temp/vib_x/vib_y
+            # haute fréquence). Elle porte x/y/z/température dans une sous-clé
+            # "mesure", sous deux formats observés dans le dump :
+            #   ancien   : {"mesure": {"x":472, "y":694, "z":577, "temperature":29.74, ...}}
+            #   nouveau  : {"mesure": {"x":{"value":4,"date_server":...}, ...}}
+            # Sans ça, ces ~38k lignes (seule source réelle de acc_p2p/z2p/
+            # crest/rms non nulles) étaient rejetées faute de "temp"/"vib_z"
+            # au sens du filtre de l'étape 2 (elles n'ont pas de "Temperature"
+            # ni de "Vibration.RMS" à la racine).
+            mesure = d.get("mesure")
+            if isinstance(mesure, dict):
+                def _mval(v):
+                    return v.get("value") if isinstance(v, dict) else v
+
+                m_temp = _mval(mesure.get("temperature"))
+                m_x    = _mval(mesure.get("x"))
+                m_y    = _mval(mesure.get("y"))
+                m_z    = _mval(mesure.get("z"))
+
+                if m_temp is not None:
+                    sessions[key]["sid"]  = sid
+                    sessions[key]["ts"]   = ts
+                    sessions[key]["temp"] = float(m_temp)
+                if m_z is not None:
+                    sessions[key]["vib_z"] = float(m_z)
+                if m_x is not None:
+                    sessions[key]["vib_x"] = float(m_x)
+                if m_y is not None:
+                    sessions[key]["vib_y"] = float(m_y)
+
+            total_parsed += 1
+
     with open(sql_path, "rb") as f:
         buffer = b""
 
@@ -149,64 +266,7 @@ def parse_sql_chunked(sql_path: str, max_bytes: int = None) -> list:
                 to_parse = text
                 buffer   = b""
 
-            # Parser toutes les lignes 'res' dans ce morceau
-            for match in pattern.finditer(to_parse):
-                ts  = match.group(1)
-                raw = match.group(2)
-                total_lines += 1
-
-                try:
-                    # Dé-échapper les guillemets SQL \" → "
-                    raw_clean = raw.replace('\\"', '"')
-                    d = json.loads(raw_clean)
-                except json.JSONDecodeError:
-                    continue
-
-                sid = d.get("SensorNodeId", "")
-                mid = d.get("MeasDetails", {}).get("Id", "")
-
-                if not sid or mid == "":
-                    continue
-
-                key = (sid, ts)   # CLÉ CORRIGÉE — MeasDetails.Id est cyclique
-                vib = d.get("Vibration", {}).get("RMS", {})
-                md  = d.get("MeasDetails", {})
-
-                # Température + vib_z (ligne principale)
-                if "Temperature" in d:
-                    sessions[key]["sid"]  = sid
-                    sessions[key]["ts"]   = ts
-                    sessions[key]["temp"] = float(d["Temperature"])
-                    if "Z" in vib:
-                        sessions[key]["vib_z"] = float(vib["Z"])
-
-                # Vib_x (ligne secondaire X)
-                if "X" in vib:
-                    sessions[key]["vib_x"] = float(vib["X"])
-                    if "sid" not in sessions[key]:
-                        sessions[key]["sid"] = sid
-                        sessions[key]["ts"]  = ts
-
-                # Vib_y (ligne secondaire Y)
-                if "Y" in vib:
-                    sessions[key]["vib_y"] = float(vib["Y"])
-                    if "sid" not in sessions[key]:
-                        sessions[key]["sid"] = sid
-                        sessions[key]["ts"]  = ts
-
-                # Accélérations (parfois dans MeasDetails ou dans data direct)
-                for src_key, dst_key in [
-                    ("A-P2P",  "acc_p2p"),
-                    ("A-Z2P",  "acc_z2p"),
-                    ("Crest",  "acc_crest"),
-                    ("A-RMS",  "acc_rms"),
-                ]:
-                    if src_key in md:
-                        sessions[key][dst_key] = float(md[src_key])
-                    elif src_key in d:
-                        sessions[key][dst_key] = float(d[src_key])
-
-                total_parsed += 1
+            parse_block(to_parse)
 
             # Affichage progression
             pct = total_read / sql_file.stat().st_size * 100
@@ -218,6 +278,16 @@ def parse_sql_chunked(sql_path: str, max_bytes: int = None) -> list:
                 f"{elapsed:.0f}s",
                 end="\r"
             )
+
+        # Traiter le reliquat du buffer — sans ce bloc, la fin du fichier SQL
+        # est silencieusement perdue quand il ne se termine pas par un '\n'
+        # (cas fréquent avec un dump mysqldump/phpMyAdmin terminant sur ';').
+        if buffer:
+            try:
+                tail_text = buffer.decode("utf-8", errors="replace")
+            except Exception:
+                tail_text = buffer.decode("latin-1", errors="replace")
+            parse_block(tail_text)
 
     print()  # Nouvelle ligne après \r
     elapsed = time.time() - t0

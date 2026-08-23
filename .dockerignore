@@ -11,11 +11,8 @@ tests/
 *.bat
 *.sh
 *.sql
-realtime_mariadb.py
 realtime_simulator.py
 realtime_ifm_direct.py
-generate_dataset_from_sql.py
-train_model_v3_unsupervised.py
 retrain_from_real_data.py
 edge_optimize.py
 train_ecod_only.py

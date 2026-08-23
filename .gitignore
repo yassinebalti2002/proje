@@ -15,6 +15,17 @@ logs_moteur.txt
 logs_api.txt
 logs_http.txt
 api_test_output.log
+audit.log
+watchdog.log
+training_log.txt
+
+# Sauvegardes ponctuelles de données (avant/après correctifs)
+*.bak_*
+
+# Scripts generes par LANCER.bat a chaque lancement
+_run_api.bat
+_run_moteur.bat
+_run_dashboard.bat
 
 # Fichiers runtime (générés au démarrage)
 realtime_results.json
@@ -26,16 +37,42 @@ test_report.json
 # Dataset trop volumineux pour GitHub (30 MB)
 data/dataset_real_full.csv
 
+# Sauvegardes locales de modèles (avant/après corrections, tests de pipeline) —
+# jamais destinées à être versionnées (trop volumineux, purement locales)
+models_backup_before_leakage_fix/
+models_backup_*/
+models_bad_*/
+
+# Dumps SQL réels/de test (trop volumineux pour Git, données capteurs réelles)
+*.sql
+
 # Fichiers marqueurs vides
 REPLAY SQL*
 TEMPS REEL*
 
-# Fichiers non utilisés
-api_client.py
-fix_mariadb.py
+# Scripts obsoletes / fichiers non utilises + sauvegardes non documentees
+# (deplaces depuis la racine le 27/07/2026 : train_ecod_only.py,
+# retrain_from_real_data.py, fix_mariadb.py, api_client.py,
+# models_backup_pre_stacking_20260717_161446/ -- voir DOCUMENTATION.md)
+_archive/
 
-# Configuration sensible (credentials MariaDB — NE PAS versionner)
-config.py
+# Configuration sensible (credentials MariaDB, clés API — NE PAS versionner)
+# config.py est versionné : il ne contient plus de secret en dur (mot de passe
+# lu depuis l'env, voir load_dotenv() dans le fichier) et Dockerfile/Render en
+# ont besoin au build — sans ça le build casse sur un clone Git propre.
+.env
+*.env
+!.env.example
+
+# Certificats TLS (cle privee -- ne JAMAIS versionner)
+certs/
+*.key
+*.crt
+!*.example.crt
+
+# Config alertes — peut contenir mot de passe SMTP / token Twilio une fois rempli
+alert_config.json
+!alert_config.example.json
 
 # IDE
 .vscode/
