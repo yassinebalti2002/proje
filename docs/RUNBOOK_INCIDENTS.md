@@ -35,10 +35,10 @@ Endpoints de diagnostic :
 | Modèles chargés | Champ `models_loaded` dans la réponse ci-dessus |
 | Métriques modèle actuel | `curl http://localhost:8000/metrics` (nécessite une clé) |
 | Traçabilité complète (model card) | `curl http://localhost:8000/v1/model-card` |
-| Logs API | `type logs_api.txt` |
-| Logs moteur temps réel | `type logs_moteur.txt` |
-| Journal d'audit (qui a fait quoi) | `type audit.log` |
-| Journal du watchdog | `type watchdog.log` |
+| Logs API | `type logs\logs_api.txt` |
+| Logs moteur temps réel | `type logs\logs_moteur.txt` |
+| Journal d'audit (qui a fait quoi) | `type logs\audit.log` |
+| Journal du watchdog | `type logs\watchdog.log` |
 
 ---
 
@@ -52,7 +52,7 @@ par défaut).
 
 **Diagnostic** :
 1. Le processus tourne-t-il ? `Get-Process python` (Windows) / `ps aux | grep api_unified`
-2. Consulter `logs_api.txt` — chercher une exception Python en fin de fichier
+2. Consulter `logs\logs_api.txt` — chercher une exception Python en fin de fichier
 3. Le port 8000 est-il déjà utilisé par un autre processus ?
 
 **Résolution** :
@@ -64,7 +64,7 @@ par défaut).
 
 ### 3.2 MariaDB injoignable
 
-**Symptôme** : moteur temps réel (`logs_moteur.txt`) affiche des erreurs de connexion
+**Symptôme** : moteur temps réel (`logs\logs_moteur.txt`) affiche des erreurs de connexion
 répétées ; watchdog alerte "MariaDB injoignable".
 
 **Diagnostic** :
@@ -100,14 +100,14 @@ répétées ; watchdog alerte "MariaDB injoignable".
 
 ### 3.4 Espace disque saturé
 
-**Symptôme** : écritures qui échouent, `logs_api.txt` très volumineux.
+**Symptôme** : écritures qui échouent, `logs\logs_api.txt` très volumineux.
 
-**Diagnostic** : `Get-ChildItem *.log,*.txt | Sort Length -desc` (Windows) pour
+**Diagnostic** : `Get-ChildItem logs\*.log,logs\*.txt | Sort Length -desc` (Windows) pour
 identifier les gros fichiers.
 
 **Résolution** :
-- Purger/archiver les anciens logs (`logs_api.txt`, `logs_moteur.txt`,
-  `watchdog.log`, `audit.log`) — pas de rotation automatique actuellement, à
+- Purger/archiver les anciens logs (`logs\logs_api.txt`, `logs\logs_moteur.txt`,
+  `logs\watchdog.log`, `logs\audit.log`) — pas de rotation automatique actuellement, à
   mettre en place si le volume devient un problème récurrent
 - `realtime_results.json` et `anomaly_history_persist.json` sont auto-bornés
   (50 entrées/capteur) et ne devraient pas croître indéfiniment
@@ -117,7 +117,7 @@ identifier les gros fichiers.
 **Procédure** :
 1. Retirer la clé de la variable `API_KEYS` ou `API_KEYS_OPERATOR` dans `.env`
 2. Redémarrer l'API (ou appeler le rechargement à chaud si exposé)
-3. Vérifier dans `audit.log` l'historique d'utilisation de cette clé (recherche
+3. Vérifier dans `logs\audit.log` l'historique d'utilisation de cette clé (recherche
    par empreinte, jamais la clé en clair n'y figure)
 4. Générer et distribuer une nouvelle clé : `python -c "import secrets; print(secrets.token_hex(32))"`
 

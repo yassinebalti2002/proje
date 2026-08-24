@@ -61,7 +61,7 @@ python -c "import secrets; print(secrets.token_hex(32))"
 - Clé opérateur sur un endpoint admin-only → **403** `Cette opération nécessite une clé API de niveau admin.`
 - Aucune clé configurée côté serveur (`API_KEYS` et `API_KEYS_OPERATOR` vides) → **503** (fail-closed : l'API refuse tout plutôt que de s'ouvrir par erreur)
 
-Chaque tentative (succès/échec) est journalisée dans `audit.log` (JSON Lines) avec un
+Chaque tentative (succès/échec) est journalisée dans `logs/audit.log` (JSON Lines) avec un
 timestamp, le résultat (`GRANTED`/`DENIED`/`FORBIDDEN`), le rôle, l'IP, la méthode, le
 chemin, et une **empreinte SHA-256 tronquée** de la clé (jamais la clé en clair).
 

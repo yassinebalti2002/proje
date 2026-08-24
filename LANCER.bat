@@ -11,6 +11,7 @@ echo ============================================================
 echo.
 
 cd /d %~dp0
+if not exist "logs\" mkdir "logs"
 
 REM ── Lecture .env (host, user, database, API_KEYS) ────────────────────────────
 set DB_HOST=localhost
@@ -110,7 +111,7 @@ if "!MARIADB_UP!"=="1" (
     if "!MARIADB_UP!"=="1" (
         echo        OK : MariaDB demarre
     ) else (
-        echo        ATTENTION : MariaDB ne repond pas apres 15s - verifie logs_moteur.txt
+        echo        ATTENTION : MariaDB ne repond pas apres 15s - verifie logs\logs_moteur.txt
     )
 ) else (
     echo        ATTENTION : MariaDB introuvable a "!MYSQLD_EXE!"
@@ -150,9 +151,9 @@ echo.
 echo --- Reinitialisation ---
 echo [] > realtime_results.json
 echo {} > anomaly_history_persist.json
-type nul > logs_api.txt
-type nul > logs_moteur.txt
-type nul > logs_http.txt
+type nul > logs\logs_api.txt
+type nul > logs\logs_moteur.txt
+type nul > logs\logs_http.txt
 echo        OK
 
 REM ── Lancement ────────────────────────────────────────────────────────────────
@@ -170,30 +171,30 @@ REM qui passait par cmd /c "call activate.bat && ...").
 (
     echo @echo off
     echo cd /d "%%~dp0"
-    echo venv\Scripts\python.exe api_unified_pythagore.py ^> logs_api.txt 2^>^&1
+    echo venv\Scripts\python.exe api_unified_pythagore.py ^> logs\logs_api.txt 2^>^&1
 ) > "%~dp0_run_api.bat"
 start "API FastAPI" /min "%~dp0_run_api.bat"
 
 echo        Attente 15 secondes...
 timeout /t 15 /nobreak >nul
-python -c "import urllib.request; urllib.request.urlopen('http://localhost:8000/health',timeout=5)" >nul 2>&1 && echo        OK : API operationnelle || echo        ATTENTION : API lente (voir logs_api.txt)
+python -c "import urllib.request; urllib.request.urlopen('http://localhost:8000/health',timeout=5)" >nul 2>&1 && echo        OK : API operationnelle || echo        ATTENTION : API lente (voir logs\logs_api.txt)
 
 echo.
 echo [2/3] Moteur       -^> !MODE_LABEL!
 (
     echo @echo off
     echo cd /d "%%~dp0"
-    echo venv\Scripts\python.exe realtime_mariadb.py --host !DB_HOST! --user !DB_USER! --password !DB_PASS! --database !DB_NAME! !EXTRA_ARGS! ^> logs_moteur.txt 2^>^&1
+    echo venv\Scripts\python.exe realtime_mariadb.py --host !DB_HOST! --user !DB_USER! --password !DB_PASS! --database !DB_NAME! !EXTRA_ARGS! ^> logs\logs_moteur.txt 2^>^&1
 ) > "%~dp0_run_moteur.bat"
 start "Moteur donnees" /min "%~dp0_run_moteur.bat"
-echo        Logs : logs_moteur.txt
+echo        Logs : logs\logs_moteur.txt
 
 echo.
 echo [3/3] Dashboard    -^> http://localhost:3000
 (
     echo @echo off
     echo cd /d "%%~dp0"
-    echo venv\Scripts\python.exe -m http.server 3000 ^> logs_http.txt 2^>^&1
+    echo venv\Scripts\python.exe -m http.server 3000 ^> logs\logs_http.txt 2^>^&1
 ) > "%~dp0_run_dashboard.bat"
 start "Dashboard" /min "%~dp0_run_dashboard.bat"
 
@@ -222,9 +223,9 @@ REM ── Surveillance logs ─────────────────
 :watch_loop
 echo --- %time% --- !MODE_LABEL! ---
 echo [API]
-powershell -command "if(Test-Path 'logs_api.txt'){Get-Content 'logs_api.txt' -Tail 2 -EA SilentlyContinue|%%{'   '+$_}}"
+powershell -command "if(Test-Path 'logs\logs_api.txt'){Get-Content 'logs\logs_api.txt' -Tail 2 -EA SilentlyContinue|%%{'   '+$_}}"
 echo [MOTEUR]
-powershell -command "if(Test-Path 'logs_moteur.txt'){Get-Content 'logs_moteur.txt' -Tail 3 -EA SilentlyContinue|%%{'   '+$_}}"
+powershell -command "if(Test-Path 'logs\logs_moteur.txt'){Get-Content 'logs\logs_moteur.txt' -Tail 3 -EA SilentlyContinue|%%{'   '+$_}}"
 echo.
 timeout /t 5 /nobreak >nul
 goto watch_loop

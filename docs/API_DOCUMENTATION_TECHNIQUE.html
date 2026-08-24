@@ -246,7 +246,7 @@ aux attaques temporelles.</p>
 <tr><td>Aucune clé configurée côté serveur</td><td>503</td><td>Fail-closed — l'API refuse tout plutôt que de s'ouvrir par erreur</td></tr>
 </table>
 
-<p>Chaque tentative (succès/échec) est journalisée dans <code>audit.log</code> (JSON Lines) avec
+<p>Chaque tentative (succès/échec) est journalisée dans <code>logs/audit.log</code> (JSON Lines) avec
 horodatage, résultat (<code>GRANTED</code>/<code>DENIED</code>/<code>FORBIDDEN</code>), rôle, IP,
 méthode, chemin, et une <strong>empreinte SHA-256 tronquée</strong> de la clé — jamais la clé en
 clair.</p>

@@ -10,7 +10,7 @@ Fonctionnement :
   - Les endpoints "opérateur" (prédiction, consultation) acceptent les deux rôles
   - Les endpoints "admin" (déclenchement de ré-entraînement) exigent le rôle admin
   - Chaque tentative d'authentification (succès ou échec) est journalisée dans
-    audit.log — sans jamais écrire la clé en clair (seulement une empreinte
+    logs/audit.log — sans jamais écrire la clé en clair (seulement une empreinte
     courte, suffisante pour corréler "quelle clé" sans pouvoir la reconstituer)
 
 Configuration (variables d'environnement) :
@@ -38,7 +38,8 @@ log = logging.getLogger("auth")
 _HEADER_NAME = os.getenv("API_KEY_HEADER", "X-API-Key")
 _api_key_header = APIKeyHeader(name=_HEADER_NAME, auto_error=False)
 
-AUDIT_LOG_PATH = Path(os.getenv("AUDIT_LOG_PATH", "audit.log"))
+AUDIT_LOG_PATH = Path(os.getenv("AUDIT_LOG_PATH", "logs/audit.log"))
+AUDIT_LOG_PATH.parent.mkdir(parents=True, exist_ok=True)
 
 ROLE_ADMIN = "admin"
 ROLE_OPERATOR = "operator"
@@ -123,7 +124,7 @@ def _audit(result: str, request: Request | None, api_key: str, role: str | None)
         with AUDIT_LOG_PATH.open("a", encoding="utf-8") as f:
             f.write(json.dumps(entry, ensure_ascii=False) + "\n")
     except Exception as e:
-        log.warning(f"Écriture audit.log échouée : {e}")
+        log.warning(f"Écriture {AUDIT_LOG_PATH} échouée : {e}")
 
 
 # ══════════════════════════════════════════════════════════════════════════

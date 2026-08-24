@@ -42,11 +42,12 @@ if hasattr(sys.stdout, "buffer") and getattr(sys.stdout, "encoding", "utf-8").lo
 if hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(line_buffering=True)
 
+Path("logs").mkdir(exist_ok=True)
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [MARIADB] %(message)s",
     handlers=[
-        logging.FileHandler("realtime_mariadb.log", encoding="utf-8"),
+        logging.FileHandler("logs/realtime_mariadb.log", encoding="utf-8"),
         logging.StreamHandler(sys.stdout),
     ]
 )

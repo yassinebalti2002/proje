@@ -13,7 +13,7 @@ Fonctionnement :
     - Vérifie aussi la connectivité TCP vers MariaDB (port 3306 par défaut)
     - Après --fail-threshold échecs consécutifs (défaut 3, soit ~90s), déclenche
       une alerte via AlertManager (email/webhook/SMS, mêmes canaux que les
-      alertes capteurs) et l'écrit dans watchdog.log
+      alertes capteurs) et l'écrit dans logs/watchdog.log
     - Revient à la normale -> log un message de rétablissement (pas d'alerte
       de plus, évite le double bruit)
 
@@ -33,12 +33,13 @@ import urllib.error
 from datetime import datetime
 from pathlib import Path
 
+Path("logs").mkdir(exist_ok=True)
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [WATCHDOG] %(message)s",
     datefmt="%H:%M:%S",
     handlers=[
-        logging.FileHandler("watchdog.log", encoding="utf-8"),
+        logging.FileHandler("logs/watchdog.log", encoding="utf-8"),
         logging.StreamHandler(),
     ],
 )

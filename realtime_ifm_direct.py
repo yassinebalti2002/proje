@@ -40,11 +40,12 @@ from collections import deque, defaultdict
 from datetime import datetime
 from pathlib import Path
 
+Path("logs").mkdir(exist_ok=True)
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [IFM_DIRECT] %(message)s",
     handlers=[
-        logging.FileHandler("realtime_ifm_direct.log", encoding="utf-8"),
+        logging.FileHandler("logs/realtime_ifm_direct.log", encoding="utf-8"),
         logging.StreamHandler(sys.stdout),
     ]
 )
