@@ -58,6 +58,8 @@ RUN pip install --no-cache-dir --upgrade pip \
 
 # Code source
 COPY api_unified_pythagore.py .
+COPY core.py .
+COPY routers/ ./routers/
 COPY auth.py .
 COPY user_auth.py .
 COPY rate_limiter.py .

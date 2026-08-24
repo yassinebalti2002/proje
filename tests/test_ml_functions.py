@@ -23,7 +23,7 @@ import numpy as np
 os.environ.setdefault("API_KEYS", "test-key-unit")
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 
-import api_unified_pythagore as api
+import core as api
 
 
 # ══════════════════════════════════════════════════════════════════════════════

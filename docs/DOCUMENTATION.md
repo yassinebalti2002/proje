@@ -67,7 +67,9 @@ realtime_mariadb.py                    realtime_ifm_direct.py (alternative)
 ## 2. Structure du projet
 
 ```
-api_unified_pythagore.py     API FastAPI — point d'entrée principal (2400+ lignes)
+api_unified_pythagore.py     Point d'entrée — assemble l'app FastAPI depuis routers/ (~170 lignes)
+core.py                      État partagé + logique métier : features, ensemble ML, calcul RUL
+routers/                     Un fichier par domaine d'endpoints (predict, pipeline, data, alerts...)
 auth.py                      Authentification X-API-Key
 rate_limiter.py              Rate limiting in-memory par IP
 config.py                    Config centrale (MariaDB, IFM) — jamais commité (.gitignore)
@@ -78,21 +80,15 @@ realtime_mariadb.py          Moteur temps réel — polling MariaDB
 realtime_ifm_direct.py       Moteur temps réel — lecture directe gateway IFM
 realtime_simulator.py        Simulateur de données (démo uniquement)
 gateway_ifm_simulator.py     Émule les endpoints HTTP d'une vraie gateway IFM
-api_client.py                Client HTTP partagé (retry, X-API-Key)
 train_model_v3_unsupervised.py  Entraînement des 6 modèles de détection
 train_rul_model.py           Entraînement du modèle RUL (GradientBoosting)
-train_ecod_only.py           Script auxiliaire — OBSOLÈTE (schéma 25 features, garde-fou bloquant)
-retrain_from_real_data.py    Script auxiliaire — formule health_score divergente, à ne pas utiliser tel quel
 edge_optimize.py             Export/optimisation modèles pour déploiement embarqué (Raspberry Pi)
 generate_dataset_from_sql.py Parsing d'un dump SQL → CSV
-generate_architecture_diagram.py  Génère le diagramme d'architecture (image statique)
-fix_mariadb.py               Script de patch ponctuel, déjà appliqué — non idempotent, ne pas relancer
 dashboard_predictive.html    Dashboard SCADA HTML5 (mode predictif)
 dashboard_realtime.html      Dashboard SCADA HTML5 (mode temps réel brut)
 pipeline_upload.html         Interface web : upload SQL → parse → entraîne → recharge
-tests/                       36 tests unitaires ML + 18 sécurité + 8 intégration
+tests/                       43 tests unitaires ML + 18 sécurité + intégration
 models/                      Artefacts entraînés (.pkl, scaler, PCA, seuils, métriques)
-models_backup_before_leakage_fix/  Sauvegarde des modèles d'avant la correction du data leakage
 ```
 
 ---

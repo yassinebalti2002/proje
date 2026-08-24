@@ -260,7 +260,9 @@ Fenêtre glissante : **w = 20**, pas **s = 3** — normalisées par `RobustScale
 
 ```
 proje/
-├── api_unified_pythagore.py        # API FastAPI v3.1.0 — point d'entrée principal
+├── api_unified_pythagore.py        # Point d'entrée — assemble l'app FastAPI depuis routers/
+├── core.py                         # État partagé + logique métier (features, ensemble ML, RUL)
+├── routers/                        # Un fichier par domaine d'endpoints (predict, pipeline, data...)
 ├── signal_processing.py            # FFT, enveloppe, BPFO/BPFI/BSF, wavelet
 ├── train_rul_model.py              # GradientBoostingRegressor RUL (46 features)
 ├── train_model_v3_unsupervised.py  # Entraînement 6 modèles (contamination 20 %)
