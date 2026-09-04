@@ -372,6 +372,49 @@ class AlertManager:
             log.error(f"Email : erreur inattendue : {e}")
         return False
 
+    def send_generic_email(self, to: str, subject: str, html_body: str, text_body: str = None) -> bool:
+        """
+        Envoie un email HTML/texte arbitraire via le même compte SMTP que les
+        alertes capteurs (alert_config.json), sans passer par le contexte
+        d'alerte (sensor_id/risk_level/...). Utilisé par ex. par user_auth.py
+        pour les emails de réinitialisation de mot de passe.
+
+        Contrairement à _send_email(), ignore email.enabled : un email de
+        récupération de compte est une fonctionnalité d'authentification de
+        base, pas une notification de surveillance optionnelle -- tant que
+        les identifiants SMTP sont renseignés, l'envoi est tenté.
+        """
+        cfg = self.config.get("email", {})
+        if not cfg.get("sender") or not cfg.get("password"):
+            log.warning("Email générique non envoyé — SMTP non configuré (sender/password vides)")
+            return False
+
+        try:
+            msg = MIMEMultipart("alternative")
+            msg["Subject"] = subject
+            msg["From"]    = cfg["sender"]
+            msg["To"]      = to
+            if text_body:
+                msg.attach(MIMEText(text_body, "plain", "utf-8"))
+            msg.attach(MIMEText(html_body, "html", "utf-8"))
+
+            with smtplib.SMTP(cfg["smtp_host"], cfg["smtp_port"]) as server:
+                server.ehlo()
+                server.starttls()
+                server.login(cfg["sender"], cfg["password"])
+                server.sendmail(cfg["sender"], [to], msg.as_bytes())
+
+            log.info(f"✅ Email envoyé → {to}")
+            return True
+
+        except smtplib.SMTPAuthenticationError:
+            log.error("Email générique : erreur d'authentification SMTP")
+        except smtplib.SMTPException as e:
+            log.error(f"Email générique : erreur SMTP : {e}")
+        except Exception as e:
+            log.error(f"Email générique : erreur inattendue : {e}")
+        return False
+
     def _build_email_text(self, ctx: dict) -> str:
         """Version texte brut de l'alerte (fallback email)."""
         rul_str = f"{ctx['rul_hours']:.0f}h ({ctx['rul_days']}j)" if ctx.get('rul_hours') else "N/A"

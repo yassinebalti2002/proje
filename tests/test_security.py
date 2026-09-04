@@ -150,7 +150,7 @@ class TestAuthentification:
 # ══════════════════════════════════════════════════════════════════════════════
 
 class TestRateLimiting:
-    def test_predict_rate_limit_429(self, base):
+    def test_sensors_rate_limit_429(self, base):
         """
         65 requêtes SIMULTANÉES sur /sensors (limite 60/minute) → au moins une doit
         retourner 429.

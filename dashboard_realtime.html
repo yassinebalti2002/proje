@@ -4,6 +4,8 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Maintenance Prédictive — ISG Bizerte</title>
+<script src="theme-toggle.js"></script>
+<link rel="stylesheet" href="theme-toggle.css">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
 <style>
   @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap');
@@ -28,6 +30,23 @@
     --r:      8px;
   }
 
+  :root[data-theme="light"] {
+    --bg:     #ffffff;
+    --bg2:    #f6f8fa;
+    --bg3:    #eaeef2;
+    --bg4:    #d0d7de;
+    --teal:   #00967d;
+    --amber:  #9a6700;
+    --red:    #cf222e;
+    --green:  #1a7f37;
+    --blue:   #0969da;
+    --text:   #1f2328;
+    --text2:  #59636e;
+    --text3:  #6e7781;
+    --border: rgba(31,35,40,0.15);
+    --border2:rgba(31,35,40,0.08);
+  }
+
   * { margin:0; padding:0; box-sizing:border-box; }
 
   body {
@@ -45,38 +64,50 @@
     display: flex;
     align-items: center;
     justify-content: space-between;
-    padding: 0 20px;
+    padding: 9px 20px;
     background: var(--bg2);
     border-bottom: 1px solid var(--border);
     flex-shrink: 0;
-    height: 52px;
+    min-height: 54px;
+    flex-wrap: wrap;
+    row-gap: 6px;
   }
 
   .logo { display:flex; align-items:center; gap:12px; }
 
   .logo-icon {
-    width: 34px; height: 34px;
+    width: 35px; height: 35px;
     background: linear-gradient(135deg, var(--teal), var(--blue));
     border-radius: 9px;
     display: flex; align-items: center; justify-content: center;
     box-shadow: 0 2px 8px rgba(0,0,0,0.25);
   }
-  .logo-icon svg { width: 19px; height: 19px; }
+  .logo-icon svg { width: 20px; height: 20px; }
 
   .logo-text h1 {
-    font-size: 0.9rem; font-weight: 700; letter-spacing: 1px; color: var(--text);
+    font-size: 0.92rem; font-weight: 700; letter-spacing: 1px; color: var(--text);
   }
   .logo-text h1 span { color: var(--teal); }
 
-  .header-right { display:flex; align-items:center; gap:18px; }
-
-  .models-badge { font-family:var(--mono); font-size:0.68rem; color:var(--text2); }
-  .models-badge b { color:var(--text); font-weight:500; }
+  .header-right { display:flex; align-items:center; gap:14px; flex-wrap:wrap; row-gap:6px; justify-content:flex-end; }
 
   .api-badge {
     display: flex; align-items: center; gap: 6px;
-    font-family: var(--mono); font-size: 0.7rem; color: var(--text2);
+    font-family: var(--mono); font-size: 0.75rem; color: var(--text2);
   }
+
+  /* ── FRESH BADGE (LIVE vs REJEU, basé sur measurement_timestamp) ── */
+  .fresh-badge {
+    display: flex; align-items: center; gap: 6px;
+    font-family: var(--mono); font-size: 0.75rem; color: var(--text2);
+  }
+  .fresh-dot { width:7px; height:7px; border-radius:50%; background:var(--text3); }
+  .fresh-badge.live    { color: var(--green); }
+  .fresh-badge.live .fresh-dot    { background: var(--green); animation: pulse-dot 2s infinite; }
+  .fresh-badge.replay  { color: var(--amber); }
+  .fresh-badge.replay .fresh-dot  { background: var(--amber); }
+  .fresh-badge.unknown { color: var(--text2); }
+  .fresh-badge.unknown .fresh-dot { background: var(--text3); }
 
   /* ── JSON TAB BUTTON (dans le header capteur) ── */
   .json-toggle-btn {
@@ -98,14 +129,14 @@
 
   /* ── NAV LINK (header — vers les autres pages du projet) ── */
   .nav-link {
-    display: flex; align-items: center; gap: 5px;
-    padding: 4px 10px;
+    display: flex; align-items: center; gap: 6px;
+    padding: 5px 11px;
     background: transparent;
     border: 1px solid var(--border);
     border-radius: 5px;
     color: var(--text2);
     font-family: var(--mono);
-    font-size: 0.63rem;
+    font-size: 0.7rem;
     font-weight: 600;
     text-decoration: none;
     cursor: pointer;
@@ -293,7 +324,7 @@
 
   @keyframes pulse-dot { 0%,100%{opacity:1} 50%{opacity:0.35} }
 
-  .clock { font-family:var(--mono); font-size:0.7rem; color:var(--text2); }
+  .clock { font-family:var(--mono); font-size:0.75rem; color:var(--text2); }
 
   /* ── KPI ROW ── */
   .kpi-row {
@@ -759,10 +790,16 @@
   <div class="header-right">
     <a href="pipeline_upload.html" class="nav-link" title="Importer de nouvelles données (pipeline SQL)">📤 Pipeline Upload</a>
     <a href="dashboard_predictive.html" class="nav-link" title="Vue flotte complète (19 capteurs)">🗂️ Vue Flotte</a>
-    <div class="models-badge">Modèles <b>IF·LOF·OCSVM·ECOD·HBOS·COPOD</b></div>
+    <a href="kpi-history.html" class="nav-link" title="Historique des KPIs du parc">📊 Historique KPI</a>
+    <a href="tasks-history.html" class="nav-link" title="Journal des tâches (entraînements, alertes, rapports)">🗒️ Historique Tâches</a>
+    <a href="admin-users.html" class="nav-link" title="Valider ou refuser les nouvelles inscriptions (clé API admin requise)">🛡️ Comptes en attente</a>
+    <button class="theme-toggle-btn" data-theme-toggle-btn type="button" aria-label="Changer de thème">
+      <svg class="icon-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41"/></svg>
+      <svg class="icon-moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
+    </button>
     <div class="api-badge">
       <div class="api-dot" id="apiDot"></div>
-      <span id="apiStatus">API — OK</span>
+      <span id="apiStatus">API</span>
     </div>
     <div class="clock" id="clock">--/--/---- · --:--:--</div>
     <span class="nav-link" id="userBadge" title="Utilisateur connecté">👤 --</span>
@@ -838,6 +875,10 @@
         <span id="votesBadge">--/6 votes · --%</span>
       </div>
       <button class="json-toggle-btn" id="specToggleBtn" onclick="toggleSpectralPanel()">🔬 Analyse spectrale</button>
+      <div class="fresh-badge unknown" id="freshBadge" title="En attente de données">
+        <div class="fresh-dot"></div>
+        <span id="freshText">—</span>
+      </div>
       <button class="json-toggle-btn" id="jsonToggleBtn" onclick="toggleJsonPanel()">&lt;/&gt; JSON Live</button>
     </div>
 
@@ -1982,6 +2023,65 @@ function renderPriorityList() {
   }).join('');
 }
 
+// ── FRAÎCHEUR DES DONNÉES (LIVE vs REJEU) ──
+// measurement_timestamp = vrai horodatage de la mesure capteur (par
+// opposition à `timestamp`, qui est toujours l'instant du calcul de la
+// prédiction). En mode rejeu (`realtime_mariadb.py --replay N`), le moteur
+// retraite d'anciennes lignes réelles de la base -- measurement_timestamp
+// peut alors dater de semaines/mois. Ce badge affiche l'écart pour que
+// l'utilisateur sache si le parc tourne en direct ou rejoue un historique.
+function formatAgeFr(seconds) {
+  seconds = Math.max(0, Math.round(seconds));
+  if (seconds < 60) return `il y a ${seconds}s`;
+  const mins = Math.round(seconds / 60);
+  if (mins < 60) return `il y a ${mins}min`;
+  const hours = Math.round(seconds / 3600);
+  if (hours < 24) return `il y a ${hours}h`;
+  const days = Math.round(seconds / 86400);
+  if (days < 30) return `il y a ${days}j`;
+  const months = Math.round(seconds / 2592000);
+  if (months < 12) return `il y a ${months} mois`;
+  const years = Math.round(seconds / 31536000);
+  return `il y a ${years} an${years > 1 ? 's' : ''}`;
+}
+function fmtDateFr(d) {
+  const p2 = n => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${p2(d.getMonth()+1)}-${p2(d.getDate())} ${p2(d.getHours())}:${p2(d.getMinutes())}`;
+}
+// entries : objet {sensor_id -> entrée brute {predict:{...}, rul:{...}}}
+function updateFreshnessBadge(entries) {
+  const el  = document.getElementById('freshBadge');
+  const txt = document.getElementById('freshText');
+  if (!el || !txt) return;
+  let maxTs = null;
+  Object.values(entries || {}).forEach(e => {
+    const pred = (e && e.predict) || {};
+    const rul  = (e && e.rul)     || {};
+    [pred.measurement_timestamp, rul.measurement_timestamp].forEach(ts => {
+      if (!ts) return;
+      const d = new Date(ts);
+      if (!isNaN(d.getTime()) && (!maxTs || d > maxTs)) maxTs = d;
+    });
+  });
+  if (!maxTs) {
+    el.className = 'fresh-badge unknown';
+    txt.textContent = '—';
+    el.title = 'Aucune mesure capteur reçue pour le moment';
+    return;
+  }
+  const ageS = (Date.now() - maxTs.getTime()) / 1000;
+  if (ageS < 90) {
+    el.className = 'fresh-badge live';
+    txt.textContent = '🟢 LIVE';
+    el.title = `Dernière mesure réelle il y a ${Math.round(ageS)}s`;
+  } else {
+    el.className = 'fresh-badge replay';
+    txt.textContent = `🕘 REJEU · ${formatAgeFr(ageS)}`;
+    el.title = `Dernière mesure réelle : ${fmtDateFr(maxTs)}`
+             + ' — mode rejeu historique, pas de nouvelle mesure de capteur physique reçue';
+  }
+}
+
 // ── FETCH ──
 function fetchWithTimeout(url, options = {}, ms = 5000) {
   const ctrl  = new AbortController();
@@ -2000,7 +2100,7 @@ async function fetchAll() {
     const hRes  = await fetchWithTimeout(`${API}/health`);
     const hData = await hRes.json();
     _failCount  = 0;
-    document.getElementById('apiStatus').textContent = `API ${hData.version || ''} — OK`;
+    document.getElementById('apiStatus').textContent = 'API';
     document.getElementById('apiDot').style.background = '#3fb950';
     fetchExternalAlerts();
   } catch (err) {
@@ -2064,6 +2164,11 @@ async function fetchAll() {
         allResults.filter(r => r.measurement).forEach(r => {
           latestBySensor[r.sensor_id] = r;
         });
+
+        // Badge de fraîcheur (LIVE/REJEU) — measurement_timestamp de la
+        // dernière entrée predict/rul de chaque capteur, tous capteurs confondus.
+        updateFreshnessBadge(latestBySensor);
+
         Object.entries(latestBySensor).forEach(([sid, r]) => {
           if (!sensorStates[sid]) sensorStates[sid] = {};
           if (r.measurement.temperature != null) sensorStates[sid].temp = r.measurement.temperature;

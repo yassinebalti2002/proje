@@ -46,6 +46,13 @@ def _sweep_locked(now: float) -> None:
         del _store[k]
 
 
+def reset_all() -> None:
+    """Purge tout le store. Réservé au mode test (voir TEST_MODE dans
+    api_unified_pythagore.py) -- ne doit jamais être appelable en production."""
+    with _lock:
+        _store.clear()
+
+
 def make_rate_limiter(max_calls: int, window_seconds: int = 60):
     """
     Crée une dépendance FastAPI qui bloque avec 429 après max_calls

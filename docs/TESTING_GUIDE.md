@@ -36,9 +36,12 @@ Ce script enchaîne automatiquement :
 
 | Étape | Fichier | Contenu | Serveur requis |
 |---|---|---|---|
-| 1 | `tests/test_ml_functions.py` | 36 tests unitaires : `safe_mean/std/rms/trend`, `norm01`, `vib_total_pythagorean`, `extract_features`, comparaison de clé API temps constant | Non |
+| 1 | `tests/test_ml_functions.py` | 43 tests unitaires : `safe_mean/std/rms/trend`, `norm01`, `vib_total_pythagorean`, `extract_features`, comparaison de clé API temps constant | Non |
 | 2 | `tests/test_security.py` | 18 tests : endpoints publics, authentification 401/200, rate limiting 429, CORS | Oui |
 | 3 | `tests/test_api_final.py` | 8 tests : `/`, `/health`, `/metrics`, `/sensors`, `/anomalies`, `/v1/predict`, `/v1/predict-rul`, `/v1/health-score` | Oui |
+
+`run_tests.py` ne lance que ces trois fichiers (69 tests). Pour la suite complète (102 tests, voir
+§1bis), utiliser directement `pytest tests/`.
 
 **Piège connu** : `run_tests.py` lit `API_KEYS` via `os.getenv()`, qui ne charge **pas** automatiquement `.env`
 (pas de `python-dotenv` dans ce script). Sans `--api-key` explicite, les étapes 2 et 3 échouent en 401.
@@ -53,6 +56,53 @@ pytest tests/test_ml_functions.py -v                     # pas de serveur requis
 pytest tests/test_security.py --api-key <clé> -v         # serveur doit déjà tourner
 pytest tests/test_api_final.py --api-key <clé> -v
 ```
+
+---
+
+## 1bis. Suite complète (102 tests, tous fichiers)
+
+Trois fichiers supplémentaires ne sont **pas** lancés par `run_tests.py` et doivent être testés via
+`pytest tests/` directement :
+
+| Fichier | Tests | Contenu |
+|---|---|---|
+| `tests/test_new_endpoints_and_regressions.py` | 11 | `/v1/iot-predict`, `/v1/alert-level`, `/v1/history` |
+| `tests/test_rul_heuristic_and_history.py` | 11 | RUL heuristique, `/v1/kpi-history`, `/v1/tasks-history`, `/v1/pipeline/jobs/history` |
+| `tests/test_user_auth.py` | 11 | Register/login/admin approve-reject/reset password — **nécessite MariaDB joignable** (voir piège ci-dessous) |
+
+```bash
+pytest tests/ --api-key <ta_clé> --host <hôte_api> -v
+```
+
+**Piège connu (Windows, hors Docker)** : `.env` définit `TLS_CERT_FILE=/app/certs/server.crt`
+(chemin **Docker**). Hors conteneur, ce fichier n'existe pas et l'API bascule silencieusement en
+HTTP simple — mais les tests supposent tous du HTTPS (`tests/conftest.py`) → `SSLError`. Démarrer
+l'API avec les chemins locaux explicites :
+```bash
+# PowerShell
+$env:TLS_CERT_FILE="certs/server.crt"; $env:TLS_KEY_FILE="certs/server.key"; python api_unified_pythagore.py
+# bash
+TLS_CERT_FILE=certs/server.crt TLS_KEY_FILE=certs/server.key python api_unified_pythagore.py
+```
+
+**Piège connu (rate limiting sur run groupé)** : lancer les 102 tests d'un coup, juste après un
+run précédent contre le même serveur encore actif, peut faire échouer des tests sans rapport avec
+le rate limiting (`429 Trop de requêtes`) — le quota (ex: 10 appels/60s sur `/v1/auth/register`,
+partagé par tous les tests du fichier) n'a pas eu le temps de se vider. `tests/conftest.py`
+purge automatiquement ce quota en tout début de session **si le serveur tourne avec
+`TEST_MODE=1`** :
+```bash
+TEST_MODE=1 TLS_CERT_FILE=certs/server.crt TLS_KEY_FILE=certs/server.key python api_unified_pythagore.py
+```
+`run_tests.py --with-server` positionne déjà `TEST_MODE=1` automatiquement sur le serveur qu'il
+démarre. `TEST_MODE` n'existe jamais en production/Docker (absent de `.env.example` et de
+`docker-compose.yml`) — sans lui, l'endpoint de reset (`POST /v1/_test/reset-rate-limit`) n'existe
+même pas comme route.
+
+**Piège connu (`test_user_auth.py`)** : ces 11 tests créent de **vrais comptes** (`testuser_<horodatage>`)
+dans la base MariaDB configurée — pas de base de test isolée. Après un run, penser à nettoyer la
+file d'attente admin (`admin-users.html` ou `POST /v1/auth/admin/{id}/reject`) si des comptes de
+test traînent parmi les vraies inscriptions en attente.
 
 ---
 
@@ -174,7 +224,12 @@ bien les nouveaux artefacts et que rien n'est cassé.
 
 ## Checklist rapide avant de considérer le projet "prêt"
 
-- [ ] `python run_tests.py --with-server --api-key <clé>` → 62/62 tests passent
+- [ ] `python run_tests.py --with-server --api-key <clé>` → 69/69 tests passent
+- [ ] `pytest tests/ --api-key <clé> -v` (suite complète, MariaDB joignable) → 102/102 tests passent
 - [ ] `curl http://localhost:8000/health` → `models_loaded: true`, 6 modèles listés
 - [ ] Dashboard accessible et affiche des données après un replay MariaDB réel
+- [ ] Boutons "Historique KPI" et "Historique Tâches" du dashboard affichent des données réelles
+      (pas de liste vide silencieuse — voir piège de la clé API codée en dur, `DOCUMENTATION.md` §4)
+- [ ] File d'attente admin (`admin-users.html`) ne contient que de vraies inscriptions, pas de
+      comptes `testuser_...` laissés par un run de `test_user_auth.py`
 - [ ] `.env` rempli, jamais commité (`git status` ne doit pas le montrer)

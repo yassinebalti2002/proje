@@ -1,0 +1,42 @@
+/* Bouton bascule thème clair/sombre — partagé par toutes les pages HTML.
+   Style volontairement neutre (verre dépoli) pour rester lisible sur
+   n'importe quelle palette de page, claire ou sombre. */
+.theme-toggle-btn {
+  --ttb-bg: rgba(127, 127, 127, 0.22);
+  --ttb-border: rgba(127, 127, 127, 0.45);
+  --ttb-fg: var(--text, var(--t1, currentColor));
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  flex-shrink: 0;
+  border-radius: 50%;
+  border: 1px solid var(--ttb-border);
+  background: var(--ttb-bg);
+  color: var(--ttb-fg);
+  cursor: pointer;
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  transition: background .15s ease, transform .15s ease, border-color .15s ease;
+}
+.theme-toggle-btn:hover { background: rgba(127, 127, 127, 0.34); border-color: rgba(127, 127, 127, 0.6); }
+.theme-toggle-btn:active { transform: scale(0.92); }
+.theme-toggle-btn:focus-visible { outline: 2px solid currentColor; outline-offset: 2px; }
+.theme-toggle-btn svg { width: 16px; height: 16px; display: block; stroke-width: 2.2; }
+.theme-toggle-btn .icon-sun { display: none; }
+.theme-toggle-btn .icon-moon { display: block; }
+:root[data-theme="light"] .theme-toggle-btn .icon-sun { display: block; }
+:root[data-theme="light"] .theme-toggle-btn .icon-moon { display: none; }
+
+/* Pages sans en-tête : place le bouton en position fixe. */
+.theme-toggle-fixed {
+  position: fixed;
+  top: 16px;
+  right: 18px;
+  z-index: 999;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .theme-toggle-btn { transition: none; }
+}

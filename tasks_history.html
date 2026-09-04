@@ -1,0 +1,482 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Historique des Tâches — Maintenance Prédictive ISG Bizerte</title>
+<script src="theme-toggle.js"></script>
+<link rel="stylesheet" href="theme-toggle.css">
+<style>
+@import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600;700&family=Syne:wght@400;700;800&display=swap');
+:root{
+  --bg0:#04080f; --bg1:#080f1a; --bg2:#0c1624; --bg3:#111e30;
+  --c1:#00e5c0; --c2:#0ea5e9;
+  --red:#ef4444; --orange:#f97316; --green:#22c55e; --yellow:#eab308; --purple:#8b5cf6;
+  --t1:#e2f0ff; --t2:#7ba8c8; --t3:#3d5f7a;
+  --bd:rgba(0,229,192,.1); --bd2:rgba(14,165,233,.15);
+  --hdr-bg:rgba(4,8,15,.94); --ov-bg:rgba(4,8,15,.96);
+  --mono:'JetBrains Mono',monospace; --sans:'Syne',sans-serif;
+}
+:root[data-theme="light"]{
+  --bg0:#ffffff; --bg1:#f6f8fb; --bg2:#eef1f6; --bg3:#dde3ec;
+  --c1:#00806c; --c2:#0969da;
+  --red:#cf222e; --orange:#c2410c; --green:#15803d; --yellow:#a16207; --purple:#6d28d9;
+  --t1:#0b1220; --t2:#4b5f73; --t3:#7c93a6;
+  --bd:rgba(0,128,108,.18); --bd2:rgba(9,105,218,.18);
+  --hdr-bg:rgba(255,255,255,.94); --ov-bg:rgba(255,255,255,.96);
+}
+*{margin:0;padding:0;box-sizing:border-box}
+body{background:var(--bg0);color:var(--t1);font-family:var(--sans);min-height:100vh;overflow-x:hidden}
+body::before{
+  content:'';position:fixed;inset:0;pointer-events:none;z-index:0;
+  background:
+    radial-gradient(ellipse 70% 40% at 20% 0%,rgba(0,229,192,.04),transparent),
+    radial-gradient(ellipse 50% 35% at 85% 85%,rgba(14,165,233,.04),transparent)
+}
+
+/* ── HEADER ── */
+header{
+  display:flex;align-items:center;justify-content:space-between;
+  padding:11px 22px;background:var(--hdr-bg);
+  border-bottom:1px solid var(--bd);
+  position:sticky;top:0;z-index:200;backdrop-filter:blur(20px)
+}
+.logo{display:flex;align-items:center;gap:11px}
+.logo-icon{
+  width:36px;height:36px;border-radius:9px;
+  background:linear-gradient(135deg,var(--c1),var(--c2));
+  display:flex;align-items:center;justify-content:center;font-size:16px;
+  box-shadow:0 0 20px rgba(0,229,192,.25)
+}
+.logo h1{font-size:.85rem;font-weight:800;letter-spacing:2px;color:var(--c1)}
+.logo p{font-size:.6rem;color:var(--t3);font-family:var(--mono);margin-top:1px}
+.hdr-right{display:flex;align-items:center;gap:10px}
+#clk{font-family:var(--mono);font-size:.7rem;color:var(--c2)}
+.apib{
+  display:flex;align-items:center;gap:5px;padding:4px 11px;
+  border-radius:20px;font-size:.65rem;font-family:var(--mono);border:1px solid;transition:.3s
+}
+.apib.ok{background:rgba(34,197,94,.08);border-color:rgba(34,197,94,.3);color:var(--green)}
+.apib.err{background:rgba(239,68,68,.08);border-color:rgba(239,68,68,.3);color:var(--red)}
+.nav-link{
+  display:flex;align-items:center;gap:5px;padding:4px 11px;
+  border-radius:20px;font-size:.65rem;font-family:var(--mono);
+  border:1px solid var(--bd2);color:var(--t2);text-decoration:none;transition:.3s
+}
+.nav-link:hover{border-color:var(--c2);color:var(--c2)}
+.dot{width:6px;height:6px;border-radius:50%;background:currentColor;animation:pd 2s infinite}
+@keyframes pd{0%,100%{opacity:1;transform:scale(1)}50%{opacity:.4;transform:scale(.7)}}
+
+/* ── LAYOUT ── */
+.main{
+  display:flex;flex-direction:column;gap:14px;
+  padding:16px 22px 40px;
+  position:relative;z-index:1;
+  max-width:1100px;margin:0 auto
+}
+.page-title h2{font-size:1.05rem;font-weight:800;color:var(--t1);letter-spacing:.5px}
+.page-title p{font-size:.68rem;color:var(--t3);font-family:var(--mono);margin-top:2px}
+
+/* ── TOOLBAR ── */
+.toolbar{
+  display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;
+  background:var(--bg1);border:1px solid var(--bd);border-radius:12px;padding:10px 12px
+}
+.tabs{display:flex;gap:6px;flex-wrap:wrap}
+.tab{
+  background:var(--bg2);border:1px solid var(--bd2);color:var(--t2);
+  font-family:var(--mono);font-size:.66rem;padding:7px 13px;border-radius:8px;
+  cursor:pointer;transition:.2s;white-space:nowrap
+}
+.tab:hover{border-color:var(--c2);color:var(--c2)}
+.tab.sel{background:rgba(0,229,192,.1);border-color:var(--c1);color:var(--c1);font-weight:700}
+#search{
+  background:var(--bg2);border:1px solid var(--bd2);border-radius:8px;
+  color:var(--t1);font-family:var(--mono);font-size:.7rem;
+  padding:8px 12px;outline:none;min-width:220px
+}
+#search:focus{border-color:var(--c1)}
+#search::placeholder{color:var(--t3)}
+
+/* ── TIMELINE ── */
+.timeline{display:flex;flex-direction:column;gap:8px}
+.tev{
+  display:flex;align-items:flex-start;gap:12px;
+  background:var(--bg1);border:1px solid var(--bd);border-radius:11px;
+  padding:12px 14px;transition:.15s
+}
+.tev:hover{border-color:rgba(0,229,192,.3)}
+.tev-ico{
+  width:34px;height:34px;border-radius:9px;flex-shrink:0;
+  display:flex;align-items:center;justify-content:center;font-size:1rem;
+  background:var(--bg2);border:1px solid var(--bd)
+}
+.tev-body{flex:1;min-width:0}
+.tev-top{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap}
+.tev-title{font-size:.78rem;font-weight:700;color:var(--t1)}
+.tev-ts{font-family:var(--mono);font-size:.6rem;color:var(--t3);white-space:nowrap}
+.tev-detail{font-size:.68rem;color:var(--t2);margin-top:4px;font-family:var(--mono)}
+.tev-badge{
+  display:inline-flex;align-items:center;gap:5px;
+  padding:3px 9px;border-radius:6px;font-size:.6rem;font-weight:700;
+  font-family:var(--mono);border:1px solid;margin-top:6px
+}
+.bg-ok{background:rgba(34,197,94,.08);border-color:rgba(34,197,94,.3);color:var(--green)}
+.bg-err{background:rgba(239,68,68,.08);border-color:rgba(239,68,68,.3);color:var(--red)}
+.bg-run{background:rgba(14,165,233,.08);border-color:rgba(14,165,233,.3);color:var(--c2)}
+.bg-run .bdot{width:6px;height:6px;border-radius:50%;background:currentColor;animation:pd 1.1s infinite}
+
+.ld{
+  display:flex;flex-direction:column;align-items:center;justify-content:center;
+  height:160px;color:var(--t3);font-size:.75rem;font-family:var(--mono);gap:10px;text-align:center
+}
+.sp{
+  width:20px;height:20px;border:2px solid var(--bd2);border-top-color:var(--c1);
+  border-radius:50%;animation:rt .8s linear infinite;flex-shrink:0
+}
+@keyframes rt{to{transform:rotate(360deg)}}
+.empty-ico{font-size:2rem}
+
+/* ── OVERLAY ── */
+#ov{
+  position:fixed;inset:0;background:var(--ov-bg);
+  display:flex;flex-direction:column;align-items:center;justify-content:center;
+  z-index:999;gap:13px;transition:opacity .5s
+}
+#ov.hidden{opacity:0;pointer-events:none}
+.ov-spin{
+  width:32px;height:32px;border:3px solid var(--bd2);border-top-color:var(--c1);
+  border-radius:50%;animation:rt .8s linear infinite;display:none
+}
+.ov-t{font-size:1.2rem;font-weight:800;color:var(--c1);letter-spacing:2px}
+.ov-s{font-size:.7rem;color:var(--t3);font-family:var(--mono)}
+#api-inp{
+  background:var(--bg2);border:1px solid var(--bd2);border-radius:8px;
+  color:var(--t1);font-family:var(--mono);font-size:.75rem;
+  padding:8px 14px;width:280px;outline:none;text-align:center
+}
+#api-inp:focus{border-color:var(--c1)}
+.ov-btn{
+  background:linear-gradient(135deg,var(--c1),var(--c2));
+  border:none;border-radius:8px;color:#000;
+  font-family:var(--sans);font-weight:700;font-size:.78rem;
+  padding:9px 26px;cursor:pointer;transition:.2s
+}
+.ov-btn:hover{opacity:.85;transform:translateY(-1px)}
+#ov-err{
+  color:var(--red);font-size:.68rem;font-family:var(--mono);
+  display:none;text-align:center;max-width:300px;line-height:1.5
+}
+</style>
+</head>
+<body>
+
+<script>
+  // ── GARDE D'ACCÈS ── voir dashboard_predictive.html pour le détail : ce
+  // garde ne teste que la présence du token (synchrone, pas de flash de
+  // contenu) ; la validité réelle est vérifiée plus bas via /v1/auth/me.
+  if (!localStorage.getItem('access_token')) {
+    window.location.replace('login.html');
+  }
+</script>
+
+<!-- OVERLAY -->
+<div id="ov">
+  <div class="ov-spin" id="ovsp"></div>
+  <div class="ov-t">🗒️ HISTORIQUE TÂCHES</div>
+  <div class="ov-s">ISG Bizerte · Novation City · API v3.1.0</div>
+  <div style="font-size:.68rem;color:var(--t3)">URL de l'API FastAPI</div>
+  <input id="api-inp" type="text" value="">
+  <button class="ov-btn" onclick="doConnect()">CONNECTER</button>
+  <div id="ov-err">❌ Connexion impossible<br>Vérifiez que python api_unified_pythagore.py tourne sur le port 8000</div>
+</div>
+
+<!-- HEADER -->
+<header>
+  <div class="logo">
+    <div class="logo-icon">🗒️</div>
+    <div>
+      <h1>Historique des Tâches</h1>
+      <p>ISG Bizerte · Novation City · API v3.1.0</p>
+    </div>
+  </div>
+  <div class="hdr-right">
+    <a href="dashboard_predictive.html" class="nav-link" title="Vue flotte complète (19 capteurs)">🗂️ Vue Flotte</a>
+    <a href="kpi-history.html" class="nav-link" title="Historique des KPIs du parc">📊 Historique KPI</a>
+    <button class="theme-toggle-btn" data-theme-toggle-btn type="button" aria-label="Changer de thème">
+      <svg class="icon-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41"/></svg>
+      <svg class="icon-moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
+    </button>
+    <div id="clk"></div>
+    <div class="apib err" id="apib"><span class="dot"></span><span id="apit">Déconnecté</span></div>
+    <span class="nav-link" id="userBadge" title="Utilisateur connecté">👤 --</span>
+    <a href="#" class="nav-link" id="logoutLink" title="Se déconnecter">🚪 Déconnexion</a>
+  </div>
+</header>
+
+<!-- MAIN -->
+<div class="main">
+
+  <div class="page-title">
+    <h2>Journal unifié des tâches système</h2>
+    <p id="total-count">— événements</p>
+  </div>
+
+  <div class="toolbar">
+    <div class="tabs" id="tabs">
+      <button class="tab sel" data-type="">Tout</button>
+      <button class="tab" data-type="pipeline">🧠 Entraînements</button>
+      <button class="tab" data-type="alert">🔔 Alertes</button>
+      <button class="tab" data-type="report">📄 Rapports</button>
+    </div>
+    <input id="search" type="text" placeholder="🔎 Rechercher par titre...">
+  </div>
+
+  <div class="timeline" id="timeline">
+    <div class="ld"><div class="sp"></div>Chargement du journal...</div>
+  </div>
+
+</div><!-- /main -->
+
+<script>
+// ═══════════════════════════════════════════
+// CONFIGURATION
+// ═══════════════════════════════════════════
+var API = 'https://' + window.location.hostname + ':8000';  // API TLS-only, voir initApiInput()
+// Cle API pour les endpoints proteges (/v1/tasks-history) -- doit correspondre
+// a une des valeurs de API_KEYS dans .env cote serveur.
+var API_KEY = 'yass1234';
+function apiHeaders(){ return {'X-API-Key': API_KEY}; }
+
+var ALL_EVENTS = [];   // tous les événements reçus du serveur
+var CUR_TYPE = '';     // filtre actif ('' = tout)
+var CUR_SEARCH = '';
+
+// ═══════════════════════════════════════════
+// HORLOGE
+// ═══════════════════════════════════════════
+setInterval(function(){
+  var n = new Date();
+  var el = document.getElementById('clk');
+  if(el) el.textContent = n.toLocaleDateString('fr-FR') + '  ' + n.toTimeString().slice(0,8);
+}, 1000);
+
+// ═══════════════════════════════════════════
+// FORMAT DATE
+// ═══════════════════════════════════════════
+function fmtTs(iso){
+  if(!iso) return '—';
+  var d = new Date(iso);
+  if(isNaN(d.getTime())) return iso;
+  var now = new Date();
+  var diffMs = now - d;
+  var diffMin = Math.round(diffMs / 60000);
+  if(diffMin < 1) return 'à l\'instant';
+  if(diffMin < 60) return 'il y a ' + diffMin + ' min';
+  var diffH = Math.round(diffMin / 60);
+  if(diffH < 24) return 'il y a ' + diffH + ' h';
+  return d.toLocaleDateString('fr-FR') + ' ' + d.toTimeString().slice(0,5);
+}
+
+// ═══════════════════════════════════════════
+// STATUT → BADGE
+// ═══════════════════════════════════════════
+function statusBadge(status){
+  var s = (status || '').toLowerCase();
+  if(s === 'done' || s === 'envoyée' || s === 'généré'){
+    return '<span class="tev-badge bg-ok">✅ ' + status + '</span>';
+  }
+  if(s === 'error' || s === 'échec'){
+    return '<span class="tev-badge bg-err">❌ ' + status + '</span>';
+  }
+  if(s === 'running'){
+    return '<span class="tev-badge bg-run"><span class="bdot"></span> ' + status + '</span>';
+  }
+  return '<span class="tev-badge bg-run">' + (status || '—') + '</span>';
+}
+
+// ═══════════════════════════════════════════
+// FILTRES (onglets + recherche)
+// ═══════════════════════════════════════════
+document.getElementById('tabs').addEventListener('click', function(e){
+  var btn = e.target.closest('.tab');
+  if(!btn) return;
+  document.querySelectorAll('.tab').forEach(function(b){ b.classList.remove('sel'); });
+  btn.classList.add('sel');
+  CUR_TYPE = btn.getAttribute('data-type');
+  renderTimeline();
+});
+
+document.getElementById('search').addEventListener('input', function(e){
+  CUR_SEARCH = e.target.value.trim().toLowerCase();
+  renderTimeline();
+});
+
+function updateTabCounts(counts){
+  counts = counts || {pipeline:0, alert:0, report:0};
+  var total = (counts.pipeline||0) + (counts.alert||0) + (counts.report||0);
+  document.querySelectorAll('.tab').forEach(function(b){
+    var t = b.getAttribute('data-type');
+    var base = {'':'Tout', 'pipeline':'🧠 Entraînements', 'alert':'🔔 Alertes', 'report':'📄 Rapports'}[t];
+    var n = t === '' ? total : (counts[t] || 0);
+    b.textContent = base + ' (' + n + ')';
+  });
+}
+
+// ═══════════════════════════════════════════
+// RENDU TIMELINE
+// ═══════════════════════════════════════════
+function renderTimeline(){
+  var list = document.getElementById('timeline');
+  var filtered = ALL_EVENTS.filter(function(ev){
+    if(CUR_TYPE && ev.type !== CUR_TYPE) return false;
+    if(CUR_SEARCH && !(ev.title||'').toLowerCase().includes(CUR_SEARCH)) return false;
+    return true;
+  });
+
+  if(!filtered.length){
+    var msg = ALL_EVENTS.length
+      ? 'Aucun événement ne correspond à ce filtre.'
+      : 'Aucune tâche enregistrée pour l\'instant.';
+    list.innerHTML = '<div class="ld"><div class="empty-ico">🗒️</div>' + msg + '</div>';
+    return;
+  }
+
+  var html = '';
+  filtered.forEach(function(ev){
+    html += '<div class="tev">'
+          + '<div class="tev-ico">' + (ev.icon || '•') + '</div>'
+          + '<div class="tev-body">'
+          + '<div class="tev-top">'
+          + '<div class="tev-title">' + escapeHtml(ev.title || '—') + '</div>'
+          + '<div class="tev-ts">' + fmtTs(ev.timestamp) + '</div>'
+          + '</div>'
+          + '<div class="tev-detail">' + escapeHtml(ev.detail || '') + '</div>'
+          + statusBadge(ev.status)
+          + '</div>'
+          + '</div>';
+  });
+  list.innerHTML = html;
+}
+
+function escapeHtml(s){
+  return String(s).replace(/[&<>"']/g, function(c){
+    return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];
+  });
+}
+
+// ═══════════════════════════════════════════
+// CONNEXION API
+// ═══════════════════════════════════════════
+function initApiInput(){
+  var host = window.location.hostname;
+  var url  = 'https://' + host + ':8000';
+  document.getElementById('api-inp').value = url;
+  API = url;
+}
+
+function detectApiScheme(){
+  var host = window.location.hostname;
+  var schemes = ['https', 'http'];
+  function tryScheme(i){
+    if (i >= schemes.length) return Promise.resolve();
+    var url = schemes[i] + '://' + host + ':8000';
+    var ctrl = new AbortController();
+    var timer = setTimeout(function(){ ctrl.abort(); }, 2500);
+    return fetch(url + '/health', {signal: ctrl.signal}).then(function(r){
+      clearTimeout(timer);
+      if (r.ok) {
+        API = url;
+        document.getElementById('api-inp').value = url;
+        return;
+      }
+      return tryScheme(i + 1);
+    }).catch(function(){
+      clearTimeout(timer);
+      return tryScheme(i + 1);
+    });
+  }
+  return tryScheme(0);
+}
+
+function logout(){
+  localStorage.removeItem('access_token');
+  localStorage.removeItem('user');
+  window.location.replace('login.html');
+}
+
+function checkAuth(){
+  var token = localStorage.getItem('access_token');
+  return fetch(API + '/v1/auth/me', {headers: {'Authorization': 'Bearer ' + token}})
+    .then(function(r){ if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
+    .then(function(me){
+      document.getElementById('userBadge').textContent = '👤 ' + me.username;
+      return true;
+    })
+    .catch(function(e){
+      console.warn('Session invalide ou expirée :', e.message || e);
+      logout();
+      return false;
+    });
+}
+
+function doConnect(){
+  var url = document.getElementById('api-inp').value.trim().replace(/\/$/, '');
+  document.getElementById('ovsp').style.display = 'block';
+  document.getElementById('ov-err').style.display = 'none';
+  fetch(url + '/health')
+    .then(function(r){ if(!r.ok) throw new Error(); return r.json(); })
+    .then(function(d){
+      API = url;
+      document.getElementById('ov').classList.add('hidden');
+      setApiOK();
+      startLoop();
+    })
+    .catch(function(){
+      document.getElementById('ovsp').style.display = 'none';
+      document.getElementById('ov-err').style.display = 'block';
+    });
+}
+
+function setApiOK(){
+  document.getElementById('apib').className = 'apib ok';
+  document.getElementById('apit').textContent = 'API — OK';
+}
+function setApiErr(){
+  document.getElementById('apib').className = 'apib err';
+  document.getElementById('apit').textContent = 'Connexion perdue';
+}
+
+window.addEventListener('load', function(){
+  document.getElementById('logoutLink').addEventListener('click', function(e){ e.preventDefault(); logout(); });
+  initApiInput();
+  detectApiScheme().then(function(){
+    return checkAuth();
+  }).then(function(ok){
+    if (ok) setTimeout(doConnect, 400); // sinon logout() a déjà redirigé
+  });
+});
+
+// ═══════════════════════════════════════════
+// BOUCLE PRINCIPALE — journal des tâches
+// ═══════════════════════════════════════════
+function startLoop(){
+  fetchTasks();
+  setInterval(fetchTasks, 45000); // données historiques : rafraîchi toutes les 45s
+}
+
+function fetchTasks(){
+  fetch(API + '/v1/tasks-history?limit=200', {headers: apiHeaders()})
+    .then(function(r){ return r.json(); })
+    .then(function(d){
+      setApiOK();
+      ALL_EVENTS = d.events || [];
+      document.getElementById('total-count').textContent = (d.total || 0) + ' événements au total';
+      updateTabCounts(d.counts);
+      renderTimeline();
+    })
+    .catch(function(){ setApiErr(); });
+}
+</script>
+</body>
+</html>

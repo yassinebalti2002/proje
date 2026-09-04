@@ -13,7 +13,7 @@
 ║    GET  /v1/history/{id}         → Historique prédictions par capteur  [NEW] ║
 ║    GET  /v1/alert-level/{id}     → Niveau d'alerte actuel capteur      [NEW] ║
 ║    GET  /health                  → Health check                              ║
-║    GET  /metrics                 → Métriques modèle V3 (AUC=0.9475 CV)          ║
+║    GET  /metrics                 → Métriques modèle V8 (AUC=0.9868, holdout/capteur) ║
 ║    GET  /sensors                 → Liste capteurs depuis full_data           ║
 ║    GET  /anomalies               → Anomalies filtrées                        ║
 ╚══════════════════════════════════════════════════════════════════════════════╝
@@ -78,10 +78,11 @@ if FASTAPI_OK:
         title="Maintenance Prédictive — API Unifiée",
         description=(
             "Système complet de surveillance de 20 capteurs IFM — Novation City.\n\n"
-            "**Modèle IA** : Ensemble non supervisé IF+ECOD+HBOS+COPOD (SoftVote), LOF/OCSVM calculés à titre diagnostic uniquement\n\n"
-            "**Données** : Capteurs IFM VVB001 → MySQL ai_cp (1 648 886 mesures, nov 2025 – mar 2026)\n\n"
+            "**Modèle IA** : Ensemble à 6 modèles non supervisés (IF, LOF, OCSVM, ECOD, HBOS, COPOD) combinés par stacking (régression logistique)\n\n"
+            "**Données** : Capteurs IFM → MariaDB ai_cp.full_data (1 825 158 mesures à l'entraînement du modèle V8)\n\n"
             "**PFE ISG Bizerte** — Détection d'anomalies + Estimation RUL roulements\n\n"
-            "**Auth** : En-tête `X-API-Key` obligatoire sur tous les endpoints /v1/*"
+            "**Auth** : deux mécanismes distincts — en-tête `X-API-Key` obligatoire sur les endpoints /v1/* métier, "
+            "et comptes JWT (`/v1/auth/*`) pour l'accès humain au dashboard"
         ),
         version=API_VERSION,
         docs_url="/docs",
@@ -112,7 +113,7 @@ if FASTAPI_OK:
     if core.USER_AUTH_OK:
         app.include_router(core.user_auth_router, prefix="/v1/auth", tags=["Authentification utilisateurs"])
 
-    from routers import system, predict, spectral, data, alerts, reporting, pipeline, pages
+    from routers import system, predict, spectral, data, alerts, reporting, pipeline, pages, history
     app.include_router(system.router)
     app.include_router(predict.router)
     app.include_router(spectral.router)
@@ -121,6 +122,19 @@ if FASTAPI_OK:
     app.include_router(reporting.router)
     app.include_router(pipeline.router)
     app.include_router(pages.router)
+    app.include_router(history.router)
+
+    # Endpoint de reset du rate limiter -- réservé aux runs de tests locaux
+    # (voir run_tests.py, tests/conftest.py). N'existe même pas comme route
+    # tant que TEST_MODE n'est pas explicitement défini à "1" : jamais activé
+    # en production/Docker (absent de .env.example et de docker-compose.yml).
+    if os.environ.get("TEST_MODE") == "1":
+        import rate_limiter
+
+        @app.post("/v1/_test/reset-rate-limit", include_in_schema=False)
+        def _test_reset_rate_limit():
+            rate_limiter.reset_all()
+            return {"ok": True}
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -141,7 +155,7 @@ if __name__ == "__main__":
     print(f"  Docs    : http://localhost:8000/docs")
     print(f"  Redoc   : http://localhost:8000/redoc")
     print(f"\n  Endpoints IA :")
-    print(f"    POST /v1/predict              -> Anomalie (IF+LOF+OCSVM+ECOD) | vote 2/4")
+    print(f"    POST /v1/predict              -> Anomalie (6 modeles: IF+LOF+OCSVM+ECOD+HBOS+COPOD) | stacking")
     print(f"    POST /v1/predict-rul          -> RUL (Remaining Useful Life)")
     print(f"    POST /v1/iot-predict          -> Predict+RUL direct IoT sans BDD [NEW]")
     print(f"    GET  /v1/health-score/{{sensor_id}}  -> Score sante 0-100")
@@ -149,7 +163,7 @@ if __name__ == "__main__":
     print(f"    GET  /v1/alert-level/{{sensor_id}}   -> Niveau alerte dashboard")
     print(f"\n  Endpoints systeme :")
     print(f"    GET  /health    -> Health check + modeles charges")
-    print(f"    GET  /metrics   -> F1=0.298 | AUC=0.9475 | CV 3-fold par capteur")
+    print(f"    GET  /metrics   -> F1=0.8052 | AUC=0.9868 | modele V8, holdout par capteur")
     print(f"    GET  /sensors   -> 20 capteurs IFM")
     print(f"    GET  /anomalies -> Anomalies filtrees")
     print("=" * 80 + "\n")

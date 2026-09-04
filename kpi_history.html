@@ -1,0 +1,569 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Historique KPI — Maintenance Prédictive ISG Bizerte</title>
+<script src="theme-toggle.js"></script>
+<link rel="stylesheet" href="theme-toggle.css">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600;700&family=Syne:wght@400;700;800&display=swap');
+:root{
+  --bg0:#04080f; --bg1:#080f1a; --bg2:#0c1624; --bg3:#111e30;
+  --c1:#00e5c0; --c2:#0ea5e9;
+  --red:#ef4444; --orange:#f97316; --green:#22c55e; --yellow:#eab308; --purple:#8b5cf6;
+  --t1:#e2f0ff; --t2:#7ba8c8; --t3:#3d5f7a;
+  --bd:rgba(0,229,192,.1); --bd2:rgba(14,165,233,.15);
+  --hdr-bg:rgba(4,8,15,.94); --ov-bg:rgba(4,8,15,.96);
+  --mono:'JetBrains Mono',monospace; --sans:'Syne',sans-serif;
+}
+:root[data-theme="light"]{
+  --bg0:#ffffff; --bg1:#f6f8fb; --bg2:#eef1f6; --bg3:#dde3ec;
+  --c1:#00806c; --c2:#0969da;
+  --red:#cf222e; --orange:#c2410c; --green:#15803d; --yellow:#a16207; --purple:#6d28d9;
+  --t1:#0b1220; --t2:#4b5f73; --t3:#7c93a6;
+  --bd:rgba(0,128,108,.18); --bd2:rgba(9,105,218,.18);
+  --hdr-bg:rgba(255,255,255,.94); --ov-bg:rgba(255,255,255,.96);
+}
+*{margin:0;padding:0;box-sizing:border-box}
+body{background:var(--bg0);color:var(--t1);font-family:var(--sans);min-height:100vh;overflow-x:hidden}
+body::before{
+  content:'';position:fixed;inset:0;pointer-events:none;z-index:0;
+  background:
+    radial-gradient(ellipse 70% 40% at 20% 0%,rgba(0,229,192,.04),transparent),
+    radial-gradient(ellipse 50% 35% at 85% 85%,rgba(14,165,233,.04),transparent)
+}
+
+/* ── HEADER ── */
+header{
+  display:flex;align-items:center;justify-content:space-between;
+  padding:11px 22px;background:var(--hdr-bg);
+  border-bottom:1px solid var(--bd);
+  position:sticky;top:0;z-index:200;backdrop-filter:blur(20px)
+}
+.logo{display:flex;align-items:center;gap:11px}
+.logo-icon{
+  width:36px;height:36px;border-radius:9px;
+  background:linear-gradient(135deg,var(--c1),var(--c2));
+  display:flex;align-items:center;justify-content:center;font-size:16px;
+  box-shadow:0 0 20px rgba(0,229,192,.25)
+}
+.logo h1{font-size:.85rem;font-weight:800;letter-spacing:2px;color:var(--c1)}
+.logo p{font-size:.6rem;color:var(--t3);font-family:var(--mono);margin-top:1px}
+.hdr-right{display:flex;align-items:center;gap:10px}
+#clk{font-family:var(--mono);font-size:.7rem;color:var(--c2)}
+.apib{
+  display:flex;align-items:center;gap:5px;padding:4px 11px;
+  border-radius:20px;font-size:.65rem;font-family:var(--mono);border:1px solid;transition:.3s
+}
+.apib.ok{background:rgba(34,197,94,.08);border-color:rgba(34,197,94,.3);color:var(--green)}
+.apib.err{background:rgba(239,68,68,.08);border-color:rgba(239,68,68,.3);color:var(--red)}
+.nav-link{
+  display:flex;align-items:center;gap:5px;padding:4px 11px;
+  border-radius:20px;font-size:.65rem;font-family:var(--mono);
+  border:1px solid var(--bd2);color:var(--t2);text-decoration:none;transition:.3s
+}
+.nav-link:hover{border-color:var(--c2);color:var(--c2)}
+.dot{width:6px;height:6px;border-radius:50%;background:currentColor;animation:pd 2s infinite}
+@keyframes pd{0%,100%{opacity:1;transform:scale(1)}50%{opacity:.4;transform:scale(.7)}}
+
+/* ── LAYOUT ── */
+.main{
+  display:flex;flex-direction:column;gap:14px;
+  padding:16px 22px 40px;
+  position:relative;z-index:1;
+  max-width:1400px;margin:0 auto
+}
+.page-title{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px}
+.page-title h2{font-size:1.05rem;font-weight:800;color:var(--t1);letter-spacing:.5px}
+.page-title p{font-size:.68rem;color:var(--t3);font-family:var(--mono);margin-top:2px}
+
+/* ── RANGE SELECTOR ── */
+.rsel{display:flex;gap:6px}
+.rbtn{
+  background:var(--bg1);border:1px solid var(--bd2);color:var(--t2);
+  font-family:var(--mono);font-size:.66rem;padding:6px 14px;border-radius:8px;
+  cursor:pointer;transition:.2s
+}
+.rbtn:hover{border-color:var(--c2);color:var(--c2)}
+.rbtn.sel{background:rgba(0,229,192,.1);border-color:var(--c1);color:var(--c1);font-weight:700}
+
+/* ── KPI ROW ── */
+.krow{display:grid;grid-template-columns:repeat(5,1fr);gap:10px}
+.kc{
+  background:var(--bg1);border:1px solid var(--bd);border-radius:10px;
+  padding:12px 14px;position:relative;overflow:hidden;
+  transition:.2s;cursor:default
+}
+.kc:hover{border-color:rgba(0,229,192,.3);transform:translateY(-1px)}
+.kc-l{font-size:.6rem;color:var(--t3);text-transform:uppercase;letter-spacing:1px;margin-bottom:4px}
+.kc-v{font-size:1.45rem;font-weight:800;font-family:var(--mono);line-height:1}
+.kc-s{font-size:.6rem;color:var(--t3);margin-top:3px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.kc-b{position:absolute;bottom:0;left:0;height:2px;border-radius:0 1px 10px 0;transition:width 1.2s ease}
+
+/* ── CHART CARDS ── */
+.cc{
+  background:var(--bg1);border:1px solid var(--bd);border-radius:13px;
+  padding:16px;display:flex;flex-direction:column
+}
+.clbl{
+  font-size:.66rem;color:var(--t3);text-transform:uppercase;
+  letter-spacing:1px;margin-bottom:11px;
+  display:flex;align-items:center;justify-content:space-between
+}
+.clbl span{font-family:var(--mono);color:var(--c1);font-size:.7rem}
+.chart-wrap{height:280px;position:relative;background:var(--bg1)}
+.chart-legend{display:flex;gap:14px;flex-wrap:wrap;margin-top:10px;font-size:.63rem;font-family:var(--mono)}
+.leg-i{display:flex;align-items:center;gap:5px;color:var(--t2)}
+.leg-d{width:9px;height:9px;border-radius:2px}
+
+.ld{
+  display:flex;flex-direction:column;align-items:center;justify-content:center;
+  height:200px;color:var(--t3);font-size:.75rem;font-family:var(--mono);gap:10px;text-align:center
+}
+.sp{
+  width:20px;height:20px;border:2px solid var(--bd2);border-top-color:var(--c1);
+  border-radius:50%;animation:rt .8s linear infinite;flex-shrink:0
+}
+@keyframes rt{to{transform:rotate(360deg)}}
+.empty-ico{font-size:2rem}
+
+/* ── OVERLAY ── */
+#ov{
+  position:fixed;inset:0;background:var(--ov-bg);
+  display:flex;flex-direction:column;align-items:center;justify-content:center;
+  z-index:999;gap:13px;transition:opacity .5s
+}
+#ov.hidden{opacity:0;pointer-events:none}
+.ov-spin{
+  width:32px;height:32px;border:3px solid var(--bd2);border-top-color:var(--c1);
+  border-radius:50%;animation:rt .8s linear infinite;display:none
+}
+.ov-t{font-size:1.2rem;font-weight:800;color:var(--c1);letter-spacing:2px}
+.ov-s{font-size:.7rem;color:var(--t3);font-family:var(--mono)}
+#api-inp{
+  background:var(--bg2);border:1px solid var(--bd2);border-radius:8px;
+  color:var(--t1);font-family:var(--mono);font-size:.75rem;
+  padding:8px 14px;width:280px;outline:none;text-align:center
+}
+#api-inp:focus{border-color:var(--c1)}
+.ov-btn{
+  background:linear-gradient(135deg,var(--c1),var(--c2));
+  border:none;border-radius:8px;color:#000;
+  font-family:var(--sans);font-weight:700;font-size:.78rem;
+  padding:9px 26px;cursor:pointer;transition:.2s
+}
+.ov-btn:hover{opacity:.85;transform:translateY(-1px)}
+#ov-err{
+  color:var(--red);font-size:.68rem;font-family:var(--mono);
+  display:none;text-align:center;max-width:300px;line-height:1.5
+}
+</style>
+</head>
+<body>
+
+<script>
+  // ── GARDE D'ACCÈS ── voir dashboard_predictive.html pour le détail : ce
+  // garde ne teste que la présence du token (synchrone, pas de flash de
+  // contenu) ; la validité réelle est vérifiée plus bas via /v1/auth/me.
+  if (!localStorage.getItem('access_token')) {
+    window.location.replace('login.html');
+  }
+</script>
+
+<!-- OVERLAY -->
+<div id="ov">
+  <div class="ov-spin" id="ovsp"></div>
+  <div class="ov-t">📊 HISTORIQUE KPI</div>
+  <div class="ov-s">ISG Bizerte · Novation City · API v3.1.0</div>
+  <div style="font-size:.68rem;color:var(--t3)">URL de l'API FastAPI</div>
+  <input id="api-inp" type="text" value="">
+  <button class="ov-btn" onclick="doConnect()">CONNECTER</button>
+  <div id="ov-err">❌ Connexion impossible<br>Vérifiez que python api_unified_pythagore.py tourne sur le port 8000</div>
+</div>
+
+<!-- HEADER -->
+<header>
+  <div class="logo">
+    <div class="logo-icon">📊</div>
+    <div>
+      <h1>Historique KPI</h1>
+      <p>ISG Bizerte · Novation City · API v3.1.0</p>
+    </div>
+  </div>
+  <div class="hdr-right">
+    <a href="dashboard_predictive.html" class="nav-link" title="Vue flotte complète (19 capteurs)">🗂️ Vue Flotte</a>
+    <a href="tasks-history.html" class="nav-link" title="Journal des tâches (entraînements, alertes, rapports)">🗒️ Historique Tâches</a>
+    <button class="theme-toggle-btn" data-theme-toggle-btn type="button" aria-label="Changer de thème">
+      <svg class="icon-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41"/></svg>
+      <svg class="icon-moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
+    </button>
+    <div id="clk"></div>
+    <div class="apib err" id="apib"><span class="dot"></span><span id="apit">Déconnecté</span></div>
+    <span class="nav-link" id="userBadge" title="Utilisateur connecté">👤 --</span>
+    <a href="#" class="nav-link" id="logoutLink" title="Se déconnecter">🚪 Déconnexion</a>
+  </div>
+</header>
+
+<!-- MAIN -->
+<div class="main">
+
+  <div class="page-title">
+    <div>
+      <h2>Tendance des KPIs du parc</h2>
+      <p id="snap-count">— instantanés</p>
+    </div>
+    <div class="rsel" id="rsel">
+      <button class="rbtn" data-range="24h">24h</button>
+      <button class="rbtn" data-range="7j">7j</button>
+      <button class="rbtn" data-range="30j">30j</button>
+      <button class="rbtn sel" data-range="all">Tout</button>
+    </div>
+  </div>
+
+  <!-- KPI ROW : dernier instantané -->
+  <div class="krow">
+    <div class="kc">
+      <div class="kc-l">Santé actuelle</div>
+      <div class="kc-v" id="k1" style="color:var(--c1)">—</div>
+      <div class="kc-s">score /100</div>
+      <div class="kc-b" id="kb1" style="background:linear-gradient(90deg,var(--c1),var(--c2))"></div>
+    </div>
+    <div class="kc">
+      <div class="kc-l">Capteurs OK</div>
+      <div class="kc-v" id="k2" style="color:var(--green)">—</div>
+      <div class="kc-s" id="k2s">sur — capteurs</div>
+      <div class="kc-b" id="kb2" style="background:linear-gradient(90deg,var(--green),var(--c1))"></div>
+    </div>
+    <div class="kc">
+      <div class="kc-l">Attention</div>
+      <div class="kc-v" id="k3" style="color:var(--yellow)">—</div>
+      <div class="kc-s">capteurs</div>
+      <div class="kc-b" id="kb3" style="background:linear-gradient(90deg,var(--yellow),var(--orange))"></div>
+    </div>
+    <div class="kc">
+      <div class="kc-l">Urgent</div>
+      <div class="kc-v" id="k4" style="color:var(--orange)">—</div>
+      <div class="kc-s">capteurs</div>
+      <div class="kc-b" id="kb4" style="background:linear-gradient(90deg,var(--orange),var(--red))"></div>
+    </div>
+    <div class="kc">
+      <div class="kc-l">Critique</div>
+      <div class="kc-v" id="k5" style="color:var(--red)">—</div>
+      <div class="kc-s" id="k5s">dernier instantané —</div>
+      <div class="kc-b" id="kb5" style="background:linear-gradient(90deg,var(--red),var(--purple))"></div>
+    </div>
+  </div>
+
+  <!-- CHARTS -->
+  <div class="cc">
+    <div class="clbl">Santé moyenne du parc — évolution <span id="hs-v">—</span></div>
+    <div class="chart-wrap" id="chart1-wrap">
+      <canvas id="cHealth"></canvas>
+      <div class="ld" id="empty1" style="display:none;position:absolute;inset:0"><div class="empty-ico">🕒</div><span id="empty1-msg"></span></div>
+    </div>
+  </div>
+
+  <div class="cc">
+    <div class="clbl">Répartition des capteurs par niveau d'alerte — évolution <span id="al-v">—</span></div>
+    <div class="chart-wrap" id="chart2-wrap">
+      <canvas id="cLevels"></canvas>
+      <div class="ld" id="empty2" style="display:none;position:absolute;inset:0"><div class="empty-ico">🕒</div><span id="empty2-msg"></span></div>
+    </div>
+    <div class="chart-legend">
+      <span class="leg-i"><span class="leg-d" style="background:var(--green)"></span>OK</span>
+      <span class="leg-i"><span class="leg-d" style="background:var(--yellow)"></span>ATTENTION</span>
+      <span class="leg-i"><span class="leg-d" style="background:var(--orange)"></span>URGENT</span>
+      <span class="leg-i"><span class="leg-d" style="background:var(--red)"></span>CRITIQUE</span>
+    </div>
+  </div>
+
+</div><!-- /main -->
+
+<script>
+// ═══════════════════════════════════════════
+// CONFIGURATION
+// ═══════════════════════════════════════════
+var API = 'https://' + window.location.hostname + ':8000';  // API TLS-only, voir initApiInput()
+// Cle API pour les endpoints proteges -- /v1/kpi-history ne la requiert pas
+// (juste rate-limité), mais on la garde disponible pour cohérence avec les
+// autres pages du dashboard.
+var API_KEY = 'yass1234';
+function apiHeaders(){ return {'X-API-Key': API_KEY}; }
+
+var ALL_SNAPSHOTS = [];   // toutes les snapshots reçues du serveur
+var CUR_RANGE = 'all';
+
+// ═══════════════════════════════════════════
+// HORLOGE
+// ═══════════════════════════════════════════
+setInterval(function(){
+  var n = new Date();
+  var el = document.getElementById('clk');
+  if(el) el.textContent = n.toLocaleDateString('fr-FR') + '  ' + n.toTimeString().slice(0,8);
+}, 1000);
+
+// ═══════════════════════════════════════════
+// GRAPHIQUES
+// ═══════════════════════════════════════════
+var cHealth = new Chart(document.getElementById('cHealth'), {
+  type: 'line',
+  data: { labels:[], datasets:[{
+    label:'Santé moyenne', data:[], borderColor:'#00e5c0',
+    backgroundColor:'#00e5c014',
+    borderWidth:2, pointRadius:0, fill:true, tension:.3
+  }]},
+  options:{
+    responsive:true, maintainAspectRatio:false, animation:{duration:250},
+    scales:{
+      x:{grid:{color:'rgba(255,255,255,.03)'}, ticks:{color:'#3d5f7a', font:{family:'JetBrains Mono', size:9}, maxRotation:0, autoSkip:true, maxTicksLimit:10}},
+      y:{min:0, max:100,
+         grid:{color:'rgba(255,255,255,.04)'},
+         ticks:{color:'#3d5f7a', font:{family:'JetBrains Mono', size:9}}}
+    },
+    plugins:{
+      legend:{display:false},
+      tooltip:{
+        backgroundColor:'#0c1624', borderColor:'rgba(0,229,192,.25)',
+        borderWidth:1, titleColor:'#7ba8c8', bodyColor:'#e2f0ff',
+        titleFont:{family:'JetBrains Mono'}, bodyFont:{family:'JetBrains Mono'},
+        callbacks:{label:function(ctx){ return 'Santé : ' + ctx.parsed.y.toFixed(1) + '/100'; }}
+      }
+    }
+  }
+});
+
+var cLevels = new Chart(document.getElementById('cLevels'), {
+  type: 'line',
+  data: { labels:[], datasets:[
+    {label:'OK',        data:[], borderColor:'#22c55e', backgroundColor:'#22c55e33', borderWidth:1.5, pointRadius:0, fill:true, tension:.3, stack:'s'},
+    {label:'ATTENTION', data:[], borderColor:'#eab308', backgroundColor:'#eab30833', borderWidth:1.5, pointRadius:0, fill:true, tension:.3, stack:'s'},
+    {label:'URGENT',    data:[], borderColor:'#f97316', backgroundColor:'#f9731633', borderWidth:1.5, pointRadius:0, fill:true, tension:.3, stack:'s'},
+    {label:'CRITIQUE',  data:[], borderColor:'#ef4444', backgroundColor:'#ef444455', borderWidth:1.5, pointRadius:0, fill:true, tension:.3, stack:'s'}
+  ]},
+  options:{
+    responsive:true, maintainAspectRatio:false, animation:{duration:250},
+    scales:{
+      x:{stacked:true, grid:{color:'rgba(255,255,255,.03)'}, ticks:{color:'#3d5f7a', font:{family:'JetBrains Mono', size:9}, maxRotation:0, autoSkip:true, maxTicksLimit:10}},
+      y:{stacked:true, min:0,
+         grid:{color:'rgba(255,255,255,.04)'},
+         ticks:{color:'#3d5f7a', font:{family:'JetBrains Mono', size:9}}}
+    },
+    plugins:{
+      legend:{display:false},
+      tooltip:{
+        backgroundColor:'#0c1624', borderColor:'rgba(0,229,192,.25)',
+        borderWidth:1, titleColor:'#7ba8c8', bodyColor:'#e2f0ff',
+        titleFont:{family:'JetBrains Mono'}, bodyFont:{family:'JetBrains Mono'},
+        mode:'index'
+      }
+    }
+  }
+});
+
+// ═══════════════════════════════════════════
+// FORMAT DATE
+// ═══════════════════════════════════════════
+function fmtTs(iso){
+  if(!iso) return '—';
+  var d = new Date(iso);
+  if(isNaN(d.getTime())) return iso;
+  return d.toLocaleDateString('fr-FR') + ' ' + d.toTimeString().slice(0,5);
+}
+
+// ═══════════════════════════════════════════
+// SÉLECTEUR DE PLAGE
+// ═══════════════════════════════════════════
+document.getElementById('rsel').addEventListener('click', function(e){
+  var btn = e.target.closest('.rbtn');
+  if(!btn) return;
+  document.querySelectorAll('.rbtn').forEach(function(b){ b.classList.remove('sel'); });
+  btn.classList.add('sel');
+  CUR_RANGE = btn.getAttribute('data-range');
+  renderCharts();
+});
+
+function sliceByRange(snaps){
+  if(CUR_RANGE === 'all') return snaps;
+  var now = Date.now();
+  var ms = CUR_RANGE === '24h' ? 24*3600*1000
+         : CUR_RANGE === '7j'  ? 7*24*3600*1000
+         : 30*24*3600*1000;
+  return snaps.filter(function(s){
+    var t = new Date(s.timestamp).getTime();
+    return isNaN(t) ? true : (now - t) <= ms;
+  });
+}
+
+// ═══════════════════════════════════════════
+// CONNEXION API
+// ═══════════════════════════════════════════
+function initApiInput(){
+  var host = window.location.hostname;
+  var url  = 'https://' + host + ':8000';
+  document.getElementById('api-inp').value = url;
+  API = url;
+}
+
+function detectApiScheme(){
+  var host = window.location.hostname;
+  var schemes = ['https', 'http'];
+  function tryScheme(i){
+    if (i >= schemes.length) return Promise.resolve();
+    var url = schemes[i] + '://' + host + ':8000';
+    var ctrl = new AbortController();
+    var timer = setTimeout(function(){ ctrl.abort(); }, 2500);
+    return fetch(url + '/health', {signal: ctrl.signal}).then(function(r){
+      clearTimeout(timer);
+      if (r.ok) {
+        API = url;
+        document.getElementById('api-inp').value = url;
+        return;
+      }
+      return tryScheme(i + 1);
+    }).catch(function(){
+      clearTimeout(timer);
+      return tryScheme(i + 1);
+    });
+  }
+  return tryScheme(0);
+}
+
+function logout(){
+  localStorage.removeItem('access_token');
+  localStorage.removeItem('user');
+  window.location.replace('login.html');
+}
+
+function checkAuth(){
+  var token = localStorage.getItem('access_token');
+  return fetch(API + '/v1/auth/me', {headers: {'Authorization': 'Bearer ' + token}})
+    .then(function(r){ if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
+    .then(function(me){
+      document.getElementById('userBadge').textContent = '👤 ' + me.username;
+      return true;
+    })
+    .catch(function(e){
+      console.warn('Session invalide ou expirée :', e.message || e);
+      logout();
+      return false;
+    });
+}
+
+function doConnect(){
+  var url = document.getElementById('api-inp').value.trim().replace(/\/$/, '');
+  document.getElementById('ovsp').style.display = 'block';
+  document.getElementById('ov-err').style.display = 'none';
+  fetch(url + '/health')
+    .then(function(r){ if(!r.ok) throw new Error(); return r.json(); })
+    .then(function(d){
+      API = url;
+      document.getElementById('ov').classList.add('hidden');
+      setApiOK();
+      startLoop();
+    })
+    .catch(function(){
+      document.getElementById('ovsp').style.display = 'none';
+      document.getElementById('ov-err').style.display = 'block';
+    });
+}
+
+function setApiOK(){
+  document.getElementById('apib').className = 'apib ok';
+  document.getElementById('apit').textContent = 'API — OK';
+}
+function setApiErr(){
+  document.getElementById('apib').className = 'apib err';
+  document.getElementById('apit').textContent = 'Connexion perdue';
+}
+
+window.addEventListener('load', function(){
+  document.getElementById('logoutLink').addEventListener('click', function(e){ e.preventDefault(); logout(); });
+  initApiInput();
+  detectApiScheme().then(function(){
+    return checkAuth();
+  }).then(function(ok){
+    if (ok) setTimeout(doConnect, 400); // sinon logout() a déjà redirigé
+  });
+});
+
+// ═══════════════════════════════════════════
+// BOUCLE PRINCIPALE — historique KPI
+// ═══════════════════════════════════════════
+function startLoop(){
+  fetchHistory();
+  setInterval(fetchHistory, 45000); // données historiques : rafraîchi toutes les 45s
+}
+
+function fetchHistory(){
+  fetch(API + '/v1/kpi-history?limit=300')
+    .then(function(r){ return r.json(); })
+    .then(function(d){
+      setApiOK();
+      ALL_SNAPSHOTS = d.snapshots || [];
+      document.getElementById('snap-count').textContent = (d.n_snapshots || 0) + ' instantanés (toutes les ~5 min)';
+      if(!ALL_SNAPSHOTS.length){
+        showEmptyState(d.message || 'Historique en cours de constitution — revenez dans quelques minutes.');
+        return;
+      }
+      hideEmptyState();
+      updateLatestKPIs();
+      renderCharts();
+    })
+    .catch(function(){ setApiErr(); });
+}
+
+function showEmptyState(msg){
+  ['1','2'].forEach(function(n){
+    document.getElementById('empty'+n).style.display = 'flex';
+    document.getElementById('empty'+n+'-msg').textContent = msg;
+  });
+}
+function hideEmptyState(){
+  ['1','2'].forEach(function(n){
+    document.getElementById('empty'+n).style.display = 'none';
+  });
+}
+
+function updateLatestKPIs(){
+  var last = ALL_SNAPSHOTS[ALL_SNAPSHOTS.length - 1];
+  if(!last) return;
+  var total = (last.n_ok||0) + (last.n_attention||0) + (last.n_urgent||0) + (last.n_critical||0);
+  document.getElementById('k1').textContent = (last.avg_health !== undefined ? last.avg_health.toFixed(1) : '—');
+  document.getElementById('kb1').style.width = Math.min(100, last.avg_health||0) + '%';
+  document.getElementById('k2').textContent = last.n_ok !== undefined ? last.n_ok : '—';
+  document.getElementById('k2s').textContent = 'sur ' + total + ' capteurs';
+  document.getElementById('kb2').style.width = total ? (last.n_ok/total*100) + '%' : '0%';
+  document.getElementById('k3').textContent = last.n_attention !== undefined ? last.n_attention : '—';
+  document.getElementById('kb3').style.width = total ? (last.n_attention/total*100) + '%' : '0%';
+  document.getElementById('k4').textContent = last.n_urgent !== undefined ? last.n_urgent : '—';
+  document.getElementById('kb4').style.width = total ? (last.n_urgent/total*100) + '%' : '0%';
+  document.getElementById('k5').textContent = last.n_critical !== undefined ? last.n_critical : '—';
+  document.getElementById('k5s').textContent = 'dernier instantané ' + fmtTs(last.timestamp);
+  document.getElementById('kb5').style.width = total ? (last.n_critical/total*100) + '%' : '0%';
+  document.getElementById('hs-v').textContent = last.avg_health !== undefined ? last.avg_health.toFixed(1) + '/100' : '—';
+  document.getElementById('al-v').textContent = total + ' capteurs · ' + fmtTs(last.timestamp);
+}
+
+function renderCharts(){
+  // Si l'état vide a été affiché précédemment (canvas remplacés), on ne peut
+  // plus dessiner dessus -- mais on ne repasse ici que si ALL_SNAPSHOTS non vide.
+  if(!document.getElementById('cHealth')) return;
+  var snaps = sliceByRange(ALL_SNAPSHOTS);
+  var labels = snaps.map(function(s){ return fmtTs(s.timestamp); });
+
+  cHealth.data.labels = labels;
+  cHealth.data.datasets[0].data = snaps.map(function(s){ return s.avg_health !== undefined ? +s.avg_health : null; });
+  cHealth.update('none');
+
+  cLevels.data.labels = labels;
+  cLevels.data.datasets[0].data = snaps.map(function(s){ return s.n_ok !== undefined ? +s.n_ok : 0; });
+  cLevels.data.datasets[1].data = snaps.map(function(s){ return s.n_attention !== undefined ? +s.n_attention : 0; });
+  cLevels.data.datasets[2].data = snaps.map(function(s){ return s.n_urgent !== undefined ? +s.n_urgent : 0; });
+  cLevels.data.datasets[3].data = snaps.map(function(s){ return s.n_critical !== undefined ? +s.n_critical : 0; });
+  cLevels.update('none');
+}
+</script>
+</body>
+</html>

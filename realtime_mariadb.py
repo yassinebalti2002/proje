@@ -162,6 +162,10 @@ class MariaDBReader:
             replay = getattr(self, "replay", 0)
             if replay > 0:
                 self.last_id = max(0, max_id - replay)
+                # Bornes du bloc rejoué -- utilisées par poll() pour reboucler
+                # (mode --replay-loop) une fois ce bloc entièrement rattrapé.
+                self.replay_start_id   = self.last_id
+                self.replay_ceiling_id = max_id
                 log.info(f"Mode REPLAY — curseur reculé à id={self.last_id} ({replay} lignes à rejouer)")
                 print(f"\n  ▶️  REPLAY MODE — {replay} dernières lignes réelles seront traitées\n")
             else:
@@ -233,7 +237,7 @@ class MariaDBReader:
 
         try:
             query = f"""
-                SELECT id, SensorNodeId, gph, data
+                SELECT id, SensorNodeId, gph, data, timestamp
                 FROM `{self.table}`
                 WHERE id > %s
                 ORDER BY id ASC
@@ -246,6 +250,19 @@ class MariaDBReader:
             return []
 
         if not rows:
+            # Mode rejeu en boucle (démo/soutenance) : le bloc de --replay
+            # lignes RÉELLES a été entièrement rattrapé (plus rien après
+            # last_id) et aucune nouvelle mesure physique n'est arrivée entre
+            # temps -- au lieu de rester figé indéfiniment, on reboucle sur ce
+            # même bloc réel. Toujours 100% données réelles, jamais fabriquées ;
+            # le dashboard l'affiche honnêtement via measurement_timestamp
+            # (badge REJEU, jamais LIVE).
+            if (getattr(self, "replay_loop", False)
+                    and getattr(self, "replay", 0) > 0
+                    and self.last_id >= getattr(self, "replay_ceiling_id", 0)):
+                self.last_id = self.replay_start_id
+                log.info(f"🔁 Rejeu bouclé — retour au début du bloc (id={self.last_id})")
+                print(f"\n  🔁 REJEU BOUCLÉ — retour au début des {self.replay} lignes rejouées\n")
             return []
 
         # Purge TTL — évite la fuite mémoire si un capteur n'envoie pas les 3 gph
@@ -325,6 +342,17 @@ class MariaDBReader:
         # "ts" et n'est donc jamais purgée par le TTL : fuite mémoire silencieuse.
         self._pending[key].setdefault("ts", time.time())
 
+        # Vrai timestamp de la mesure (colonne `timestamp` de full_data) — PAS
+        # l'heure de traitement. Sert à distinguer temps réel de rejeu
+        # historique côté dashboard (measurement_timestamp de l'API). Les 3
+        # lignes gph d'une même session ont des timestamps quasi identiques
+        # (insérées à quelques ms d'écart) : garder la dernière vue suffit.
+        _row_ts = row.get("timestamp")
+        if _row_ts is not None:
+            self._pending[key]["timestamp"] = (
+                _row_ts.isoformat() if hasattr(_row_ts, "isoformat") else str(_row_ts)
+            )
+
         # Remplir le buffer selon le type de mesure
         if gph == "temperature":
             self._pending[key]["sensor_id"] = sensor_id
@@ -377,6 +405,7 @@ class MariaDBReader:
                 "vibration_x": float(s.get("vibration_x", 0) or 0),
                 "vibration_y": float(s.get("vibration_y", 0) or 0),
                 "vibration_z": float(s["vibration_z"]),
+                "timestamp":   s.get("timestamp"),
             }
             # Accélération depuis gph='acceleration' si disponible (V4+)
             if s.get("acc_p2p")   is not None: session["acc_p2p"]   = float(s["acc_p2p"])
@@ -591,6 +620,7 @@ def run(args):
         database=args.database, table=args.table,
     )
     reader.replay = getattr(args, 'replay', 0)  # mode replay
+    reader.replay_loop = getattr(args, 'replay_loop', False)  # reboucle le replay une fois épuisé
 
     api = APIClient(
         host=args.api_host, port=args.api_port,
@@ -843,6 +873,9 @@ def main():
                         help="Lance uniquement le diagnostic sans démarrer le moteur")
     parser.add_argument("--replay", type=int, default=0, metavar="N",
                         help="Rejoue les N dernières lignes existantes (données réelles sans capteurs connectés)")
+    parser.add_argument("--replay-loop", action="store_true",
+                        help="Une fois le bloc --replay entièrement rejoué, reboucle dessus au lieu de "
+                             "s'arrêter (utile démo/soutenance prolongée). Sans effet si --replay=0.")
 
     args = parser.parse_args()
 

@@ -127,6 +127,7 @@ def main():
         env = os.environ.copy()
         if api_key:
             env["API_KEYS"] = api_key
+        env["TEST_MODE"] = "1"
         server_proc = subprocess.Popen(
             [sys.executable, "api_unified_pythagore.py"],
             stdout=subprocess.DEVNULL,

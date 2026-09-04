@@ -79,6 +79,13 @@ COPY train_model_v3_unsupervised.py .
 COPY pipeline_upload.html .
 COPY login.html .
 COPY register.html .
+COPY forgot-password.html .
+COPY reset-password.html .
+COPY admin-users.html .
+COPY kpi_history.html .
+COPY tasks_history.html .
+COPY theme-toggle.js .
+COPY theme-toggle.css .
 
 # Modèles ML pré-entraînés (inclus dans l'image pour déploiement cloud)
 COPY models/ ./models/

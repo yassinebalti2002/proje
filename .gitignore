@@ -32,7 +32,12 @@ realtime_results.json
 simulator_results.json
 anomaly_history_persist.json
 alert_history.json
+kpi_history_persist.json
 test_report.json
+
+# Snapshots horodatés de chaque ré-entraînement (pipeline upload / train_*.py)
+# — artefacts locaux volumineux (.pkl par run), jamais destinés à Git
+models/runs/
 
 # Dataset trop volumineux pour GitHub (30 MB)
 data/dataset_real_full.csv

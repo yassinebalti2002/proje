@@ -69,8 +69,9 @@ realtime_mariadb.py                    realtime_ifm_direct.py (alternative)
 ```
 api_unified_pythagore.py     Point d'entrée — assemble l'app FastAPI depuis routers/ (~170 lignes)
 core.py                      État partagé + logique métier : features, ensemble ML, calcul RUL
-routers/                     Un fichier par domaine d'endpoints (predict, pipeline, data, alerts...)
+routers/                     Un fichier par domaine d'endpoints (predict, pipeline, data, alerts, history...)
 auth.py                      Authentification X-API-Key
+user_auth.py                 Comptes utilisateurs JWT — register/login/admin approve-reject/reset password
 rate_limiter.py              Rate limiting in-memory par IP
 config.py                    Config centrale (MariaDB, IFM) — jamais commité (.gitignore)
 signal_processing.py         FFT, enveloppe Hilbert, BPFO/BPFI/BSF, ondelettes
@@ -87,7 +88,13 @@ generate_dataset_from_sql.py Parsing d'un dump SQL → CSV
 dashboard_predictive.html    Dashboard SCADA HTML5 (mode predictif)
 dashboard_realtime.html      Dashboard SCADA HTML5 (mode temps réel brut)
 pipeline_upload.html         Interface web : upload SQL → parse → entraîne → recharge
-tests/                       43 tests unitaires ML + 18 sécurité + intégration
+kpi_history.html             Graphique d'évolution des KPIs du parc (GET /v1/kpi-history)
+tasks_history.html           Journal unifié des tâches système (GET /v1/tasks-history)
+login.html / register.html   Connexion / inscription (comptes JWT)
+forgot-password.html         Mot de passe oublié / reset-password.html — réinitialisation
+admin-users.html             Validation des comptes en attente (réservé aux détenteurs de clé API)
+theme-toggle.js / .css       Bouton clair/sombre partagé par toutes les pages HTML ci-dessus
+tests/                       102 tests : unitaires ML + sécurité + intégration (auth, historique, RUL...)
 models/                      Artefacts entraînés (.pkl, scaler, PCA, seuils, métriques)
 ```
 
@@ -127,9 +134,39 @@ un choix de configuration de déploiement propre à l'environnement cible).
 Contrôlé par `CORS_ORIGINS` (`.env`) : vide = ouvert à toutes origines (dev), sinon liste
 d'origines séparées par des virgules (prod).
 
+### Comptes utilisateurs (JWT) — distinct de la clé API
+
+En plus de la clé API (machine-à-machine, endpoints `/v1/*`), l'application propose des **comptes
+humains** (login.html/register.html) pour l'accès au dashboard :
+
+- Inscription (`register.html`) → compte créé avec le statut `pending`, **invisible tant qu'un
+  administrateur ne l'a pas validé**.
+- Un administrateur (détenteur d'une clé `API_KEYS`) consulte la file d'attente et valide/refuse
+  chaque compte via `admin-users.html`.
+- Une fois approuvé, l'utilisateur se connecte (`login.html`) et reçoit un **JWT** (`access_token`,
+  expire après 1h) utilisé pour les endpoints `/v1/auth/*` protégés (`Authorization: Bearer <token>`).
+- Mot de passe oublié : `forgot-password.html` → email avec lien à durée de vie limitée →
+  `reset-password.html`.
+- Ce système JWT est **indépendant** de l'authentification `X-API-Key` des endpoints `/v1/predict`,
+  `/v1/tasks-history`, etc. — un compte utilisateur approuvé ne donne pas automatiquement accès à
+  ces endpoints protégés par clé API.
+
 ---
 
 ## 4. Endpoints API — référence complète
+
+### Authentification utilisateurs (`/v1/auth/*`)
+
+| Endpoint | Auth | Description |
+|---|---|---|
+| `POST /v1/auth/register` | Non | Créer un compte (statut `pending` jusqu'à validation admin) |
+| `POST /v1/auth/login` | Non | Connexion → JWT (`access_token`, 1h) |
+| `GET /v1/auth/me` | JWT | Identité de l'utilisateur connecté |
+| `POST /v1/auth/forgot-password` | Non | Envoie un email avec lien de réinitialisation |
+| `POST /v1/auth/reset-password` | Non | Change le mot de passe via le token du lien reçu |
+| `GET /v1/auth/admin/pending` | Clé API admin | Liste des comptes en attente de validation |
+| `POST /v1/auth/admin/{id}/approve` | Clé API admin | Valide un compte en attente |
+| `POST /v1/auth/admin/{id}/reject` | Clé API admin | Refuse un compte en attente |
 
 ### Système
 
@@ -167,6 +204,19 @@ d'origines séparées par des virgules (prod).
 |---|---|---|
 | `GET /v1/alerts` | Oui | Historique des alertes envoyées |
 | `GET /v1/alerts/stats` | Oui | Statistiques globales (total, par niveau, cooldowns actifs) |
+
+### Historique (dashboards `kpi-history.html` / `tasks-history.html`)
+
+| Endpoint | Auth | Description |
+|---|---|---|
+| `GET /v1/kpi-history` | Non | Instantanés périodiques des KPIs du parc (santé moyenne, répartition par niveau de risque) — alimente le graphique de `kpi-history.html` |
+| `GET /v1/tasks-history` | Oui | Journal unifié des tâches système : runs de pipeline ML, alertes envoyées, rapports générés — alimente `tasks-history.html` |
+
+**Note d'implémentation** : ces deux pages HTML envoient une clé API codée en dur dans leur
+JavaScript (`API_KEY` en tête de fichier) pour appeler `/v1/tasks-history`. Si `API_KEYS` est
+changée côté serveur, cette clé doit être mise à jour manuellement dans les trois fichiers
+(`kpi_history.html`, `tasks_history.html`, `dashboard_predictive.html`) sous peine de 401 silencieux
+côté page (aucun message d'erreur affiché — juste une liste vide).
 
 ### Pipeline (ré-entraînement via upload SQL)
 

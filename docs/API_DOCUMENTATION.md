@@ -23,6 +23,8 @@ le pipeline ML ou les modules annexes, voir `DOCUMENTATION.md`.
    - [Reporting](#reporting)
    - [Alertes](#alertes)
    - [Pipeline (ré-entraînement)](#pipeline-ré-entraînement)
+   - [Authentification utilisateurs](#authentification-utilisateurs-v1auth)
+   - [Historique](#historique-kpi-historyhtml--tasks-historyhtml)
 7. [Tableau récapitulatif](#7-tableau-récapitulatif)
 
 ---
@@ -672,6 +674,84 @@ Liste des 10 derniers jobs de pipeline (résumé : `job_id`, `status`, `filename
 
 ---
 
+### Authentification utilisateurs (`/v1/auth/*`)
+
+Comptes JWT pour l'accès humain au dashboard — **distincts** de la clé API `X-API-Key` (voir §1).
+Préfixe commun : `/v1/auth`.
+
+#### `POST /v1/auth/register`
+Auth : non · Rate limit : 10/min
+
+Crée un compte avec le statut `pending`. Ne peut pas se connecter tant qu'un administrateur
+(détenteur d'une clé `API_KEYS`) ne l'a pas validé via `GET /v1/auth/admin/pending` +
+`POST /v1/auth/admin/{id}/approve`.
+
+```json
+POST /v1/auth/register
+{ "username": "jdupont", "email": "j.dupont@example.com", "password": "...", "firstname": "Jean", "lastname": "Dupont" }
+// 201 : { "id": 42, "username": "jdupont", "email": "...", "status": "pending" }
+```
+
+#### `POST /v1/auth/login`
+Auth : non · Rate limit : 10/min
+
+```json
+POST /v1/auth/login
+{ "username": "jdupont", "password": "..." }
+// 200 : { "access_token": "eyJ...", "token_type": "bearer", "expires_in": 3600, "user": {...} }
+```
+`401` si identifiants invalides, `403` si le compte est encore `pending` ou a été `rejected`.
+
+#### `GET /v1/auth/me`
+Auth : JWT (`Authorization: Bearer <access_token>`) · Rate limit : aucun
+
+Retourne l'identité du compte associé au token courant.
+
+#### `POST /v1/auth/forgot-password` / `POST /v1/auth/reset-password`
+Auth : non · Rate limit : 5/min (forgot) · 10/min (reset)
+
+`forgot-password` envoie un email avec un lien à durée de vie limitée ; `reset-password` consomme
+le token de ce lien pour définir un nouveau mot de passe. Réponse volontairement identique que
+l'email existe ou non (évite l'énumération de comptes).
+
+#### `GET /v1/auth/admin/pending`
+Auth : **clé API admin** (`X-API-Key`, pas de JWT) · Rate limit : 30/min
+
+Liste des comptes en attente de validation — consommée par `admin-users.html`.
+
+#### `POST /v1/auth/admin/{id}/approve` / `POST /v1/auth/admin/{id}/reject`
+Auth : **clé API admin** · Rate limit : 30/min
+
+Change le statut du compte en `approved` ou `rejected`. `404` si `id` inconnu.
+
+---
+
+### Historique (`kpi-history.html` / `tasks-history.html`)
+
+#### `GET /v1/kpi-history`
+Auth : non · Rate limit : 60/min
+
+Instantanés périodiques (toutes les ~5 min) des KPIs agrégés du parc : santé moyenne, nombre de
+capteurs par niveau de risque. Paramètre query `limit` (défaut 300).
+
+```json
+{ "n_snapshots": 57, "snapshots": [ { "timestamp": "...", "n_sensors": 18, "avg_health": 41.8, "n_ok": 0, "n_attention": 0, "n_urgent": 18, "n_critical": 0 } ] }
+```
+
+#### `GET /v1/tasks-history`
+Auth : **oui** · Rate limit : 30/min
+
+Journal unifié, du plus récent au plus ancien, de trois types de tâches : `pipeline`
+(entraînements), `alert` (alertes envoyées), `report` (rapports générés). Paramètres query :
+`type` (filtre optionnel) et `limit` (défaut 100).
+
+> **Piège connu** : `kpi_history.html`, `tasks_history.html` et `dashboard_predictive.html`
+> envoient une clé API codée en dur dans leur JavaScript pour authentifier cet appel. Si
+> `API_KEYS` change côté serveur sans que ces trois fichiers soient mis à jour, `/v1/tasks-history`
+> répond 401 et la page affiche silencieusement une liste vide (pas de message d'erreur visible).
+
+---
+
 ## 7. Tableau récapitulatif
 
 | Méthode | Endpoint | Auth | Rate limit (req/min) | Tag |
@@ -699,6 +779,16 @@ Liste des 10 derniers jobs de pipeline (résumé : `job_id`, `status`, `filename
 | POST | `/v1/pipeline/upload` | **Admin uniquement** | 5 | Pipeline |
 | GET | `/v1/pipeline/status/{job_id}` | Oui | 60 | Pipeline |
 | GET | `/v1/pipeline/jobs` | Oui | 30 | Pipeline |
+| POST | `/v1/auth/register` | Non | 10 | Authentification utilisateurs |
+| POST | `/v1/auth/login` | Non | 10 | Authentification utilisateurs |
+| GET | `/v1/auth/me` | JWT | — | Authentification utilisateurs |
+| POST | `/v1/auth/forgot-password` | Non | 5 | Authentification utilisateurs |
+| POST | `/v1/auth/reset-password` | Non | 10 | Authentification utilisateurs |
+| GET | `/v1/auth/admin/pending` | **Admin uniquement** | 30 | Authentification utilisateurs |
+| POST | `/v1/auth/admin/{id}/approve` | **Admin uniquement** | 30 | Authentification utilisateurs |
+| POST | `/v1/auth/admin/{id}/reject` | **Admin uniquement** | 30 | Authentification utilisateurs |
+| GET | `/v1/kpi-history` | Non | 60 | Historique |
+| GET | `/v1/tasks-history` | Oui | 30 | Historique |
 
 > **Note** : `/v1/alerts` et `/v1/alerts/stats` ne portent pas de dépendance
 > `require_api_key` dans le code actuel (`api_unified_pythagore.py`), contrairement à ce

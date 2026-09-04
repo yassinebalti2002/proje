@@ -6,6 +6,7 @@ Pipeline de ré-entraînement : upload d'un dump SQL → parsing → entraîneme
 models/ (production) — voir _run_pipeline_bg.
 """
 
+import json
 import logging
 import os
 import re
@@ -32,7 +33,36 @@ router = APIRouter(tags=["Pipeline"])
 # Stockage en mémoire des jobs pipeline (clé = job_id)
 _pipeline_jobs: dict = {}
 
+# Historique persisté des jobs terminés (survit au redémarrage, contrairement
+# à _pipeline_jobs ci-dessus qui est vidé à chaque relance de l'API) --
+# alimente la page d'historique des tâches du dashboard.
+_PIPELINE_HISTORY_PATH = Path(__file__).parent.parent / "pipeline_jobs_history.json"
+_MAX_PIPELINE_HISTORY = 300
+
 _ANSI_RE = re.compile(r'\x1b\[[0-9;]*[mGKHF]|\x1b\(B')
+
+
+def _persist_job_history(job: dict):
+    """Ajoute le job terminé (done/error) à l'historique persisté sur disque."""
+    try:
+        history = []
+        if _PIPELINE_HISTORY_PATH.exists():
+            history = json.loads(_PIPELINE_HISTORY_PATH.read_text(encoding="utf-8"))
+        history.append({
+            "job_id":      job["job_id"],
+            "status":      job["status"],
+            "filename":    job.get("filename"),
+            "elapsed":     job.get("elapsed"),
+            "created_at":  job.get("created_at"),
+            "finished_at": datetime.now().isoformat(),
+            "results":     job.get("results"),
+        })
+        history = history[-_MAX_PIPELINE_HISTORY:]
+        _PIPELINE_HISTORY_PATH.write_text(
+            json.dumps(history, indent=2, ensure_ascii=False, default=str), encoding="utf-8"
+        )
+    except Exception as e:
+        log.warning(f"Persistence historique pipeline échouée : {e}")
 
 
 def _fmt_elapsed(start_ts: float) -> str:
@@ -218,11 +248,13 @@ def _run_pipeline_bg(job_id: str, sql_path: str, train_mode: str):
         job["results"] = results
         job["status"]  = "done"
         _add_log(job, f"🎉 Pipeline terminé en {job['elapsed']} — AUC={results.get('auc', '?'):.3f}", "s")
+        _persist_job_history(job)
 
     except Exception as exc:
         job["status"] = "error"
         _add_log(job, f"❌ Erreur fatale : {exc}", "e")
         log.error(f"Pipeline {job_id} failed: {exc}")
+        _persist_job_history(job)
     finally:
         # Nettoyage fichiers temporaires
         for p in [sql_path, locals().get('csv_path')]:
@@ -360,3 +392,24 @@ def pipeline_jobs_list(request: Request, _key: str = Depends(require_api_key), _
             for jid, j in list(_pipeline_jobs.items())[-10:]
         ]
     }
+
+
+# ── Endpoint : historique complet persisté ─────────────────────────────────
+@router.get(
+    "/v1/pipeline/jobs/history",
+    summary="Historique complet des runs pipeline (persisté sur disque)",
+    description=(
+        "Contrairement à /v1/pipeline/jobs (10 derniers, en mémoire, perdus au "
+        "redémarrage), cet endpoint lit pipeline_jobs_history.json : tous les "
+        "runs terminés (succès ou erreur) depuis le début, jusqu'à 300 entrées."
+    )
+)
+def pipeline_jobs_history(request: Request, limit: int = 100, _key: str = Depends(require_api_key), _rl=Depends(make_rate_limiter(30))):
+    if not _PIPELINE_HISTORY_PATH.exists():
+        return {"total": 0, "jobs": []}
+    try:
+        history = json.loads(_PIPELINE_HISTORY_PATH.read_text(encoding="utf-8"))
+        return {"total": len(history), "jobs": list(reversed(history[-limit:]))}
+    except Exception as e:
+        log.warning(f"/v1/pipeline/jobs/history erreur lecture : {e}")
+        return {"total": 0, "jobs": [], "error": str(e)}

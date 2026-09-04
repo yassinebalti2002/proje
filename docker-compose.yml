@@ -78,7 +78,11 @@ services:
     # live insérées dans MariaDB -- comportement production). > 0 = rejoue les
     # N dernières lignes réelles de full_data au démarrage (utile démo/test).
     # Pour repasser en production : REPLAY_N=0 dans .env puis `docker compose up -d`.
-    entrypoint: ["python", "-u", "realtime_mariadb.py", "--api-host", "api", "--api-port", "8000", "--replay", "${REPLAY_N:-0}"]
+    # --replay-loop : une fois le bloc de REPLAY_N lignes réelles épuisé,
+    # reboucle dessus au lieu de se figer -- indispensable pour qu'une
+    # démo/soutenance prolongée garde un dashboard actif, sans capteur
+    # physique connecté. Sans effet si REPLAY_N=0 (donc safe en production).
+    entrypoint: ["python", "-u", "realtime_mariadb.py", "--api-host", "api", "--api-port", "8000", "--replay", "${REPLAY_N:-0}", "--replay-loop"]
     # Désactive le HEALTHCHECK hérité de l'image (Dockerfile) : il teste
     # curl sur localhost:8000, pertinent pour le service "api" qui écoute
     # ce port, mais "moteur" ne fait qu'appeler l'API à distance -- rien
@@ -123,8 +127,21 @@ services:
       - ./dashboard_predictive.html:/usr/share/nginx/html/dashboard_predictive.html:ro
       - ./login.html:/usr/share/nginx/html/login.html:ro
       - ./register.html:/usr/share/nginx/html/register.html:ro
+      - ./forgot-password.html:/usr/share/nginx/html/forgot-password.html:ro
+      - ./reset-password.html:/usr/share/nginx/html/reset-password.html:ro
       - ./pipeline_upload.html:/usr/share/nginx/html/pipeline_upload.html:ro
+      - ./admin-users.html:/usr/share/nginx/html/admin-users.html:ro
+      # Noms de fichiers avec underscore sur disque, montés sous les URLs avec
+      # tiret utilisées par les nav-links des dashboards (kpi-history.html,
+      # tasks-history.html) -- mêmes URLs que celles servies par l'API FastAPI
+      # (routers/history.py), pour que les deux chemins (nginx:3000 et
+      # api:8000) soient cohérents.
+      - ./kpi_history.html:/usr/share/nginx/html/kpi-history.html:ro
+      - ./tasks_history.html:/usr/share/nginx/html/tasks-history.html:ro
       - ./realtime_results.json:/usr/share/nginx/html/realtime_results.json:ro
+      # Bouton clair/sombre partagé par toutes les pages ci-dessus.
+      - ./theme-toggle.js:/usr/share/nginx/html/theme-toggle.js:ro
+      - ./theme-toggle.css:/usr/share/nginx/html/theme-toggle.css:ro
     depends_on:
       api:
         condition: service_healthy

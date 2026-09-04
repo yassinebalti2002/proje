@@ -4,6 +4,8 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Pipeline IoT — Maintenance Prédictive</title>
+<script src="theme-toggle.js"></script>
+<link rel="stylesheet" href="theme-toggle.css">
 <style>
 :root {
   --bg:       #0a0f1e;
@@ -19,6 +21,26 @@
   --danger:   #ef4444;
   --text:     #e2e8f0;
   --muted:    #64748b;
+  --hdr-grad: linear-gradient(135deg,#070d1a 0%,#0f1e3a 50%,#070d1a 100%);
+  --hdr-title: #ffffff;
+}
+
+:root[data-theme="light"] {
+  --bg:       #ffffff;
+  --bg2:      #f8fafc;
+  --surface:  #f1f5f9;
+  --surface2: #e2e8f0;
+  --border:   #cbd5e1;
+  --primary:  #0e7490;
+  --prim2:    #0369a1;
+  --violet:   #6d28d9;
+  --success:  #047857;
+  --warn:     #b45309;
+  --danger:   #b91c1c;
+  --text:     #0f172a;
+  --muted:    #475569;
+  --hdr-grad: linear-gradient(135deg,#f8fafc 0%,#eef2ff 50%,#f8fafc 100%);
+  --hdr-title: #0f172a;
 }
 *{margin:0;padding:0;box-sizing:border-box}
 html{scroll-behavior:smooth}
@@ -26,7 +48,7 @@ body{background:var(--bg);color:var(--text);font-family:'Segoe UI',system-ui,san
 
 /* ─── HEADER ─────────────────────────────────────────── */
 header{
-  background:linear-gradient(135deg,#070d1a 0%,#0f1e3a 50%,#070d1a 100%);
+  background:var(--hdr-grad);
   border-bottom:1px solid var(--border);
   padding:18px 40px;
   display:flex;align-items:center;gap:18px;
@@ -40,7 +62,7 @@ header{
   font-size:22px;flex-shrink:0;
   box-shadow:0 0 20px rgba(6,182,212,.35);
 }
-.hdr-info h1{font-size:20px;font-weight:700;color:#fff;letter-spacing:-.3px}
+.hdr-info h1{font-size:20px;font-weight:700;color:var(--hdr-title);letter-spacing:-.3px}
 .hdr-info p{font-size:12px;color:var(--muted);margin-top:2px}
 .hdr-right{margin-left:auto;display:flex;align-items:center;gap:16px}
 .api-badge{
@@ -63,6 +85,7 @@ header{
   transition:border-color .3s,color .3s;
 }
 .nav-link:hover{border-color:var(--primary);color:var(--primary)}
+.clock{font-family:'Consolas',monospace;font-size:12px;color:var(--muted)}
 
 /* ─── MAIN ───────────────────────────────────────────── */
 main{max-width:1080px;margin:0 auto;padding:36px 20px 60px}
@@ -298,6 +321,16 @@ main{max-width:1080px;margin:0 auto;padding:36px 20px 60px}
   transition:all .2s;margin-top:20px;
 }
 .restart-btn:hover{border-color:var(--primary);color:var(--primary)}
+.res-actions{display:flex;gap:12px;flex-wrap:wrap}
+.res-actions .restart-btn{margin-top:0}
+.predictions-btn{
+  background:linear-gradient(135deg,var(--primary),var(--violet));border:none;
+  border-radius:10px;padding:12px 24px;color:#fff;
+  font-size:14px;font-weight:600;cursor:pointer;text-decoration:none;
+  display:flex;align-items:center;gap:8px;
+  transition:opacity .2s;margin-top:20px;
+}
+.predictions-btn:hover{opacity:.9}
 
 /* ─── TOAST ──────────────────────────────────────────── */
 #toast{
@@ -332,14 +365,19 @@ main{max-width:1080px;margin:0 auto;padding:36px 20px 60px}
   <div class="logo">⚙️</div>
   <div class="hdr-info">
     <h1>Pipeline Maintenance Prédictive</h1>
-    <p>PFE ISG Bizerte — Mohamed Yassine Balti — Novation City 2026</p>
+    <p>Novation City 2026</p>
   </div>
   <div class="hdr-right">
     <a href="dashboard_realtime.html" class="nav-link" title="Retour au dashboard temps réel">📊 Dashboard</a>
+    <button class="theme-toggle-btn" data-theme-toggle-btn type="button" aria-label="Changer de thème">
+      <svg class="icon-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41"/></svg>
+      <svg class="icon-moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
+    </button>
     <div class="api-badge" id="apiBadge">
       <span class="dot" id="apiDot"></span>
       <span id="apiTxt">Vérification...</span>
     </div>
+    <div class="clock" id="clock">--/--/---- · --:--:--</div>
   </div>
 </header>
 
@@ -366,12 +404,12 @@ main{max-width:1080px;margin:0 auto;padding:36px 20px 60px}
       <div class="step" id="st4">
         <div class="s-circle">🧠</div>
         <div class="s-label">Entraînement</div>
-        <div class="s-sub">IF·ECOD·HBOS·COPOD</div>
+        <div class="s-sub">IF·LOF·OCSVM·ECOD·HBOS·COPOD</div>
       </div>
       <div class="step" id="st5">
         <div class="s-circle">🎯</div>
         <div class="s-label">Prédictions</div>
-        <div class="s-sub">SoftVote + persistance</div>
+        <div class="s-sub">Stacking + persistance</div>
       </div>
       <div class="step" id="st6">
         <div class="s-circle">✅</div>
@@ -415,7 +453,7 @@ main{max-width:1080px;margin:0 auto;padding:36px 20px 60px}
       <div class="cfg-item">
         <label>Mode d'entraînement</label>
         <select id="trainMode">
-          <option value="full">Complet — IF + ECOD + HBOS + COPOD (SoftVote)</option>
+          <option value="full">Complet — IF + LOF + OCSVM + ECOD + HBOS + COPOD (Stacking)</option>
         </select>
       </div>
     </div>
@@ -493,9 +531,14 @@ main{max-width:1080px;margin:0 auto;padding:36px 20px 60px}
       </div>
     </div>
 
-    <button class="restart-btn" onclick="restartPipeline()">
-      🔄 Nouveau pipeline
-    </button>
+    <div class="res-actions">
+      <a href="dashboard_realtime.html" class="predictions-btn">
+        📈 Voir les prédictions
+      </a>
+      <button class="restart-btn" onclick="restartPipeline()">
+        🔄 Nouveau pipeline
+      </button>
+    </div>
   </div>
 
 </main>
@@ -514,6 +557,16 @@ let jobId = null;
 let pollTimer = null;
 let logIndex = 0;
 let startTs = null;
+
+// ─── CLOCK ──────────────────────────────────────────────────
+function updateClock() {
+  const now = new Date();
+  const d = now.toLocaleDateString('fr-FR');
+  const t = now.toLocaleTimeString('fr-FR');
+  document.getElementById('clock').textContent = `${d} · ${t}`;
+}
+setInterval(updateClock, 1000);
+updateClock();
 
 // ─── API STATUS ───────────────────────────────────────────────
 async function checkApi() {

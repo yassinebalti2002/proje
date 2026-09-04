@@ -3,6 +3,19 @@ import os
 import pytest
 import requests
 
+# Charge .env AVANT toute collecte de test -- sans ça, API_KEYS est absent de
+# l'environnement et le fallback os.environ.setdefault("API_KEYS", "test-key-unit")
+# de test_ml_functions.py (nécessaire à SES tests unitaires isolés) devient la
+# valeur effective pour toute la session pytest, y compris pour les fichiers
+# d'intégration qui tapent la vraie API -- provoquant des 401 qui n'ont rien à
+# voir avec un bug de code (observé : besoin de charger .env manuellement
+# avant de lancer pytest).
+try:
+    from dotenv import load_dotenv
+    load_dotenv()
+except ImportError:
+    pass
+
 
 def pytest_addoption(parser):
     parser.addoption("--host",    default="localhost", help="Hôte API")
@@ -18,7 +31,19 @@ def base(request):
     # (voir generate_selfsigned_cert.py / docker-compose.yml) -- voir la
     # fixture autouse ci-dessous pour la désactivation de la vérification
     # du certificat côté tests.
-    return f"https://{host}:{port}"
+    url = f"https://{host}:{port}"
+
+    # Purge le rate limiter une fois en début de session : sans ça, le quota
+    # (ex: 10 appels/60s sur /v1/auth/register) peut déjà être partiellement
+    # consommé par un run pytest précédent contre le même serveur encore
+    # chaud, et fait échouer des tests sans rapport avec le rate limiting.
+    # No-op silencieux si le serveur ne tourne pas avec TEST_MODE=1.
+    try:
+        requests.post(f"{url}/v1/_test/reset-rate-limit", timeout=3, verify=False)
+    except Exception:
+        pass
+
+    return url
 
 
 @pytest.fixture(scope="session", autouse=True)

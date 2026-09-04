@@ -3,7 +3,9 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Connexion — Maintenance Prédictive</title>
+<title>Connexion — Novation City</title>
+<script src="theme-toggle.js"></script>
+<link rel="stylesheet" href="theme-toggle.css">
 <style>
   @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap');
 
@@ -20,86 +22,197 @@
     --text2:  #8b949e;
     --text3:  #484f58;
     --border: rgba(255,255,255,0.08);
+    --body-bg: radial-gradient(circle at 30% 25%, #123a58 0%, #060b16 62%);
+    --star1: rgba(127,231,214,0.65);
+    --star2: rgba(88,166,255,0.5);
     --font:   'Inter', sans-serif;
     --mono:   'JetBrains Mono', monospace;
     --r:      8px;
   }
 
+  :root[data-theme="light"] {
+    --bg:     #ffffff;
+    --bg2:    #f6f8fa;
+    --bg3:    #eaeef2;
+    --bg4:    #d0d7de;
+    --teal:   #00967d;
+    --red:    #cf222e;
+    --green:  #1a7f37;
+    --blue:   #0969da;
+    --text:   #1f2328;
+    --text2:  #59636e;
+    --text3:  #6e7781;
+    --border: rgba(31,35,40,0.15);
+    --body-bg: radial-gradient(circle at 30% 25%, #eaf3fb 0%, #ffffff 62%);
+    --star1: rgba(0,150,125,0.35);
+    --star2: rgba(9,105,218,0.3);
+  }
+
   * { margin:0; padding:0; box-sizing:border-box; }
 
+  html, body { height: 100%; }
+
   body {
-    background: var(--bg);
+    position: relative;
     color: var(--text);
     font-family: var(--font);
+    display: flex;
     min-height: 100vh;
+    background: var(--body-bg);
+    overflow: hidden;
+  }
+
+  .bg-stars {
+    position: absolute;
+    inset: 0;
+    z-index: 0;
+    pointer-events: none;
+    background-image:
+      radial-gradient(circle, var(--star1) 1px, transparent 1.6px),
+      radial-gradient(circle, var(--star2) 1px, transparent 1.6px);
+    background-size: 180px 180px, 260px 260px;
+    background-position: 0 0, 40px 60px;
+    animation: stars-drift 50s linear infinite;
+  }
+  @keyframes stars-drift {
+    from { background-position: 0 0, 40px 60px; }
+    to   { background-position: 180px 180px, 300px 320px; }
+  }
+
+  /* ---------- Panneau visuel (gauche) ---------- */
+  .visual-panel {
+    position: relative;
+    z-index: 1;
+    flex: 1 1 50%;
     display: flex;
     align-items: center;
     justify-content: center;
-    padding: 20px;
+    overflow: hidden;
   }
 
-  .card {
-    width: 100%;
-    max-width: 380px;
-    background: var(--bg2);
-    border: 1px solid var(--border);
-    border-radius: 12px;
-    padding: 32px 28px;
-    box-shadow: 0 8px 28px rgba(0,0,0,0.35);
+  .visual-panel .stars circle {
+    animation: twinkle 3.5s ease-in-out infinite;
+  }
+  @keyframes twinkle {
+    0%, 100% { opacity: 0.25; }
+    50%      { opacity: 1; }
   }
 
-  .logo { display:flex; align-items:center; gap:12px; margin-bottom: 26px; }
+  .visual-panel .illustration {
+    animation: float 5s ease-in-out infinite;
+  }
+  @keyframes float {
+    0%, 100% { transform: translateY(0); }
+    50%      { transform: translateY(-10px); }
+  }
+
+  .visual-panel svg { width: min(62%, 380px); height: auto; }
+
+  .visual-caption {
+    position: absolute;
+    bottom: 36px;
+    left: 0;
+    right: 0;
+    text-align: center;
+    color: var(--text2);
+    font-size: 0.8rem;
+    letter-spacing: 0.5px;
+  }
+  .visual-caption strong { color: var(--teal); }
+
+  /* ---------- Panneau formulaire (droite) ---------- */
+  .form-panel {
+    position: relative;
+    z-index: 1;
+    flex: 1 1 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 40px 24px;
+  }
+
+  .form-inner { width: 100%; max-width: 440px; }
+
+  .logo { display:flex; align-items:center; gap:14px; margin-bottom: 22px; }
 
   .logo-icon {
-    width: 34px; height: 34px; flex-shrink: 0;
+    width: 46px; height: 46px; flex-shrink: 0;
     background: linear-gradient(135deg, var(--teal), var(--blue));
-    border-radius: 9px;
+    border-radius: 12px;
     display: flex; align-items: center; justify-content: center;
     box-shadow: 0 2px 8px rgba(0,0,0,0.25);
   }
-  .logo-icon svg { width: 19px; height: 19px; }
+  .logo-icon svg { width: 25px; height: 25px; }
 
-  .logo-text h1 {
-    font-size: 0.85rem; font-weight: 700; letter-spacing: 0.5px; color: var(--text);
-    line-height: 1.3;
+  .logo-text { font-size: 1.55rem; font-weight: 800; letter-spacing: 0.5px; color: var(--text); }
+
+  .brand-tag {
+    font-size: 0.9rem;
+    font-weight: 700;
+    letter-spacing: 1.2px;
+    color: var(--teal);
+    text-transform: uppercase;
+    margin-bottom: 28px;
   }
-  .logo-text h1 span { color: var(--teal); }
 
-  h2 { font-size: 1.3rem; font-weight: 700; margin-bottom: 4px; }
-  .subtitle { color: var(--text2); font-size: 0.85rem; margin-bottom: 24px; }
+  h2 { font-size: 1.5rem; font-weight: 700; margin-bottom: 6px; }
+  .subtitle { color: var(--text2); font-size: 1rem; margin-bottom: 28px; }
 
   label {
-    display: block; font-size: 0.72rem; font-weight: 600; color: var(--text2);
-    text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 6px;
+    display: block; font-size: 0.8rem; font-weight: 600; color: var(--text2);
+    text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 8px;
   }
 
-  .field { margin-bottom: 16px; }
+  .field { margin-bottom: 20px; }
 
   input {
     width: 100%;
     background: var(--bg3);
     border: 1px solid var(--border);
     border-radius: var(--r);
-    padding: 10px 12px;
+    padding: 13px 15px;
     color: var(--text);
     font-family: var(--font);
-    font-size: 0.9rem;
+    font-size: 1.02rem;
     outline: none;
     transition: border-color 0.15s;
   }
   input:focus { border-color: var(--teal); }
 
+  .input-wrap { position: relative; }
+  .input-wrap input { padding-right: 44px; }
+  .toggle-pw {
+    position: absolute;
+    right: 8px;
+    top: 50%;
+    transform: translateY(-50%);
+    background: none;
+    border: none;
+    padding: 6px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--text2);
+    cursor: pointer;
+    transition: color 0.15s;
+  }
+  .toggle-pw:hover { color: var(--text); }
+  .toggle-pw svg { width: 19px; height: 19px; }
+  .toggle-pw .eye-off { display: none; }
+  .toggle-pw.is-visible .eye { display: none; }
+  .toggle-pw.is-visible .eye-off { display: block; }
+
   button[type="submit"] {
     width: 100%;
-    margin-top: 6px;
-    padding: 11px;
+    margin-top: 8px;
+    padding: 14px;
     border: none;
     border-radius: var(--r);
     background: linear-gradient(135deg, var(--teal), var(--blue));
     color: #04110d;
     font-family: var(--font);
     font-weight: 700;
-    font-size: 0.9rem;
+    font-size: 1.02rem;
     cursor: pointer;
     transition: opacity 0.15s;
   }
@@ -124,40 +237,147 @@
   }
   .footer-link a { color: var(--teal); text-decoration: none; font-weight: 600; }
   .footer-link a:hover { text-decoration: underline; }
+
+  .forgot-link { text-align: right; margin: -10px 0 20px; }
+  .forgot-link a { color: var(--text2); font-size: 0.82rem; text-decoration: none; }
+  .forgot-link a:hover { color: var(--teal); text-decoration: underline; }
+
+  @media (max-width: 860px) {
+    .visual-panel { display: none; }
+  }
 </style>
 </head>
 <body>
 
-<div class="card">
-  <div class="logo">
-    <div class="logo-icon">
-      <svg viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
-        <polyline points="2 14 7 14 9 8 13 20 16 4 18 14 22 14"/>
-      </svg>
-    </div>
-    <div class="logo-text">
-      <h1><span>MAINTENANCE PRÉDICTIVE</span><br>EN TEMPS RÉEL</h1>
-    </div>
+<div class="theme-toggle-fixed">
+  <button class="theme-toggle-btn" data-theme-toggle-btn type="button" aria-label="Changer de thème">
+    <svg class="icon-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41"/></svg>
+    <svg class="icon-moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
+  </button>
+</div>
+
+<div class="bg-stars"></div>
+
+<div class="visual-panel">
+  <svg class="illustration" viewBox="0 0 400 400" xmlns="http://www.w3.org/2000/svg">
+    <defs>
+      <filter id="glow" x="-50%" y="-50%" width="200%" height="200%">
+        <feGaussianBlur stdDeviation="3.2" result="blur"/>
+        <feMerge>
+          <feMergeNode in="blur"/>
+          <feMergeNode in="SourceGraphic"/>
+        </feMerge>
+      </filter>
+      <linearGradient id="teal-blue" x1="0" y1="0" x2="1" y2="1">
+        <stop offset="0%" stop-color="#00d4b4"/>
+        <stop offset="100%" stop-color="#58a6ff"/>
+      </linearGradient>
+    </defs>
+
+    <!-- étoiles / particules -->
+    <g class="stars" fill="#7fe7d6">
+      <circle cx="40"  cy="60"  r="1.6" style="animation-delay:0s"/>
+      <circle cx="90"  cy="30"  r="1.2" style="animation-delay:.4s"/>
+      <circle cx="340" cy="70"  r="1.8" style="animation-delay:.8s"/>
+      <circle cx="300" cy="40"  r="1.2" style="animation-delay:1.2s"/>
+      <circle cx="60"  cy="180" r="1.4" style="animation-delay:.2s"/>
+      <circle cx="350" cy="200" r="1.6" style="animation-delay:1.6s"/>
+      <circle cx="30"  cy="300" r="1.3" style="animation-delay:.6s"/>
+      <circle cx="370" cy="310" r="1.5" style="animation-delay:1s"/>
+      <circle cx="200" cy="20"  r="1.4" style="animation-delay:1.4s"/>
+      <circle cx="120" cy="350" r="1.3" style="animation-delay:.3s"/>
+      <circle cx="280" cy="360" r="1.5" style="animation-delay:.9s"/>
+    </g>
+
+    <!-- ampoule (fil de fer) -->
+    <g filter="url(#glow)" fill="none" stroke="url(#teal-blue)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+      <circle cx="200" cy="150" r="72"/>
+      <path d="M136 118 L200 150 L264 118 M132 150 L200 150 L268 150 M136 182 L200 150 L264 182 M200 78 L200 222"/>
+      <path d="M172 222 L228 222 L222 250 L178 250 Z"/>
+      <path d="M180 250 L220 250 M182 262 L218 262 M184 274 L216 274"/>
+    </g>
+
+    <!-- pousse à l'intérieur de l'ampoule -->
+    <g filter="url(#glow)" fill="none" stroke="#7fe7d6" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M200 190 C200 160 200 150 200 128"/>
+      <path d="M200 158 C182 150 172 132 178 112 C198 116 208 134 200 158 Z"/>
+      <path d="M200 172 C218 166 230 148 226 128 C206 130 194 150 200 172 Z"/>
+    </g>
+
+    <!-- mains en coupe -->
+    <g filter="url(#glow)" fill="none" stroke="url(#teal-blue)" stroke-width="2.4" stroke-linejoin="round" stroke-linecap="round">
+      <path d="M60 330
+               C55 300 65 268 90 255
+               L104 300
+               C108 285 116 274 128 268
+               L138 306
+               C142 292 150 284 160 282
+               L172 316
+               C182 312 190 312 198 316
+               L198 344
+               C150 358 92 356 60 330 Z"/>
+      <path d="M340 330
+               C345 300 335 268 310 255
+               L296 300
+               C292 285 284 274 272 268
+               L262 306
+               C258 292 250 284 240 282
+               L228 316
+               C218 312 210 312 202 316
+               L202 344
+               C250 358 308 356 340 330 Z"/>
+    </g>
+  </svg>
+
+  <div class="visual-caption">
+    <strong>NOVATION CITY</strong> — Surveillance intelligente des infrastructures
   </div>
+</div>
 
-  <h2>Connexion</h2>
-  <p class="subtitle">Accédez à votre espace de surveillance</p>
-
-  <form id="login-form">
-    <div class="field">
-      <label for="username">Nom d'utilisateur</label>
-      <input type="text" id="username" name="username" autocomplete="username" required>
+<div class="form-panel">
+  <div class="form-inner">
+    <div class="logo">
+      <div class="logo-icon">
+        <svg viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+          <polyline points="2 14 7 14 9 8 13 20 16 4 18 14 22 14"/>
+        </svg>
+      </div>
+      <div class="logo-text">NOVATION CITY</div>
     </div>
-    <div class="field">
-      <label for="password">Mot de passe</label>
-      <input type="password" id="password" name="password" autocomplete="current-password" required>
-    </div>
-    <button type="submit" id="submit-btn">Se connecter</button>
-    <div id="msg" class="msg"></div>
-  </form>
+    <div class="brand-tag">Maintenance Prédictive</div>
 
-  <div class="footer-link">
-    Pas encore de compte ? <a href="register.html">Créer un compte</a>
+    <h2>Connexion</h2>
+    <p class="subtitle">Accédez à votre espace de surveillance</p>
+
+    <form id="login-form">
+      <div class="field">
+        <label for="username">Nom d'utilisateur</label>
+        <input type="text" id="username" name="username" autocomplete="username" required>
+      </div>
+      <div class="field">
+        <label for="password">Mot de passe</label>
+        <div class="input-wrap">
+          <input type="password" id="password" name="password" autocomplete="current-password" required>
+          <button type="button" class="toggle-pw" data-target="password" aria-label="Afficher le mot de passe">
+            <svg class="eye" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8Z"/>
+              <circle cx="12" cy="12" r="3"/>
+            </svg>
+            <svg class="eye-off" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M17.94 17.94A10.94 10.94 0 0 1 12 20c-7 0-11-8-11-8a20.3 20.3 0 0 1 5.06-6.06M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a20.36 20.36 0 0 1-3.22 4.36M14.12 14.12a3 3 0 1 1-4.24-4.24"/>
+              <line x1="1" y1="1" x2="23" y2="23"/>
+            </svg>
+          </button>
+        </div>
+      </div>
+      <div class="forgot-link"><a href="forgot-password.html">Mot de passe oublié ?</a></div>
+      <button type="submit" id="submit-btn">Se connecter</button>
+      <div id="msg" class="msg"></div>
+    </form>
+
+    <div class="footer-link">
+      Pas encore de compte ? <a href="register.html">Créer un compte</a>
+    </div>
   </div>
 </div>
 
@@ -186,6 +406,16 @@
   const form = document.getElementById('login-form');
   const msg = document.getElementById('msg');
   const submitBtn = document.getElementById('submit-btn');
+
+  document.querySelectorAll('.toggle-pw').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      const input = document.getElementById(btn.dataset.target);
+      const isVisible = input.type === 'text';
+      input.type = isVisible ? 'password' : 'text';
+      btn.classList.toggle('is-visible', !isVisible);
+      btn.setAttribute('aria-label', isVisible ? 'Afficher le mot de passe' : 'Masquer le mot de passe');
+    });
+  });
 
   function showMsg(text, type) {
     msg.textContent = text;

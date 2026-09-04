@@ -18,6 +18,7 @@ from core import (
     RULRequest, RULResponse,
     IoTMeasurementRequest, IoTPredictResponse,
     extract_features, run_ensemble, compute_rul, update_history,
+    latest_measurement_timestamp,
 )
 from auth import require_api_key
 from rate_limiter import make_rate_limiter
@@ -123,6 +124,7 @@ def predict_anomaly(request: Request, req: PredictRequest, _key: str = Depends(r
     }
 
     _ts = datetime.now().isoformat()
+    _meas_ts = latest_measurement_timestamp(req.history)
     core._latest_results.setdefault(req.sensor_id, {}).update({
         "sensor_id":    req.sensor_id,
         "motor_id":     req.motor_id,
@@ -137,6 +139,7 @@ def predict_anomaly(request: Request, req: PredictRequest, _key: str = Depends(r
             "individual_models": result["individual"],
             "individual_scores": result["individual_scores"],
             "features":          feat_summary,
+            "measurement_timestamp": _meas_ts,
         }
     })
 
@@ -144,6 +147,7 @@ def predict_anomaly(request: Request, req: PredictRequest, _key: str = Depends(r
         sensor_id         = req.sensor_id,
         motor_id          = req.motor_id,
         timestamp         = _ts,
+        measurement_timestamp = _meas_ts,
         prediction        = result["label"],
         is_anomaly        = result["is_anomaly"],
         confidence        = result["confidence"],
@@ -197,16 +201,12 @@ def predict_rul(request: Request, req: RULRequest, _key: str = Depends(require_a
         except Exception as _e:
             log.debug(f"Spectral features RUL ignorées : {_e}")
 
-    # 3. Essai modèle RUL ML dédié (GradientBoosting)
-    ml_rul_result = None
-    if core.RUL_ML_ENABLED and core._rul_predictor is not None:
-        try:
-            ml_rul_result = core._rul_predictor.predict(feat)
-            log.debug(f"RUL ML : {ml_rul_result['rul_hours']}h ({ml_rul_result['model_type']})")
-        except Exception as _e:
-            log.warning(f"RUL ML échoué, fallback heuristique : {_e}")
-
-    # 4. Calcul RUL heuristique (toujours calculé pour les tendances)
+    # 3. Calcul RUL — formule heuristique uniquement (seuils industriels CDC +
+    # tendance réelle + historique réel du capteur). Le modèle ML entraîné sur
+    # des courbes de dégradation synthétiques (Weibull, voir train_rul_model.py)
+    # a été retiré du pipeline de production : aucune donnée fabriquée n'entre
+    # plus dans le calcul du RUL affiché, celui-ci vient à 100% des mesures
+    # réelles reçues.
     predict_result_data = {
         "prediction":    req.prediction    or "NORMAL",
         "votes":         req.votes         or 0,
@@ -216,38 +216,14 @@ def predict_rul(request: Request, req: RULRequest, _key: str = Depends(require_a
     }
     rul_heuristic = compute_rul(req.history, feat, req.sensor_id, predict_result_data)
 
-    # 5. Sélection du résultat final
-    # Stratégie : heuristique pour les heures RUL (calibrée sur les plages CDC),
-    # ML pour détecter une dégradation plus précoce → peut élever le niveau d'alerte.
-    # Le ML seul ne fixe plus les heures car son dataset synthétique n'a pas de
-    # défaillances réelles → ses valeurs absolues restent surestimées.
-    _LEVEL_ORDER = ["OK", "ATTENTION", "URGENT", "CRITIQUE"]
-    _predict_risk = (req.risk_level or "OK").upper()
-    _ml_alert     = (ml_rul_result or {}).get("alert_level", "OK")
-    _heur_alert   = rul_heuristic["alert_level"]
+    alert_level = rul_heuristic["alert_level"]
+    rul_hours   = rul_heuristic["rul_hours"]
+    rul_days    = round(rul_hours / 24.0, 2)
 
-    # Choisir le niveau d'alerte le plus sévère parmi heuristique et ML
-    _ml_idx   = _LEVEL_ORDER.index(_ml_alert)   if _ml_alert   in _LEVEL_ORDER else 0
-    _heur_idx = _LEVEL_ORDER.index(_heur_alert) if _heur_alert in _LEVEL_ORDER else 0
-    alert_level = _LEVEL_ORDER[max(_ml_idx, _heur_idx)]
-
-    # Heures RUL : toujours issues de l'heuristique (plages CDC garanties)
-    # On réinterpolele dans la plage du niveau d'alerte final si celui-ci a été
-    # aggravé par le ML (le RUL doit alors être dans la plage du nouveau niveau)
-    if alert_level != _heur_alert and alert_level in core.RUL_TABLE:
-        _rmin, _rmax = core.RUL_TABLE[alert_level]
-        _deg = rul_heuristic["degradation_rate"] / 100.0
-        _ratio = min(1.0, max(0.0, _deg))
-        rul_hours = round(max(0.0, _rmax - _ratio * (_rmax - _rmin)), 1)
-    else:
-        rul_hours = rul_heuristic["rul_hours"]
-    rul_days      = round(rul_hours / 24.0, 2)
-
-    _ml_model_used = (ml_rul_result or {}).get("model_type", "none")
     confidence     = "HAUTE" if len(req.history) >= 10 else ("MOYENNE" if len(req.history) >= 5 else "FAIBLE")
     recommendation = rul_heuristic["recommendation"]
     trend_detail   = rul_heuristic["trend"]
-    trend_detail["rul_model"] = f"heuristic_CDC + ML_{_ml_model_used}"
+    trend_detail["rul_model"] = "heuristic_CDC"
 
     # 6. Mise à jour historique
     deg_score = rul_heuristic["degradation_rate"] / 100.0
@@ -260,12 +236,13 @@ def predict_rul(request: Request, req: RULRequest, _key: str = Depends(require_a
             risk_level  = alert_level,
             health_score= rul_heuristic["health_score"],
             rul_hours   = rul_hours,
-            vib_total   = None,
-            temperature = None,
-            votes       = 0
+            vib_total   = feat.get("vib_total"),
+            temperature = feat.get("temp_cur"),
+            votes       = predict_result_data["votes"]
         )
 
     _ts_rul = datetime.now().isoformat()
+    _meas_ts_rul = latest_measurement_timestamp(req.history)
     core._latest_results.setdefault(req.sensor_id, {}).update({
         "sensor_id": req.sensor_id,
         "timestamp": _ts_rul,
@@ -277,6 +254,7 @@ def predict_rul(request: Request, req: RULRequest, _key: str = Depends(require_a
             "alert_level":      alert_level,
             "recommendation":   recommendation,
             "confidence":       confidence,
+            "measurement_timestamp": _meas_ts_rul,
         }
     })
 
@@ -284,6 +262,7 @@ def predict_rul(request: Request, req: RULRequest, _key: str = Depends(require_a
         sensor_id        = req.sensor_id,
         motor_id          = req.motor_id,
         timestamp        = _ts_rul,
+        measurement_timestamp = _meas_ts_rul,
         rul_hours        = rul_hours,
         rul_days         = rul_days,
         degradation_rate = rul_heuristic["degradation_rate"],

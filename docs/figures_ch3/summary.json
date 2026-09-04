@@ -1,0 +1,18 @@
+{
+  "operating_threshold": 0.9999998491107743,
+  "n_sessions": 202802,
+  "n_anomalies": 20281,
+  "auc_roc_stacking": 0.9752301748092231,
+  "f1_stacking": 0.676169832972077,
+  "precision_stacking": 0.7002218231752403,
+  "recall_stacking": 0.6537153000345151,
+  "accuracy_stacking": 0.937382274336545,
+  "auc_par_modele": {
+    "if": 0.9601800128394283,
+    "lof": 0.6662528464786008,
+    "ocsvm": 0.5293830945653679,
+    "ecod": 0.9341999814371658,
+    "hbos": 0.9779867209480935,
+    "copod": 0.9730008976468808
+  }
+}

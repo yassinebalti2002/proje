@@ -6,7 +6,7 @@ Entraîne un modèle de régression ML dédié à la prédiction du RUL
 
 Stratégie :
     Faute de données de défaillances réelles confirmées (aucun moteur n'a
-    atteint la défaillance complète sur nov. 2025 → juin 2026), on construit
+    atteint la défaillance complète sur nov. 2025 → mai 2026), on construit
     des courbes de dégradation synthétiques réalistes à partir :
     1. Des données réelles full_data (distribution des features)
     2. D'un modèle de dégradation de Weibull paramétré sur les seuils industriels

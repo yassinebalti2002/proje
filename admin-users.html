@@ -1,0 +1,349 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Validation des comptes — Novation City</title>
+<script src="theme-toggle.js"></script>
+<link rel="stylesheet" href="theme-toggle.css">
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap');
+
+  :root {
+    --bg:     #0d1117;
+    --bg2:    #161b22;
+    --bg3:    #1c2128;
+    --bg4:    #21262d;
+    --teal:   #00d4b4;
+    --red:    #f85149;
+    --green:  #3fb950;
+    --blue:   #58a6ff;
+    --amber:  #d29922;
+    --text:   #e6edf3;
+    --text2:  #8b949e;
+    --text3:  #484f58;
+    --border: rgba(255,255,255,0.08);
+    --body-bg: radial-gradient(circle at 30% 15%, #123a58 0%, #060b16 62%);
+    --hdr-bg: rgba(13,17,23,0.6);
+    --font:   'Inter', sans-serif;
+    --mono:   'JetBrains Mono', monospace;
+    --r:      8px;
+  }
+
+  :root[data-theme="light"] {
+    --bg:     #ffffff;
+    --bg2:    #f6f8fa;
+    --bg3:    #eaeef2;
+    --bg4:    #d0d7de;
+    --teal:   #00967d;
+    --red:    #cf222e;
+    --green:  #1a7f37;
+    --blue:   #0969da;
+    --amber:  #9a6700;
+    --text:   #1f2328;
+    --text2:  #59636e;
+    --text3:  #6e7781;
+    --border: rgba(31,35,40,0.15);
+    --body-bg: radial-gradient(circle at 30% 15%, #eaf3fb 0%, #ffffff 62%);
+    --hdr-bg: rgba(255,255,255,0.7);
+  }
+
+  * { margin:0; padding:0; box-sizing:border-box; }
+  html, body { height: 100%; }
+  body {
+    color: var(--text);
+    font-family: var(--font);
+    min-height: 100vh;
+    background: var(--body-bg);
+  }
+
+  header {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 18px 32px; border-bottom: 1px solid var(--border);
+    background: var(--hdr-bg);
+  }
+  .logo { display:flex; align-items:center; gap:14px; }
+  .logo-icon {
+    width: 40px; height: 40px; flex-shrink: 0;
+    background: linear-gradient(135deg, var(--teal), var(--blue));
+    border-radius: 10px;
+    display: flex; align-items: center; justify-content: center;
+  }
+  .logo-icon svg { width: 22px; height: 22px; }
+  .logo-text { font-size: 1.2rem; font-weight: 800; letter-spacing: 0.5px; }
+  .logo-sub { color: var(--text2); font-size: 0.75rem; }
+  header a { color: var(--text2); text-decoration: none; font-size: 0.85rem; }
+  header a:hover { color: var(--teal); }
+
+  main { max-width: 980px; margin: 0 auto; padding: 32px 24px 60px; }
+
+  h2 { font-size: 1.4rem; font-weight: 700; margin-bottom: 6px; }
+  .subtitle { color: var(--text2); font-size: 0.95rem; margin-bottom: 26px; }
+
+  .card {
+    background: var(--bg2); border: 1px solid var(--border);
+    border-radius: 12px; padding: 22px; margin-bottom: 22px;
+  }
+
+  label {
+    display: block; font-size: 0.78rem; font-weight: 600; color: var(--text2);
+    text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 8px;
+  }
+  .key-row { display: flex; gap: 12px; align-items: flex-end; flex-wrap: wrap; }
+  .key-field { flex: 1; min-width: 240px; }
+  input[type="password"], input[type="text"] {
+    width: 100%; background: var(--bg3); border: 1px solid var(--border);
+    border-radius: var(--r); padding: 12px 14px; color: var(--text);
+    font-family: var(--mono); font-size: 0.95rem; outline: none;
+    transition: border-color 0.15s;
+  }
+  input:focus { border-color: var(--teal); }
+
+  button {
+    border: none; border-radius: var(--r); padding: 12px 20px;
+    font-family: var(--font); font-weight: 700; font-size: 0.92rem;
+    cursor: pointer; transition: opacity 0.15s;
+  }
+  button:disabled { opacity: 0.5; cursor: not-allowed; }
+  .btn-primary { background: linear-gradient(135deg, var(--teal), var(--blue)); color: #04110d; }
+  .btn-primary:hover { opacity: 0.9; }
+  .btn-approve { background: rgba(63,185,80,0.15); color: var(--green); border: 1px solid rgba(63,185,80,0.35); }
+  .btn-approve:hover { background: rgba(63,185,80,0.25); }
+  .btn-reject { background: rgba(248,81,73,0.15); color: var(--red); border: 1px solid rgba(248,81,73,0.35); }
+  .btn-reject:hover { background: rgba(248,81,73,0.25); }
+
+  .msg {
+    margin-top: 14px; padding: 10px 14px; border-radius: var(--r);
+    font-size: 0.85rem; display: none;
+  }
+  .msg.error   { display:block; background: rgba(248,81,73,0.12);  color: var(--red);   border: 1px solid rgba(248,81,73,0.3); }
+  .msg.success { display:block; background: rgba(63,185,80,0.12);  color: var(--green); border: 1px solid rgba(63,185,80,0.3); }
+
+  table { width: 100%; border-collapse: collapse; }
+  th, td {
+    text-align: left; padding: 12px 14px; font-size: 0.86rem;
+    border-bottom: 1px solid var(--border);
+  }
+  th { color: var(--text2); font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.5px; }
+  td.actions { display: flex; gap: 8px; }
+  tr:last-child td { border-bottom: none; }
+
+  .empty-state {
+    text-align: center; padding: 40px 20px; color: var(--text2);
+  }
+  .empty-state .big { font-size: 2rem; margin-bottom: 10px; }
+
+  .badge-count {
+    display: inline-flex; align-items: center; justify-content: center;
+    background: var(--amber); color: #1a1200; font-weight: 800;
+    border-radius: 999px; padding: 2px 10px; font-size: 0.8rem; margin-left: 8px;
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="logo">
+    <div class="logo-icon">
+      <svg viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+        <polyline points="2 14 7 14 9 8 13 20 16 4 18 14 22 14"/>
+      </svg>
+    </div>
+    <div>
+      <div class="logo-text">NOVATION CITY</div>
+      <div class="logo-sub">Maintenance Prédictive</div>
+    </div>
+  </div>
+  <div style="display:flex;align-items:center;gap:14px;">
+    <a href="dashboard_realtime.html">← Retour au dashboard</a>
+    <button class="theme-toggle-btn" data-theme-toggle-btn type="button" aria-label="Changer de thème">
+      <svg class="icon-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41"/></svg>
+      <svg class="icon-moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
+    </button>
+  </div>
+</header>
+
+<main>
+  <h2>Validation des comptes<span class="badge-count" id="pendingCount" style="display:none">0</span></h2>
+  <p class="subtitle">Les nouveaux comptes créés depuis la page d'inscription restent en attente tant qu'ils ne sont pas validés ici.</p>
+
+  <div class="card">
+    <div class="key-row">
+      <div class="key-field">
+        <label for="apiKey">Clé API admin (X-API-Key)</label>
+        <input type="password" id="apiKey" placeholder="Votre clé API admin" autocomplete="off">
+      </div>
+      <button class="btn-primary" id="loadBtn">Charger les comptes en attente</button>
+    </div>
+    <div id="topMsg" class="msg"></div>
+  </div>
+
+  <div class="card" id="listCard" style="display:none">
+    <div style="overflow-x:auto">
+      <table id="pendingTable">
+        <thead>
+          <tr>
+            <th>Nom</th>
+            <th>Nom d'utilisateur</th>
+            <th>Email</th>
+            <th>Inscrit le</th>
+            <th>Action</th>
+          </tr>
+        </thead>
+        <tbody id="pendingBody"></tbody>
+      </table>
+    </div>
+    <div class="empty-state" id="emptyState" style="display:none">
+      <div class="big">✅</div>
+      Aucun compte en attente de validation.
+    </div>
+  </div>
+</main>
+
+<script>
+  // Même détection auto https/http que login.html / register.html --
+  // avec repli sur "localhost" si la page est ouverte en file:// (double-clic
+  // sur le fichier plutôt que via le serveur) : window.location.hostname est
+  // alors une chaîne vide, ce qui produirait une URL invalide (https://:8000).
+  const API_HOST = window.location.hostname || 'localhost';
+  let API_BASE = `https://${API_HOST}:8000`;
+  async function detectApiBase() {
+    for (const scheme of ['https', 'http']) {
+      try {
+        const candidate = `${scheme}://${API_HOST}:8000`;
+        const ctrl = new AbortController();
+        const timer = setTimeout(() => ctrl.abort(), 2500);
+        const res = await fetch(`${candidate}/health`, { signal: ctrl.signal });
+        clearTimeout(timer);
+        if (res.ok) { API_BASE = candidate; return; }
+      } catch (e) { /* essaie le schéma suivant */ }
+    }
+  }
+  const _apiReady = detectApiBase();
+
+  const apiKeyInput = document.getElementById('apiKey');
+  const loadBtn     = document.getElementById('loadBtn');
+  const topMsg      = document.getElementById('topMsg');
+  const listCard    = document.getElementById('listCard');
+  const pendingBody = document.getElementById('pendingBody');
+  const emptyState  = document.getElementById('emptyState');
+  const pendingTable= document.getElementById('pendingTable');
+  const pendingCount= document.getElementById('pendingCount');
+
+  function showMsg(el, text, type) {
+    el.textContent = text;
+    el.className = 'msg ' + type;
+  }
+
+  function authHeaders() {
+    const k = apiKeyInput.value.trim();
+    return k ? { 'X-API-Key': k } : {};
+  }
+
+  function fmtDate(iso) {
+    if (!iso) return '—';
+    try { return new Date(iso).toLocaleString('fr-FR'); } catch (e) { return iso; }
+  }
+
+  function td(text) {
+    const cell = document.createElement('td');
+    cell.textContent = text;
+    return cell;
+  }
+
+  // Champs (firstname/lastname/username/email) fournis par l'utilisateur à
+  // l'inscription -- construits via textContent (pas innerHTML) pour ne pas
+  // exécuter du HTML/JS si un compte a été créé avec un nom contenant des
+  // balises (XSS stocké sur cette page, vue par un admin).
+  function renderUsers(users) {
+    pendingBody.innerHTML = '';
+    pendingCount.style.display = users.length ? 'inline-flex' : 'none';
+    pendingCount.textContent = users.length;
+    if (!users.length) {
+      pendingTable.style.display = 'none';
+      emptyState.style.display = 'block';
+      return;
+    }
+    pendingTable.style.display = 'table';
+    emptyState.style.display = 'none';
+    for (const u of users) {
+      const tr = document.createElement('tr');
+      tr.appendChild(td(`${u.firstname} ${u.lastname}`));
+      tr.appendChild(td(u.username));
+      tr.appendChild(td(u.email));
+      tr.appendChild(td(fmtDate(u.created_at)));
+
+      const actionsCell = document.createElement('td');
+      actionsCell.className = 'actions';
+      const approveBtn = document.createElement('button');
+      approveBtn.className = 'btn-approve';
+      approveBtn.dataset.id = u.id;
+      approveBtn.dataset.action = 'approve';
+      approveBtn.textContent = 'Valider';
+      const rejectBtn = document.createElement('button');
+      rejectBtn.className = 'btn-reject';
+      rejectBtn.dataset.id = u.id;
+      rejectBtn.dataset.action = 'reject';
+      rejectBtn.textContent = 'Refuser';
+      actionsCell.appendChild(approveBtn);
+      actionsCell.appendChild(rejectBtn);
+      tr.appendChild(actionsCell);
+
+      pendingBody.appendChild(tr);
+    }
+  }
+
+  async function loadPending() {
+    await _apiReady;
+    loadBtn.disabled = true;
+    loadBtn.textContent = 'Chargement...';
+    try {
+      const res = await fetch(`${API_BASE}/v1/auth/admin/pending`, { headers: authHeaders() });
+      const data = await res.json();
+      if (!res.ok) {
+        showMsg(topMsg, data.detail || 'Échec du chargement.', 'error');
+        listCard.style.display = 'none';
+        return;
+      }
+      topMsg.className = 'msg';
+      listCard.style.display = 'block';
+      renderUsers(data);
+    } catch (err) {
+      showMsg(topMsg, 'Impossible de contacter le serveur.', 'error');
+    } finally {
+      loadBtn.disabled = false;
+      loadBtn.textContent = 'Charger les comptes en attente';
+    }
+  }
+
+  async function handleAction(userId, action) {
+    await _apiReady;
+    try {
+      const res = await fetch(`${API_BASE}/v1/auth/admin/${userId}/${action}`, {
+        method: 'POST',
+        headers: authHeaders(),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        showMsg(topMsg, data.detail || 'Échec de l\'action.', 'error');
+        return;
+      }
+      showMsg(topMsg, data.message || 'Action effectuée.', 'success');
+      loadPending();
+    } catch (err) {
+      showMsg(topMsg, 'Impossible de contacter le serveur.', 'error');
+    }
+  }
+
+  loadBtn.addEventListener('click', loadPending);
+  apiKeyInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') loadPending(); });
+
+  pendingBody.addEventListener('click', (e) => {
+    const btn = e.target.closest('button[data-action]');
+    if (!btn) return;
+    handleAction(btn.dataset.id, btn.dataset.action);
+  });
+</script>
+
+</body>
+</html>

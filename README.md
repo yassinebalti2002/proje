@@ -27,37 +27,40 @@ realtime_mariadb.py
     │  POST /v1/predict + /v1/predict-rul
     ▼
 API FastAPI v3.1.0  (port 8000 / $PORT)
-    │  Ensemble 6 modèles · SoftVote seuil dynamique
-    │  GradientBoostingRegressor (RUL · 46 features)
+    │  Ensemble 6 modèles · stacking (régression logistique)
+    │  RUL : heuristique (production) + GradientBoostingRegressor (expérimental, 46 features)
     ▼
-Dashboard HTML5  (rafraîchissement 3 s)
+Dashboard HTML5  (rafraîchissement 5 s)
 ```
 
 ---
 
 ## Performances ML réelles
 
-Métriques calculées par **validation croisée par capteur** (GroupKFold, 3 folds — chaque capteur
-sert exactement une fois de test, jamais vu pendant l'entraînement de ce fold) : bien plus stable
-qu'un split unique, qui peut tomber par malchance sur un fold quasi sans anomalies (voir historique
-des corrections dans `docs/DOCUMENTATION.md`).
+Modèle déployé **V8** (entraîné le 22 août 2026), évalué par **holdout par capteur** (GroupKFold —
+les capteurs de test sont totalement absents de l'entraînement) sur **1 825 158 sessions** :
 
-| Métrique | **Moyenne CV (3 folds, holdout)** | Note |
+| Métrique | **V8 (holdout par capteur)** | Note |
 |----------|:---:|------|
-| AUC-ROC | **0,9475** | Signal le plus stable — excellente séparation anomalie/normal en généralisation |
-| F1-Score | **0,298** | Seuil sous contrainte precision ≥ 0,70 (V9), sélectionné sur le train de chaque fold |
-| Precision | **0,373** | |
-| Recall | **0,282** | |
-| MAE RUL | **294 h** (33 %) | GradientBoostingRegressor, split par moteur (`GroupShuffleSplit`) |
-| R² RUL | **0,61** | 46 features spectrales, 30 moteurs jamais vus en entraînement |
+| AUC-ROC | **0,9868** | Signal le plus stable — sépare le comportement normal du comportement anomalique |
+| F1-Score | **0,8052** | Sous contrainte precision ≥ 0,70 |
+| Precision | **0,7365** | |
+| Recall | **0,8978** | |
+| Accuracy | **0,9573** | |
+| MAE RUL | **294 h** (33 %) | GradientBoostingRegressor **expérimental**, non déployé (voir note ci-dessous) |
+| R² RUL | **0,61** | 46 features spectrales, entraîné sur courbes de dégradation synthétiques (Weibull) |
 
-> Ces chiffres remplacent les anciens (AUC=0,842, Recall=0,755, F1=0,629), qui étaient calculés
-> **en resubstitution** : le scaler/PCA/modèles étaient évalués sur les données mêmes qui avaient
-> servi à les entraîner (pas de vrai jeu de test), les mêmes soucis affectaient historiquement le
-> modèle RUL (split aléatoire par ligne au lieu du moteur). Corrigé en juillet 2026 — détail complet
-> dans `docs/DOCUMENTATION.md` § Historique des corrections. Le modèle réellement déployé
-> (`models/*.pkl`) est ensuite ré-entraîné sur l'intégralité des données disponibles (19 capteurs) —
-> la CV ne sert qu'à estimer honnêtement sa performance de généralisation, pas à le produire.
+> **Portée** : ces métriques mesurent la capacité du modèle à retrouver les pseudo-labels
+> heuristiques pris comme référence (aucune panne réelle confirmée sur la période de collecte) —
+> pas une détection de pannes mécaniques réelles. Voir `docs/rapport_corrige.tex` §4 pour la
+> discussion complète des limites méthodologiques.
+>
+> Le modèle V8 remplace une génération antérieure (**V7**, SoftVote à 4 modèles à poids fixes :
+> AUC=0,9475, F1=0,298) suite à un ré-entraînement complet sur ×25 le volume de données et un
+> passage à un ensemble à 6 modèles combinés par **stacking** plutôt qu'à poids fixes.
+> Le **RUL en production** utilise une heuristique déterministe (paliers de dégradation sur
+> mesures réelles) — le GradientBoostingRegressor ci-dessus a été expérimenté mais n'est **pas**
+> chargé en production, faute de panne réelle confirmée pour le valider (voir `GET /v1/model-card`).
 
 ---
 
@@ -72,7 +75,8 @@ des corrections dans `docs/DOCUMENTATION.md`).
 | HBOS | pyod | Histogramme par feature |
 | COPOD | pyod | Copule multivariée |
 
-Vote : **SoftVote à seuil optimal sous contrainte precision ≥ 0,70** (stocké dans `models/threshold_v3.pkl`)
+Fusion : **stacking par régression logistique** sur les 6 sorties (remplace l'ancien SoftVote à
+poids fixes), avec seuil sous contrainte precision ≥ 0,70 (stocké dans `models/threshold_v3.pkl`)
 
 ---
 
@@ -184,23 +188,39 @@ Ce dépôt inclut un fichier `render.yaml` prêt à l'emploi.
 
 ## API — Endpoints
 
+**30 endpoints** au total, organisés en 8 groupes fonctionnels. Les 13 endpoints métier ci-dessous
+sont le cœur de l'application ; la liste complète (auth, historique, alertes, reporting, système,
+spectral) est documentée dans `docs/API_DOCUMENTATION.md` et explorable interactivement.
+
 | Méthode | Endpoint | Description |
 |---------|----------|-------------|
 | GET | `/health` | Statut API + modèles chargés |
 | GET | `/metrics` | Métriques ML officielles |
 | GET | `/sensors` | Liste des 20 capteurs IFM |
 | GET | `/anomalies` | Anomalies filtrées par score |
-| GET | `/v1/alert-level/{id}` | Niveau d'alerte (OK/ATTENTION/URGENT/CRITIQUE) |
+| GET | `/v1/alert-level/{id}` | Niveau d'alerte (FAIBLE/MODÉRÉ/ÉLEVÉ/CRITIQUE) |
 | GET | `/v1/health-score/{id}` | Health Score 0–100 |
 | GET | `/v1/history/{id}` | Historique des prédictions en mémoire |
 | GET | `/v1/results` | Derniers résultats consolidés (tous capteurs) |
 | POST | `/v1/predict` | Inférence 6 modèles + stacking |
-| POST | `/v1/predict-rul` | Estimation RUL (heuristique + GBR) |
+| POST | `/v1/predict-rul` | Estimation RUL (heuristique de production + GBR expérimental) |
 | POST | `/v1/iot-predict` | Prédiction + RUL en un appel, fenêtre gérée côté serveur |
 | POST | `/v1/pipeline/upload` | Upload d'un dump SQL + déclenchement d'un ré-entraînement |
 | GET | `/v1/pipeline/status/{job_id}` | Suivi d'un ré-entraînement en cours |
 
-Documentation interactive : `GET /docs`
+Documentation interactive : `GET /docs` (Swagger) · Détail complet : `docs/API_DOCUMENTATION.md`
+
+### Comptes utilisateurs & pages web
+
+En plus de l'authentification par clé API (`X-API-Key`, machine-à-machine), l'application propose
+des **comptes humains** pour l'accès au dashboard — inscription (`register.html`), validation par
+un administrateur (`admin-users.html`), connexion JWT (`login.html`), et réinitialisation de mot de
+passe (`forgot-password.html` → `reset-password.html`). Voir `docs/DOCUMENTATION.md` §3 pour le détail.
+
+Toutes les pages HTML (dashboards inclus) partagent un bouton **clair/sombre**
+(`theme-toggle.js`/`.css`), et deux pages d'historique : **Historique KPI** (`kpi_history.html`,
+évolution du parc dans le temps) et **Historique Tâches** (`tasks_history.html`, journal unifié des
+entraînements/alertes/rapports).
 
 ### Authentification
 
@@ -262,14 +282,22 @@ Fenêtre glissante : **w = 20**, pas **s = 3** — normalisées par `RobustScale
 proje/
 ├── api_unified_pythagore.py        # Point d'entrée — assemble l'app FastAPI depuis routers/
 ├── core.py                         # État partagé + logique métier (features, ensemble ML, RUL)
-├── routers/                        # Un fichier par domaine d'endpoints (predict, pipeline, data...)
+├── routers/                        # Un fichier par domaine d'endpoints (predict, pipeline, data, history...)
+├── user_auth.py                    # Comptes JWT — register/login/admin approve-reject/reset password
 ├── signal_processing.py            # FFT, enveloppe, BPFO/BPFI/BSF, wavelet
-├── train_rul_model.py              # GradientBoostingRegressor RUL (46 features)
-├── train_model_v3_unsupervised.py  # Entraînement 6 modèles (contamination 20 %)
+├── train_rul_model.py              # GradientBoostingRegressor RUL (46 features, expérimental)
+├── train_model_v3_unsupervised.py  # Entraînement 6 modèles + stacking (contamination 20 %)
 ├── realtime_mariadb.py             # Moteur temps réel — polling MariaDB 2 s
 ├── alert_manager.py                # Alertes email / webhook Slack
 ├── reporting_module.py             # Génération rapports HTML/JSON
-├── dashboard_realtime.html         # Dashboard SCADA HTML5
+├── dashboard_realtime.html         # Dashboard SCADA HTML5 (temps réel)
+├── dashboard_predictive.html       # Dashboard SCADA HTML5 (vue flotte)
+├── kpi_history.html                # Historique KPI du parc (graphiques)
+├── tasks_history.html              # Journal unifié des tâches système
+├── login.html / register.html      # Connexion / inscription (comptes JWT)
+├── forgot-password.html / reset-password.html  # Réinitialisation de mot de passe
+├── admin-users.html                # Validation des comptes en attente
+├── theme-toggle.js / .css          # Bouton clair/sombre partagé par toutes les pages HTML
 ├── requirements.txt                # Dépendances Python
 ├── Dockerfile                      # Image Docker multi-arch
 ├── docker-compose.yml              # API + Dashboard Nginx

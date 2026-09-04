@@ -4,6 +4,8 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Maintenance Prédictive — ISG Bizerte</title>
+<script src="theme-toggle.js"></script>
+<link rel="stylesheet" href="theme-toggle.css">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
 <style>
 @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600;700&family=Syne:wght@400;700;800&display=swap');
@@ -13,7 +15,16 @@
   --red:#ef4444; --orange:#f97316; --green:#22c55e; --yellow:#eab308; --purple:#8b5cf6;
   --t1:#e2f0ff; --t2:#7ba8c8; --t3:#3d5f7a;
   --bd:rgba(0,229,192,.1); --bd2:rgba(14,165,233,.15);
+  --hdr-bg:rgba(4,8,15,.94); --ov-bg:rgba(4,8,15,.96);
   --mono:'JetBrains Mono',monospace; --sans:'Syne',sans-serif;
+}
+:root[data-theme="light"]{
+  --bg0:#ffffff; --bg1:#f6f8fb; --bg2:#eef1f6; --bg3:#dde3ec;
+  --c1:#00806c; --c2:#0969da;
+  --red:#cf222e; --orange:#c2410c; --green:#15803d; --yellow:#a16207; --purple:#6d28d9;
+  --t1:#0b1220; --t2:#4b5f73; --t3:#7c93a6;
+  --bd:rgba(0,128,108,.18); --bd2:rgba(9,105,218,.18);
+  --hdr-bg:rgba(255,255,255,.94); --ov-bg:rgba(255,255,255,.96);
 }
 *{margin:0;padding:0;box-sizing:border-box}
 body{background:var(--bg0);color:var(--t1);font-family:var(--sans);min-height:100vh;overflow-x:hidden}
@@ -27,7 +38,7 @@ body::before{
 /* ── HEADER ── */
 header{
   display:flex;align-items:center;justify-content:space-between;
-  padding:11px 22px;background:rgba(4,8,15,.94);
+  padding:11px 22px;background:var(--hdr-bg);
   border-bottom:1px solid var(--bd);
   position:sticky;top:0;z-index:200;backdrop-filter:blur(20px)
 }
@@ -47,7 +58,7 @@ header{
   border:1px solid var(--bd);font-size:.67rem;font-family:var(--mono)
 }
 .hk .v{color:var(--c1);font-weight:700} .hk .l{color:var(--t3)}
-.hdr-right{display:flex;align-items:center;gap:10px}
+.hdr-right{display:flex;align-items:center;gap:10px;flex-wrap:wrap;row-gap:6px;justify-content:flex-end}
 #clk{font-family:var(--mono);font-size:.7rem;color:var(--c2)}
 .apib{
   display:flex;align-items:center;gap:5px;padding:4px 11px;
@@ -55,6 +66,9 @@ header{
 }
 .apib.ok{background:rgba(34,197,94,.08);border-color:rgba(34,197,94,.3);color:var(--green)}
 .apib.err{background:rgba(239,68,68,.08);border-color:rgba(239,68,68,.3);color:var(--red)}
+/* Badge de fraîcheur des données (LIVE vs REJEU) — voir measurement_timestamp */
+.apib.replay{background:rgba(249,115,22,.08);border-color:rgba(249,115,22,.3);color:var(--orange)}
+.apib.unknown{background:rgba(61,95,122,.08);border-color:rgba(61,95,122,.25);color:var(--t3)}
 .nav-link{
   display:flex;align-items:center;gap:5px;padding:4px 11px;
   border-radius:20px;font-size:.65rem;font-family:var(--mono);
@@ -210,7 +224,7 @@ canvas{max-height:150px}
 
 /* ── OVERLAY ── */
 #ov{
-  position:fixed;inset:0;background:rgba(4,8,15,.96);
+  position:fixed;inset:0;background:var(--ov-bg);
   display:flex;flex-direction:column;align-items:center;justify-content:center;
   z-index:999;gap:13px;transition:opacity .5s
 }
@@ -280,7 +294,14 @@ canvas{max-height:150px}
   </div>
   <div class="hdr-right">
     <a href="dashboard_realtime.html" class="nav-link" title="Vue détaillée par capteur">📈 Vue détaillée</a>
+    <a href="kpi-history.html" class="nav-link" title="Historique des KPIs du parc">📊 Historique KPI</a>
+    <a href="tasks-history.html" class="nav-link" title="Journal des tâches (entraînements, alertes, rapports)">🗒️ Historique Tâches</a>
+    <button class="theme-toggle-btn" data-theme-toggle-btn type="button" aria-label="Changer de thème">
+      <svg class="icon-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41"/></svg>
+      <svg class="icon-moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
+    </button>
     <div id="clk"></div>
+    <div class="apib unknown" id="freshb" title="En attente de données"><span class="dot"></span><span id="fresht">—</span></div>
     <div class="apib err" id="apib"><span class="dot"></span><span id="apit">Déconnecté</span></div>
     <span class="nav-link" id="userBadge" title="Utilisateur connecté">👤 --</span>
     <a href="#" class="nav-link" id="logoutLink" title="Se déconnecter">🚪 Déconnexion</a>
@@ -456,7 +477,7 @@ var API = 'https://' + window.location.hostname + ':8000';  // API TLS-only, voi
 // Cle API pour les endpoints proteges (/metrics, /sensors) -- doit correspondre
 // a une des valeurs de API_KEYS dans .env cote serveur. En dur ici pour un
 // usage 100% local (dashboard servi sur localhost uniquement).
-var API_KEY = 'f95c23330af74473f904f9c8a6a72a0388b3f99792e0be0f038b19db36129ebd';
+var API_KEY = 'yass1234';
 function apiHeaders(){ return {'X-API-Key': API_KEY}; }
 var SEL = null;
 var SD  = {};  // sensor_id -> data
@@ -737,6 +758,10 @@ function processJSON(raw){
     }
   });
 
+  // Badge de fraîcheur (LIVE/REJEU) — basé sur measurement_timestamp des
+  // dernières entrées predict/rul de chaque capteur, avant tout autre calcul.
+  updateFreshnessBadge(latest);
+
   // Construire SD depuis la dernière entrée de chaque capteur
   SD = {};
   Object.keys(latest).forEach(function(sid){
@@ -808,6 +833,8 @@ function processJSON(raw){
 // Fallback si realtime_results.json non disponible
 function processAPISensors(list){
   SD = {};  // toujours repartir de zero
+  // Le endpoint /sensors ne fournit pas measurement_timestamp -> fraîcheur inconnue
+  updateFreshnessBadge({});
   list.filter(function(s){ return s && s.sensor_id && IFM_SET[s.sensor_id]; }).forEach(function(s){
     var sid = s.sensor_id;
     SD[sid] = {
@@ -818,6 +845,67 @@ function processAPISensors(list){
     };
   });
   renderList(); updateKPIs();
+}
+
+// ═══════════════════════════════════════════
+// FRAÎCHEUR DES DONNÉES (LIVE vs REJEU)
+// ═══════════════════════════════════════════
+// mesure_timestamp = vrai horodatage de la mesure capteur (pas le moment du
+// calcul de la prédiction, qui vaut toujours "maintenant"). En mode rejeu
+// (`realtime_mariadb.py --replay N`), le moteur retraite d'anciennes lignes
+// réelles de la base -- measurement_timestamp peut alors dater de semaines/
+// mois. On affiche l'écart pour que l'utilisateur sache si le parc tourne
+// en direct ou rejoue un historique, sans avoir à deviner.
+function formatAgeFr(seconds){
+  seconds = Math.max(0, Math.round(seconds));
+  if(seconds < 60) return 'il y a ' + seconds + 's';
+  var mins = Math.round(seconds/60);
+  if(mins < 60) return 'il y a ' + mins + 'min';
+  var hours = Math.round(seconds/3600);
+  if(hours < 24) return 'il y a ' + hours + 'h';
+  var days = Math.round(seconds/86400);
+  if(days < 30) return 'il y a ' + days + 'j';
+  var months = Math.round(seconds/2592000);
+  if(months < 12) return 'il y a ' + months + ' mois';
+  var years = Math.round(seconds/31536000);
+  return 'il y a ' + years + ' an' + (years > 1 ? 's' : '');
+}
+function fmtDateFr(d){
+  function p2(n){ return (n<10?'0':'')+n; }
+  return d.getFullYear()+'-'+p2(d.getMonth()+1)+'-'+p2(d.getDate())+' '+p2(d.getHours())+':'+p2(d.getMinutes());
+}
+// entries : objet {sensor_id -> entrée brute {predict:{...}, rul:{...}}}
+function updateFreshnessBadge(entries){
+  var el  = document.getElementById('freshb');
+  var txt = document.getElementById('fresht');
+  if(!el || !txt) return;
+  var maxTs = null;
+  Object.values(entries || {}).forEach(function(e){
+    var pred = (e && e.predict) || {};
+    var rul  = (e && e.rul)     || {};
+    [pred.measurement_timestamp, rul.measurement_timestamp].forEach(function(ts){
+      if(!ts) return;
+      var d = new Date(ts);
+      if(!isNaN(d.getTime()) && (!maxTs || d > maxTs)) maxTs = d;
+    });
+  });
+  if(!maxTs){
+    el.className = 'apib unknown';
+    txt.textContent = '—';
+    el.title = 'Aucune mesure capteur reçue pour le moment';
+    return;
+  }
+  var ageS = (Date.now() - maxTs.getTime()) / 1000;
+  if(ageS < 90){
+    el.className = 'apib ok';
+    txt.textContent = '🟢 LIVE';
+    el.title = 'Dernière mesure réelle il y a ' + Math.round(ageS) + 's';
+  } else {
+    el.className = 'apib replay';
+    txt.textContent = '🕘 REJEU · ' + formatAgeFr(ageS);
+    el.title = 'Dernière mesure réelle : ' + fmtDateFr(maxTs)
+             + ' — mode rejeu historique, pas de nouvelle mesure de capteur physique reçue';
+  }
 }
 
 // ═══════════════════════════════════════════

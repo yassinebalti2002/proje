@@ -67,17 +67,13 @@ except Exception as _sp_e:
         f"signal_processing non disponible : {_sp_e}"
     )
 
-# ── Modèle RUL ML dédié (GradientBoosting entraîné sur courbes de dégradation) ─
-try:
-    from train_rul_model import RULPredictor
-    _rul_predictor = RULPredictor()
-    RUL_ML_ENABLED = _rul_predictor.load()
-except Exception as _rul_e:
-    _rul_predictor = None
-    RUL_ML_ENABLED = False
-    logging.getLogger(__name__).warning(
-        f"RULPredictor ML non disponible : {_rul_e} — utilisation heuristique"
-    )
+# ── RUL : heuristique uniquement, pas de modèle ML ─────────────────────────────
+# train_rul_model.py (GradientBoostingRegressor) est entraîné sur des courbes de
+# dégradation SYNTHÉTIQUES (loi de Weibull) faute de panne réelle confirmée sur
+# la période de collecte -- il n'est plus chargé ni appelé dans le pipeline de
+# production : le RUL vient uniquement de compute_rul() (seuils industriels +
+# tendance + historique, calculés à 100% sur les mesures réelles reçues).
+# Le script reste disponible pour ré-entraînement/expérimentation manuelle.
 
 # ── Module de reporting ────────────────────────────────────────────────────────
 try:
@@ -221,6 +217,82 @@ def _touch_sensor_and_sweep(sensor_id: str) -> None:
         log.info(f"Purge capteurs inactifs (>2h, non-IFM) : {len(stale)} capteur(s)")
 
 
+def classify_alert_level(avg_score: float, anomaly_rate: float) -> str:
+    """Seuils de classification consolidée partagés par /v1/alert-level et
+    snapshot_kpis() -- évite de dupliquer ces constantes à plusieurs endroits."""
+    if avg_score >= 0.75 or anomaly_rate >= 0.80:
+        return "CRITIQUE"
+    if avg_score >= 0.50 or anomaly_rate >= 0.50:
+        return "URGENT"
+    if avg_score >= 0.25 or anomaly_rate >= 0.20:
+        return "ATTENTION"
+    return "OK"
+
+
+# Snapshots périodiques des KPIs globaux du dashboard (santé moyenne du parc,
+# répartition par niveau d'alerte) -- permet d'afficher une page d'historique
+# ("comment le parc a évolué cette semaine") plutôt qu'un seul instantané.
+KPI_HISTORY_PATH   = Path("kpi_history_persist.json")
+KPI_SNAPSHOT_INTERVAL = 300     # 5 min entre deux instantanés -- inutile plus souvent,
+                                 # ce n'est pas une métrique temps réel seconde par seconde
+MAX_KPI_SNAPSHOTS  = 2000       # ~7 jours d'historique à raison d'un point/5min
+_last_kpi_snapshot: float = 0.0
+
+
+def snapshot_kpis():
+    """Calcule et persiste un instantané des KPIs globaux, throttlé à un
+    appel utile toutes les KPI_SNAPSHOT_INTERVAL secondes. Appelé depuis
+    update_history() -- donc à chaque prédiction reçue, comme
+    save_history_to_disk()."""
+    global _last_kpi_snapshot
+    import time as _time
+    now = _time.time()
+    if now - _last_kpi_snapshot < KPI_SNAPSHOT_INTERVAL:
+        return
+    _last_kpi_snapshot = now
+    try:
+        avg_scores = []
+        n_ok = n_attention = n_urgent = n_critical = 0
+        for dq in anomaly_history.values():
+            hist = list(dq)
+            recent = [e["score"] for e in hist[-10:] if not np.isnan(e.get("score", np.nan))]
+            if not recent:
+                continue
+            avg = float(np.mean(recent))
+            avg_scores.append(avg)
+            anomaly_rate = sum(1 for s in recent if s >= 0.5) / len(recent)
+            level = classify_alert_level(avg, anomaly_rate)
+            if level == "CRITIQUE":
+                n_critical += 1
+            elif level == "URGENT":
+                n_urgent += 1
+            elif level == "ATTENTION":
+                n_attention += 1
+            else:
+                n_ok += 1
+        if not avg_scores:
+            return
+        avg_score = float(np.mean(avg_scores))
+        snapshot = {
+            "timestamp":   datetime.now().isoformat(),
+            "n_sensors":   len(avg_scores),
+            "avg_score":   round(avg_score, 4),
+            "avg_health":  round(max(0.0, 100 - avg_score * 100), 1),
+            "n_ok":        n_ok,
+            "n_attention": n_attention,
+            "n_urgent":    n_urgent,
+            "n_critical":  n_critical,
+        }
+        data = []
+        if KPI_HISTORY_PATH.exists():
+            data = json.loads(KPI_HISTORY_PATH.read_text(encoding="utf-8"))
+        data.append(snapshot)
+        data = data[-MAX_KPI_SNAPSHOTS:]
+        KPI_HISTORY_PATH.write_text(json.dumps(data, indent=2, default=str), encoding="utf-8")
+    except Exception as e:
+        log.warning(f"Snapshot KPI échoué : {e}")
+
+
 def save_history_to_disk():
     """Sauvegarde anomaly_history sur disque pour survivre au redémarrage."""
     global _last_persist
@@ -355,6 +427,12 @@ class PredictResponse(BaseModel):
     sensor_id:      str
     motor_id:       Optional[str]
     timestamp:      str
+    # Horodatage de la VRAIE mesure capteur la plus récente reçue dans
+    # `history` (par opposition à `timestamp` ci-dessus, qui est l'heure de
+    # calcul de la prédiction). Permet au dashboard de distinguer une mesure
+    # fraîche (temps réel) d'une mesure rejouée depuis l'historique (mode
+    # --replay de realtime_mariadb.py) -- voir latest_measurement_timestamp().
+    measurement_timestamp: Optional[str] = None
     prediction:     str           # "ANOMALY" ou "NORMAL"
     is_anomaly:     bool
     confidence:     float         # 0.0 – 1.0
@@ -383,6 +461,7 @@ class RULResponse(BaseModel):
     sensor_id:       str
     motor_id:        Optional[str]
     timestamp:       str
+    measurement_timestamp: Optional[str] = None   # voir PredictResponse
     rul_hours:       float        # Heures estimées avant défaillance
     rul_days:        float        # Jours estimés
     degradation_rate: float       # % de dégradation par mesure
@@ -391,6 +470,19 @@ class RULResponse(BaseModel):
     alert_level:     str          # "OK" | "ATTENTION" | "URGENT" | "CRITIQUE"
     recommendation:  str
     trend: dict                   # Détail des tendances par feature
+
+
+def latest_measurement_timestamp(history: List["MeasurePoint"]) -> Optional[str]:
+    """Timestamp réel de la mesure la plus récente dans `history` (dernier
+    élément non vide) -- PAS l'heure de calcul de la prédiction. Sert à
+    distinguer une mesure fraîche (temps réel) d'une mesure rejouée depuis
+    l'historique (mode --replay de realtime_mariadb.py) : un écart de
+    plusieurs jours/mois entre ce timestamp et "maintenant" trahit un rejeu,
+    même si la prédiction, elle, vient d'être calculée à l'instant."""
+    for h in reversed(history):
+        if h.timestamp:
+            return h.timestamp
+    return None
 
 
 class IoTMeasurementRequest(BaseModel):
@@ -807,6 +899,7 @@ def update_history(sensor_id: str, score: float, confidence: float):
             log.info(f"Baseline capteur {sensor_id} établie : {sensor_baseline[sensor_id]:.4f}")
     # Persistence asynchrone (toutes les 5 min)
     save_history_to_disk()
+    snapshot_kpis()
 
 
 # ══════════════════════════════════════════════════════════════════════════════

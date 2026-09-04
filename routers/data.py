@@ -206,15 +206,14 @@ def get_alert_level(request: Request, sensor_id: str, _rl=Depends(make_rate_limi
     trend  = safe_trend(scores) if len(scores) >= 3 else 0.0
     anomaly_rate = sum(1 for s in scores if s >= 0.5) / len(scores)
 
-    # Calcul niveau d'alerte consolidé
-    if avg >= 0.75 or anomaly_rate >= 0.80:
-        alert, color, icon = "CRITIQUE",  "red",    "🔴"
-    elif avg >= 0.50 or anomaly_rate >= 0.50:
-        alert, color, icon = "URGENT",    "orange", "🟠"
-    elif avg >= 0.25 or anomaly_rate >= 0.20:
-        alert, color, icon = "ATTENTION", "yellow", "🟡"
-    else:
-        alert, color, icon = "OK",        "green",  "🟢"
+    # Calcul niveau d'alerte consolidé (seuils partagés avec snapshot_kpis())
+    alert = core.classify_alert_level(avg, anomaly_rate)
+    color, icon = {
+        "CRITIQUE":  ("red",    "🔴"),
+        "URGENT":    ("orange", "🟠"),
+        "ATTENTION": ("yellow", "🟡"),
+        "OK":        ("green",  "🟢"),
+    }[alert]
 
     messages = {
         "OK":        "Fonctionnement nominal.",
@@ -250,3 +249,34 @@ def get_anomalies(request: Request, min_score: float = 0.5, limit: int = 100, _r
         "n_anomalies": len(df_a),
         "anomalies":   df_a[cols].dropna(how="all").head(limit).to_dict(orient="records"),
     }
+
+
+# ══════════════════════════════════════════════════════════════════════
+#  GET /v1/kpi-history — Historique des KPIs globaux du dashboard [NEW]
+# ══════════════════════════════════════════════════════════════════════
+@router.get(
+    "/v1/kpi-history",
+    tags=["Données"],
+    summary="Historique des KPIs globaux du dashboard",
+    description=(
+        "Retourne la suite des instantanés périodiques (un toutes les 5 min max) "
+        "des KPIs globaux du parc : santé moyenne, score d'anomalie moyen, "
+        "répartition des capteurs par niveau d'alerte (OK/ATTENTION/URGENT/CRITIQUE).\n\n"
+        "Alimente le graphique de tendance de la page d'historique KPI. "
+        "**Note** : persisté sur disque (kpi_history_persist.json), survit au redémarrage."
+    )
+)
+def get_kpi_history(request: Request, limit: int = 300, _rl=Depends(make_rate_limiter(60))):
+    if not core.KPI_HISTORY_PATH.exists():
+        return {
+            "n_snapshots": 0,
+            "snapshots": [],
+            "message": "Aucun instantané KPI pour l'instant — attendre la première prédiction + 5 min.",
+        }
+    try:
+        import json
+        data = json.loads(core.KPI_HISTORY_PATH.read_text(encoding="utf-8"))
+        return {"n_snapshots": len(data), "snapshots": data[-limit:]}
+    except Exception as e:
+        log.warning(f"/v1/kpi-history erreur lecture : {e}")
+        return {"n_snapshots": 0, "snapshots": [], "error": str(e)}

@@ -28,16 +28,21 @@ def root():
         "port":    8000,
         "docs":    "http://localhost:8000/docs",
         "endpoints": {
-            "POST /v1/predict":               "Détection anomalie temps réel (IF+LOF+OCSVM+ECOD)",
+            "POST /v1/predict":               "Détection anomalie temps réel (6 modèles, stacking)",
             "POST /v1/predict-rul":           "Estimation RUL (Remaining Useful Life)",
             "POST /v1/iot-predict":           "Prédiction directe IoT sans base de données [NEW]",
             "GET  /v1/health-score/{id}":     "Score santé moteur (0-100)",
             "GET  /v1/history/{id}":          "Historique prédictions par capteur",
             "GET  /v1/alert-level/{id}":      "Niveau alerte actuel — dashboard",
+            "GET  /v1/kpi-history":           "Instantanés périodiques des KPIs du parc",
+            "GET  /v1/tasks-history":         "Journal unifié des tâches système",
+            "POST /v1/auth/register":         "Créer un compte utilisateur (dashboard)",
+            "POST /v1/auth/login":            "Connexion — JWT",
             "GET  /health":                   "Health check API",
-            "GET  /metrics":                  "Métriques modèle (F1=0.298, AUC=0.9475, CV 3-fold)",
+            "GET  /metrics":                  "Métriques modèle (voir models/metrics_v3.csv — valeurs live)",
             "GET  /sensors":                  "Liste 20 capteurs IFM",
             "GET  /anomalies":                "Anomalies filtrées par score",
+            "GET  /docs":                     "Documentation Swagger — liste complète des 30 endpoints",
         }
     }
 
@@ -59,8 +64,8 @@ def health():
 @router.get("/metrics", summary="Métriques du modèle V3 (F1, AUC, Accuracy)")
 def get_metrics(request: Request, _rl=Depends(make_rate_limiter(30))):
     """
-    Retourne les métriques de performance du modèle non supervisé.
-    Source : models/metrics_v3.csv (F1=0.298, AUC=0.9475, CV 3-fold par capteur)
+    Retourne les métriques de performance du modèle non supervisé (lues en direct
+    depuis models/metrics_v3.csv — modèle V8 : F1=0,8052, AUC=0,9868, holdout par capteur).
     """
     path = Path(core.METRICS_PATH)
     if not path.exists():
@@ -128,8 +133,9 @@ def get_model_card(request: Request, _rl=Depends(make_rate_limiter(30))):
     Expose de façon structurée et programmatique la provenance des données
     d'entraînement et les limites de chaque modèle -- pratique standard
     (« model card » / « data sheet ») pour tout système ML utilisé en
-    production, en particulier quand un modèle (ici le RUL) est entraîné
-    sur des données synthétiques faute de vraies données de panne.
+    production. Précise aussi qu'un modèle RUL entraîné sur données
+    synthétiques a été expérimenté puis écarté du pipeline de production
+    (voir rul_estimation.data_provenance.note ci-dessous).
 
     Objectif : qu'un intégrateur tiers puisse vérifier PROGRAMMATIQUEMENT
     (pas seulement dans une doc PDF qu'on peut oublier de lire) sur quoi
@@ -156,23 +162,23 @@ def get_model_card(request: Request, _rl=Depends(make_rate_limiter(30))):
             "evaluation": {},
         },
         "rul_estimation": {
-            "components": ["heuristique (seuils industriels fixes)", "GradientBoostingRegressor (ML)"],
+            "components": ["heuristique (seuils industriels fixes + tendance réelle + historique réel du capteur)"],
             "data_provenance": {
-                "source": "Courbes de dégradation SYNTHÉTIQUES (loi de Weibull), recalibrées sur la distribution de mesures réelles",
-                "real_failure_samples": 0,
-                "real_measurements": False,
-                "caveat": (
-                    "AUCUNE donnée de défaillance réelle confirmée n'a été utilisée -- aucun "
-                    "moteur n'a atteint la panne complète pendant la période de collecte "
-                    "(nov. 2025 - juin 2026). Les heures de RUL retournées sont des estimations "
-                    "non validées empiriquement contre de vraies pannes. À ne pas utiliser comme "
-                    "seule base d'une décision d'arrêt machine sans jugement d'un technicien qualifié."
+                "source": "Calcul déterministe sur les mesures réelles reçues via /v1/predict-rul — aucun modèle entraîné, aucune donnée fabriquée",
+                "real_measurements": True,
+                "note": (
+                    "Un modèle ML (GradientBoostingRegressor) avait été expérimenté sur des courbes "
+                    "de dégradation SYNTHÉTIQUES (loi de Weibull), faute de panne réelle confirmée "
+                    "sur la période de collecte (nov. 2025 - mai 2026, voir train_rul_model.py). "
+                    "Il n'est plus chargé ni appelé dans le pipeline de production depuis cette "
+                    "version : le RUL retourné par cette API provient uniquement de la formule "
+                    "heuristique ci-dessus, calculée à 100% à partir des mesures réelles."
                 ),
             },
             "evaluation": {},
         },
         "known_limitations": [
-            "current_mean systématiquement à 0 — aucun capteur de courant électrique installé",
+            "current_mean systématiquement à 0 — le courant électrique réel existe (table motor_mesure) mais n'est pas encore intégré au pipeline de features",
             "Détection binaire uniquement (anomalie/normal) — pas de classification du type de défaut (bille/piste intérieure/extérieure)",
             "Rate limiting par IP peu fiable derrière un reverse proxy sans configuration proxy_headers",
         ],
@@ -197,22 +203,11 @@ def get_model_card(request: Request, _rl=Depends(make_rate_limiter(30))):
     except Exception as e:
         card["anomaly_detection"]["evaluation"] = {"error": str(e)}
 
-    # Metriques RUL
-    try:
-        rul_metrics_path = core.MODEL_DIR / "metrics_rul_v1.json"
-        if rul_metrics_path.exists():
-            rm = json.loads(rul_metrics_path.read_text(encoding="utf-8"))
-            card["rul_estimation"]["evaluation"] = {
-                "r2_test":     rm.get("r2_test"),
-                "mae_test_h":  rm.get("mae_test_h"),
-                "mae_test_pct": rm.get("mae_test_pct"),
-                "rmse_test_h": rm.get("rmse_test_h"),
-                "n_train":     rm.get("n_train"),
-                "n_test":      rm.get("n_test"),
-                "trained_at":  rm.get("trained_at", "inconnu"),
-            }
-    except Exception as e:
-        card["rul_estimation"]["evaluation"] = {"error": str(e)}
+    # Pas de métriques RUL ici : depuis que le modèle ML Weibull est retiré du
+    # pipeline de production, il n'y a plus de modèle "entraîné" à évaluer pour
+    # le RUL -- c'est une formule déterministe (compute_rul), pas un modèle.
+    # metrics_rul_v1.json reste sur disque pour archive/expérimentation mais
+    # ne décrit plus ce que l'API retourne réellement.
 
     return card
 
