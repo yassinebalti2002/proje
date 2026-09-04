@@ -52,8 +52,8 @@ les capteurs de test sont totalement absents de l'entraînement) sur **1 825 158
 
 > **Portée** : ces métriques mesurent la capacité du modèle à retrouver les pseudo-labels
 > heuristiques pris comme référence (aucune panne réelle confirmée sur la période de collecte) —
-> pas une détection de pannes mécaniques réelles. Voir `docs/rapport_corrige.tex` §4 pour la
-> discussion complète des limites méthodologiques.
+> pas une détection de pannes mécaniques réelles. Voir `docs/DOCUMENTATION.md` §8 (Limites connues)
+> pour la discussion complète des limites méthodologiques.
 >
 > Le modèle V8 remplace une génération antérieure (**V7**, SoftVote à 4 modèles à poids fixes :
 > AUC=0,9475, F1=0,298) suite à un ré-entraînement complet sur ×25 le volume de données et un

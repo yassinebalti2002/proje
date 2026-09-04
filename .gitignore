@@ -90,3 +90,13 @@ Thumbs.db
 
 # pytest
 .pytest_cache/
+
+# Rapport PFE et tout ce qui lui est lié — deliverable académique personnel,
+# pas destiné au dépôt public (captures d'écran, figures, archive .zip)
+docs/rapport_corrige.tex
+docs/rapport_corrige.zip
+docs/screenshots/
+docs/figures_ch3/
+docs/architecture_v6.png
+docs/correlation_matrix.png
+docs/docker_architecture.png
